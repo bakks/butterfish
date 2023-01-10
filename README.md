@@ -2,6 +2,8 @@
 
 Let's make it easy to use LLM capabilities from the command line, with a bent towards software engineering.
 
+<img src="https://github.com/bakks/butterfish/raw/main/assets/butterfish.png" alt="Butterfish" />
+
 ## Philosophy
 
 - Piggyback on CLI concepts, i.e. shell, files, dotfiles, etc. Support existing tools rather than replace, e.g. wrap the shell.
@@ -77,10 +79,10 @@ make
 
 ## Potential Features
 
-[x] Automatically explain a shell error
-[x] Summarize a specific file
-[ ] Summarize a directory of files
-[ ] Create and output embeddings for a specific file
-[ ] Rewrite a specific file given a prompt (e.g. Add comments to a code file, Refactor code)
-[ ] Generate and run a shell command using a prompt
-[ ] Generate tests for a specific code file
+- [x] Automatically explain a shell error
+- [x] Summarize a specific file
+- [ ] Summarize a directory of files
+- [ ] Create and output embeddings for a specific file
+- [ ] Rewrite a specific file given a prompt (e.g. Add comments to a code file, Refactor code)
+- [ ] Generate and run a shell command using a prompt
+- [ ] Generate tests for a specific code file
