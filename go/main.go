@@ -352,18 +352,27 @@ func (this *ButterfishCtx) gencmdCommand(description string) error {
 		return err
 	}
 
-	fmt.Fprintf(this.out, "Generated command:\n%s\nRun exec or execremote to execute.", resp)
-	this.commandRegister = resp
+	this.updateCommandRegister(resp)
+	fmt.Fprintf(this.out, "Run exec or execremote to execute.")
 	return nil
 }
 
 // Execute the command stored in commandRegister on the remote host
-func (this *ButterfishCtx) execremoteCommand() error {
-	if this.commandRegister == "" {
+func (this *ButterfishCtx) execremoteCommand(cmd string) error {
+	if cmd == "" && this.commandRegister == "" {
 		return errors.New("No command to execute")
 	}
-	cmd := this.commandRegister + "\n"
+	if cmd == "" {
+		cmd = this.commandRegister
+	}
+	cmd += "\n"
+
 	return this.clientController.Write(0, cmd)
+}
+
+func (this *ButterfishCtx) updateCommandRegister(cmd string) {
+	this.commandRegister = cmd
+	fmt.Fprintf(this.out, "Command register updated to:\n %s", cmd)
 }
 
 type ButterfishCtx struct {
@@ -408,9 +417,17 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 		return err
 
 	case "execremote":
-		if this.commandRegister == "" {
+		fields := strings.Fields(cmd)
+
+		if this.commandRegister == "" && len(fields) == 1 {
 			return errors.New("No command to execute")
 		}
+
+		var execCmd string
+		if len(fields) > 1 {
+			execCmd = strings.Join(fields[1:], " ")
+		}
+		this.execremoteCommand(execCmd)
 
 	default:
 		return this.gptClient.CompletionStream(this.ctx, cmd, this.out, questionStyle)
@@ -522,7 +539,7 @@ type butterfishConfig struct {
 
 const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
 
-const license = "MIT License - Copyright (c) 2022 Peter Bakkum"
+const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 
 var ( // these are filled in at build time
 	BuildVersion   string
