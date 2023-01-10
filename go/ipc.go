@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/bakks/butterfish/proto"
+	"github.com/bakks/butterfish/proto"
 )
 
 // The Butterfish console starts a local server which a 'wrap' client can
@@ -53,7 +53,7 @@ func (this *IPCServer) Write(client int, data string) error {
 	srv := this.clients[client]
 	this.mutex.Unlock()
 
-	return srv.Send(&pb.StreamBlock{Data: []byte(data)})
+	return srv.Send(&proto.StreamBlock{Data: []byte(data)})
 }
 
 func getHost() string {
@@ -62,7 +62,7 @@ func getHost() string {
 	return fmt.Sprintf("%s:%d", hostname, port)
 }
 
-func runIPCClient(ctx context.Context) (pb.Butterfish_StreamBlocksClient, error) {
+func runIPCClient(ctx context.Context) (proto.Butterfish_StreamBlocksClient, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
@@ -77,9 +77,9 @@ func runIPCClient(ctx context.Context) (pb.Butterfish_StreamBlocksClient, error)
 	}
 
 	//defer conn.Close()
-	client := pb.NewButterfishClient(conn)
+	client := proto.NewButterfishClient(conn)
 
-	var streamClient pb.Butterfish_StreamBlocksClient
+	var streamClient proto.Butterfish_StreamBlocksClient
 
 	log.Printf("Opening bidirectional stream...")
 
@@ -107,7 +107,7 @@ func runIPCServer(ctx context.Context, output io.Writer) ClientController {
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
 	srv := NewIPCServer(output)
-	pb.RegisterButterfishServer(grpcServer, srv)
+	proto.RegisterButterfishServer(grpcServer, srv)
 
 	go func() {
 		grpcServer.Serve(lis)
@@ -122,7 +122,7 @@ func runIPCServer(ctx context.Context, output io.Writer) ClientController {
 }
 
 func packageRPCStream(
-	client pb.Butterfish_StreamBlocksClient,
+	client proto.Butterfish_StreamBlocksClient,
 	c chan<- *byteMsg) {
 	// Loop indefinitely
 	for {
@@ -144,17 +144,17 @@ func packageRPCStream(
 }
 
 type IPCServer struct {
-	pb.UnimplementedButterfishServer
+	proto.UnimplementedButterfishServer
 	clientOut     chan *ClientOut
 	mutex         sync.Mutex
 	clientCounter int
-	clients       map[int]pb.Butterfish_StreamBlocksServer
+	clients       map[int]proto.Butterfish_StreamBlocksServer
 	output        io.Writer
 }
 
 func NewIPCServer(output io.Writer) *IPCServer {
 	return &IPCServer{
-		clients:   make(map[int]pb.Butterfish_StreamBlocksServer),
+		clients:   make(map[int]proto.Butterfish_StreamBlocksServer),
 		clientOut: make(chan *ClientOut),
 		output:    output,
 	}
@@ -188,7 +188,7 @@ func streamBatcher(msgIn chan *ClientOut, msgOut chan *ClientOut) {
 
 // Server-side StreamBlocks implementation, this receives data from the client
 // and sends it to the clientOut channel
-func (this *IPCServer) StreamBlocks(srv pb.Butterfish_StreamBlocksServer) error {
+func (this *IPCServer) StreamBlocks(srv proto.Butterfish_StreamBlocksServer) error {
 
 	// assign client number and this client/server pair
 	this.mutex.Lock()

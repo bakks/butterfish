@@ -22,7 +22,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/go/charmcomponents/console"
-	pb "github.com/bakks/butterfish/proto"
+	"github.com/bakks/butterfish/proto"
 )
 
 // Main driver for the Butterfish set of command line tools. These are tools
@@ -101,7 +101,7 @@ func sanitizeOutputString(output string) string {
 func wrappingMultiplexer(
 	ctx context.Context,
 	cancel context.CancelFunc,
-	remoteClient pb.Butterfish_StreamBlocksClient,
+	remoteClient proto.Butterfish_StreamBlocksClient,
 	childIn io.Writer,
 	parentIn, remoteIn, childOut <-chan *byteMsg) {
 
@@ -128,7 +128,7 @@ func wrappingMultiplexer(
 
 			// Filter out characters and send to server
 			printedStr := sanitizeOutputString(string(s2.Data))
-			err := remoteClient.Send(&pb.StreamBlock{Data: []byte(printedStr)})
+			err := remoteClient.Send(&proto.StreamBlock{Data: []byte(printedStr)})
 			if err != nil {
 				if err == io.EOF {
 					log.Printf("Remote server closed connection, exiting...\n")
@@ -161,7 +161,7 @@ func wrappingMultiplexer(
 // Based on example at https://github.com/creack/pty
 // Apparently you can't start a shell like zsh without
 // this more complex command execution
-func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client pb.Butterfish_StreamBlocksClient) error {
+func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client proto.Butterfish_StreamBlocksClient) error {
 	// Create arbitrary command.
 	c := exec.Command(command[0], command[1:]...)
 
