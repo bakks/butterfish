@@ -495,8 +495,9 @@ func getGPTClient(verbose bool) *GPT {
 
 // Kong CLI parser option configuration
 var cli struct {
-	Help    bool `short:"h" help:"Show help."`
 	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
+
+	//Help struct{} `cmd:"" short:"h" help:"Show help."`
 
 	Wrap struct {
 		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
@@ -521,16 +522,29 @@ type butterfishConfig struct {
 
 const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
 
-func main() {
-	kongCtx := kong.Parse(&cli, kong.Name("butterfish"), kong.Description(description), kong.UsageOnError(), kong.NoDefaultHelp())
+const license = "MIT License - Copyright (c) 2022 Peter Bakkum"
 
-	if cli.Help {
-		kong.DefaultHelpPrinter(kong.HelpOptions{}, kongCtx)
-		os.Exit(0)
-	}
+var ( // these are filled in at build time
+	BuildVersion   string
+	BuildArch      string
+	BuildCommit    string
+	BuildOs        string
+	BuildTimestamp string
+)
+
+func getBuildInfo() string {
+	return fmt.Sprintf("%s %s %s (commit %s) (built %s)\n%s\n", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp, license)
+}
+
+func main() {
+	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
+
+	kongCtx := kong.Parse(&cli,
+		kong.Name("butterfish"),
+		kong.Description(desc),
+		kong.UsageOnError())
 
 	config := makeButterfishConfig()
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	switch kongCtx.Command() {
