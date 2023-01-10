@@ -8,7 +8,7 @@ proto/butterfish.pb.go: proto/butterfish.proto
 
 bin/butterfish: proto/butterfish.pb.go $(gofiles)
 	mkdir -p bin
-	go build -o ./bin/butterfish
+	cd go && go build -o ../bin/butterfish
 
 clean:
 	rm -f bin/* proto/*.go

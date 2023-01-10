@@ -21,8 +21,8 @@ import (
 	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
-	"github.com/bakks/teglon/butterfish/charmcomponents/console"
-	pb "github.com/bakks/teglon/butterfish/proto"
+	"github.com/bakks/butterfish/go/charmcomponents/console"
+	pb "github.com/bakks/butterfish/proto"
 )
 
 // Main driver for the Butterfish set of command line tools. These are tools

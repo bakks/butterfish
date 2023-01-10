@@ -1,7 +1,7 @@
 package altscreenwrapper
 
 import (
-	"github.com/bakks/teglon/butterfish/charmcomponents/util"
+	"github.com/bakks/butterfish/go/charmcomponents/util"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

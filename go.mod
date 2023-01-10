@@ -1,4 +1,4 @@
-module github.com/bakks/teglon/butterfish
+module github.com/bakks/butterfish
 
 go 1.19
 

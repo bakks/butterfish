@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/bakks/teglon/butterfish/proto"
+	pb "github.com/bakks/butterfish/proto"
 )
 
 // The Butterfish console starts a local server which a 'wrap' client can
