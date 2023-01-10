@@ -295,7 +295,7 @@ var availableCommands = []string{
 // The number of tokens processed in a given API request depends on the length
 // of both your inputs and outputs. As a rough rule of thumb, 1 token is
 // approximately 4 characters or 0.75 words for English text.
-func summarizePath(ctx context.Context, path string, gpt *GPT, console io.Writer) error {
+func (this *ButterfishCtx) summarizePath(path string) error {
 	// open file
 	file, err := os.Open(path)
 	if err != nil {
@@ -313,13 +313,13 @@ func summarizePath(ctx context.Context, path string, gpt *GPT, console io.Writer
 		return err
 	}
 
-	fmt.Fprintf(console, "Summarizing %s\n", path)
+	fmt.Fprintf(this.out, "Summarizing %s\n", path)
 
 	if bytesRead < bytesPerChunk {
 		// the entire document fits within the token limit, summarize directly
 		prompt := fmt.Sprintf(summarizePrompt, path, string(buffer))
 		//fmt.Fprintf(console, prompt)
-		err = gpt.CompletionStream(ctx, prompt, console, summarizeStyle)
+		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out, summarizeStyle)
 		if err != nil {
 			return err
 		}
@@ -331,12 +331,12 @@ func summarizePath(ctx context.Context, path string, gpt *GPT, console io.Writer
 
 		for i := 0; i < maxChunks; i++ {
 			prompt := fmt.Sprintf(summarizeFactsPrompt, path, string(buffer))
-			resp, err := gpt.Completion(ctx, prompt)
+			resp, err := this.gptClient.Completion(this.ctx, prompt)
 			if err != nil {
 				return err
 			}
 			facts.WriteString(resp)
-			fmt.Fprintf(console, "Chunk %d: %s", i, resp)
+			fmt.Fprintf(this.out, "Chunk %d: %s", i, resp)
 
 			bytesRead, err := file.Read(buffer)
 			if err != nil && err != io.EOF {
@@ -350,8 +350,8 @@ func summarizePath(ctx context.Context, path string, gpt *GPT, console io.Writer
 
 		mergedFacts := facts.String()
 		prompt := fmt.Sprintf(summarizeListOfFactsPrompt, path, mergedFacts)
-		fmt.Fprintf(console, prompt)
-		err = gpt.CompletionStream(ctx, prompt, console, summarizeStyle)
+		fmt.Fprintf(this.out, prompt)
+		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out, summarizeStyle)
 
 	}
 
@@ -359,9 +359,9 @@ func summarizePath(ctx context.Context, path string, gpt *GPT, console io.Writer
 }
 
 // Iterate through a list of file paths and summarize each
-func summarizeCommand(ctx context.Context, paths []string, gpt *GPT, console io.Writer) error {
+func (this *ButterfishCtx) summarizeCommand(paths []string) error {
 	for _, path := range paths {
-		err := summarizePath(ctx, path, gpt, console)
+		err := this.summarizePath(path)
 		if err != nil {
 			return err
 		}
@@ -379,7 +379,7 @@ func (this *ButterfishCtx) gencmdCommand(description string) error {
 		return err
 	}
 
-	fmt.Fprintf(this.outputWriter, "Generated command:\n%s\nRun exec or execremote to execute.", resp)
+	fmt.Fprintf(this.out, "Generated command:\n%s\nRun exec or execremote to execute.", resp)
 	this.commandRegister = resp
 	return nil
 }
@@ -396,7 +396,7 @@ func (this *ButterfishCtx) execremoteCommand() error {
 type ButterfishCtx struct {
 	ctx              context.Context  // global context, should be passed through to other calls
 	gptClient        *GPT             // GPT client
-	outputWriter     io.Writer        // output writer
+	out              io.Writer        // output writer
 	commandRegister  string           // landing space for generated commands
 	consoleCmdChan   <-chan string    // channel for console commands
 	clientController ClientController // client controller
@@ -409,19 +409,19 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 
 	switch miniCmd {
 	case "exit":
-		fmt.Fprintf(this.outputWriter, "Exiting...")
+		fmt.Fprintf(this.out, "Exiting...")
 
 	case "help":
-		fmt.Fprintf(this.outputWriter, "Available commands: %s", strings.Join(availableCommands, ", "))
+		fmt.Fprintf(this.out, "Available commands: %s", strings.Join(availableCommands, ", "))
 
 	case "summarize":
 		fields := strings.Fields(cmd)
 		if len(fields) < 2 {
-			fmt.Fprintf(this.outputWriter, "Please provide a file path to summarize")
+			fmt.Fprintf(this.out, "Please provide a file path to summarize")
 			break
 		}
 
-		err := summarizeCommand(this.ctx, fields[1:], this.gptClient, this.outputWriter)
+		err := this.summarizeCommand(fields[1:])
 		return err
 
 	case "gencmd":
@@ -440,7 +440,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 		}
 
 	default:
-		return this.gptClient.CompletionStream(this.ctx, cmd, this.outputWriter, questionStyle)
+		return this.gptClient.CompletionStream(this.ctx, cmd, this.out, questionStyle)
 
 	}
 
@@ -449,14 +449,14 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 
 func (this *ButterfishCtx) serverMultiplexer() {
 	clientInput := this.clientController.GetReader()
-	fmt.Fprintln(this.outputWriter, "Butterfish server active...")
+	fmt.Fprintln(this.out, "Butterfish server active...")
 
 	for {
 		select {
 		case cmd := <-this.consoleCmdChan:
 			err := this.handleConsoleCommand(cmd)
 			if err != nil {
-				fmt.Fprintf(this.outputWriter, "Error: %v", err)
+				fmt.Fprintf(this.out, "Error: %v", err)
 				continue
 			}
 
@@ -469,9 +469,9 @@ func (this *ButterfishCtx) serverMultiplexer() {
 			}
 
 			cmd := fmt.Sprintf(shellOutPrompt, clientData.Data)
-			err := this.gptClient.CompletionStream(this.ctx, cmd, this.outputWriter, errorStyle)
+			err := this.gptClient.CompletionStream(this.ctx, cmd, this.out, errorStyle)
 			if err != nil {
-				fmt.Fprintf(this.outputWriter, "Error: %v", err)
+				fmt.Fprintf(this.out, "Error: %v", err)
 				continue
 			}
 
@@ -515,6 +515,16 @@ func initLogging(ctx context.Context) {
 		<-ctx.Done()
 		f.Close()
 	}()
+}
+
+func newButterfishCtx(ctx context.Context) *ButterfishCtx {
+	gpt := getGPTClient()
+
+	return &ButterfishCtx{
+		ctx:       ctx,
+		gptClient: gpt,
+		out:       os.Stdout,
+	}
 }
 
 func main() {
@@ -561,8 +571,7 @@ func main() {
 		butterfishCtx := ButterfishCtx{
 			ctx:              ctx,
 			gptClient:        gpt,
-			outputWriter:     cons,
-			commandRegister:  "",
+			out:              cons,
 			consoleCmdChan:   consoleCommand,
 			clientController: clientController,
 		}
@@ -579,8 +588,8 @@ func main() {
 		}
 
 	case "summarize <files>":
-		gpt := getGPTClient()
-		err := summarizeCommand(ctx, cli.Summarize.Files, gpt, os.Stdout)
+		butterfish := newButterfishCtx(ctx)
+		err := butterfish.summarizeCommand(cli.Summarize.Files)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
