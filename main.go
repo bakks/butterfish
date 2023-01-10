@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -14,12 +13,12 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
-	"time"
 	"unicode"
 
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
+	"github.com/joho/godotenv"
 	"golang.org/x/term"
 
 	"github.com/bakks/teglon/butterfish/charmcomponents/console"
@@ -212,32 +211,6 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 
 const GPTMaxTokens = 1024
 
-const batchWaitTime = 400 * time.Millisecond
-
-// Receive messages from msgIn, write the data inside to a bytes buffer and
-// write down the time, then send the buffer to the clientOut channel only
-// if we haven't received any new messages in the last 100ms
-func streamBatcher(msgIn chan *ClientOut, msgOut chan *ClientOut) {
-	var buf bytes.Buffer
-	var lastWrite time.Time
-
-	for {
-		select {
-		case msg := <-msgIn:
-			buf.WriteString(msg.Data)
-			lastWrite = time.Now()
-
-		case <-time.After(batchWaitTime):
-			if time.Since(lastWrite) > batchWaitTime && buf.Len() > 0 {
-				msgOut <- &ClientOut{
-					Data: buf.String(),
-				}
-				buf.Reset()
-			}
-		}
-	}
-}
-
 const shellOutPrompt = `The following is output from a user running a shell command, if it contains an error then print the specific segment that is an error and explain briefly how to solve the error, otherwise respond with only "NOOP". "%s"`
 
 const summarizePrompt = `The following is a raw text file with path "%s", summarize the file contents, the file's purpose, and write a list of the file's key elements:
@@ -331,7 +304,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 
 		for i := 0; i < maxChunks; i++ {
 			prompt := fmt.Sprintf(summarizeFactsPrompt, path, string(buffer))
-			resp, err := this.gptClient.Completion(this.ctx, prompt)
+			resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 			if err != nil {
 				return err
 			}
@@ -374,7 +347,7 @@ func (this *ButterfishCtx) summarizeCommand(paths []string) error {
 // command
 func (this *ButterfishCtx) gencmdCommand(description string) error {
 	prompt := fmt.Sprintf(gencmdPrompt, description)
-	resp, err := this.gptClient.Completion(this.ctx, prompt)
+	resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 	if err != nil {
 		return err
 	}
@@ -480,10 +453,50 @@ func (this *ButterfishCtx) serverMultiplexer() {
 		}
 	}
 }
+func initLogging(ctx context.Context) {
+	f, err := os.OpenFile("butterfish.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	log.SetOutput(f)
+
+	go func() {
+		<-ctx.Done()
+		f.Close()
+	}()
+}
+
+func newButterfishCtx(ctx context.Context, config *butterfishConfig) *ButterfishCtx {
+	gpt := getGPTClient(config.Verbose)
+
+	return &ButterfishCtx{
+		ctx:       ctx,
+		gptClient: gpt,
+		out:       os.Stdout,
+	}
+}
+
+func makeButterfishConfig() *butterfishConfig {
+	return &butterfishConfig{
+		Verbose: cli.Verbose,
+	}
+}
+
+func getGPTClient(verbose bool) *GPT {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("You need a .env file in the current directory that defines OPENAI_TOKEN.\ne.g. OPENAI_TOKEN=foobar")
+	}
+
+	// initialize GPT API client
+	token := os.Getenv("OPENAI_TOKEN")
+	return NewGPT(token, verbose)
+}
 
 // Kong CLI parser option configuration
 var cli struct {
-	Help bool `short:"h" help:"Show help."`
+	Help    bool `short:"h" help:"Show help."`
+	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
 
 	Wrap struct {
 		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
@@ -502,30 +515,11 @@ var cli struct {
 	} `cmd:"" help:"Semantically summarize a list of files."`
 }
 
-const description = `Butterfish is a command-line interface for OpenAI's GPT API.`
-
-func initLogging(ctx context.Context) {
-	f, err := os.OpenFile("butterfish.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("error opening file: %v", err)
-	}
-	log.SetOutput(f)
-
-	go func() {
-		<-ctx.Done()
-		f.Close()
-	}()
+type butterfishConfig struct {
+	Verbose bool
 }
 
-func newButterfishCtx(ctx context.Context) *ButterfishCtx {
-	gpt := getGPTClient()
-
-	return &ButterfishCtx{
-		ctx:       ctx,
-		gptClient: gpt,
-		out:       os.Stdout,
-	}
-}
+const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
 
 func main() {
 	kongCtx := kong.Parse(&cli, kong.Name("butterfish"), kong.Description(description), kong.UsageOnError(), kong.NoDefaultHelp())
@@ -534,6 +528,8 @@ func main() {
 		kong.DefaultHelpPrinter(kong.HelpOptions{}, kongCtx)
 		os.Exit(0)
 	}
+
+	config := makeButterfishConfig()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -554,7 +550,7 @@ func main() {
 
 	case "console":
 		initLogging(ctx)
-		gpt := getGPTClient()
+		gpt := getGPTClient(config.Verbose)
 
 		// initialize console UI
 		consoleCommand := make(chan string)
@@ -580,7 +576,7 @@ func main() {
 		butterfishCtx.serverMultiplexer()
 
 	case "prompt <prompt>":
-		gpt := getGPTClient()
+		gpt := getGPTClient(config.Verbose)
 		err := gpt.CompletionStream(ctx, cli.Prompt.Prompt, os.Stdout, questionStyle)
 		if err != nil {
 			fmt.Println(err)
@@ -588,7 +584,7 @@ func main() {
 		}
 
 	case "summarize <files>":
-		butterfish := newButterfishCtx(ctx)
+		butterfish := newButterfishCtx(ctx, config)
 		err := butterfish.summarizeCommand(cli.Summarize.Files)
 		if err != nil {
 			fmt.Println(err)

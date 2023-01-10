@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -156,6 +157,32 @@ func NewIPCServer(output io.Writer) *IPCServer {
 		clients:   make(map[int]pb.Butterfish_StreamBlocksServer),
 		clientOut: make(chan *ClientOut),
 		output:    output,
+	}
+}
+
+const batchWaitTime = 400 * time.Millisecond
+
+// Receive messages from msgIn, write the data inside to a bytes buffer and
+// write down the time, then send the buffer to the clientOut channel only
+// if we haven't received any new messages in the last 100ms
+func streamBatcher(msgIn chan *ClientOut, msgOut chan *ClientOut) {
+	var buf bytes.Buffer
+	var lastWrite time.Time
+
+	for {
+		select {
+		case msg := <-msgIn:
+			buf.WriteString(msg.Data)
+			lastWrite = time.Now()
+
+		case <-time.After(batchWaitTime):
+			if time.Since(lastWrite) > batchWaitTime && buf.Len() > 0 {
+				msgOut <- &ClientOut{
+					Data: buf.String(),
+				}
+				buf.Reset()
+			}
+		}
 	}
 }
 

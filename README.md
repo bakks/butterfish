@@ -1,6 +1,6 @@
 # Butterfish
 
-Let's make it easy to use LLM capabilities from the command line, with a bent towards software engineering.
+Let's do useful things with LLMs from the command line, with a bent towards software engineering.
 
 <img src="https://github.com/bakks/butterfish/raw/main/assets/butterfish.png" alt="Butterfish" width="300px" height="300px" />
 
