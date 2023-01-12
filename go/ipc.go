@@ -160,32 +160,6 @@ func NewIPCServer(output io.Writer) *IPCServer {
 	}
 }
 
-const batchWaitTime = 400 * time.Millisecond
-
-// Receive messages from msgIn, write the data inside to a bytes buffer and
-// write down the time, then send the buffer to the clientOut channel only
-// if we haven't received any new messages in the last 100ms
-func streamBatcher(msgIn chan *ClientOut, msgOut chan *ClientOut) {
-	var buf bytes.Buffer
-	var lastWrite time.Time
-
-	for {
-		select {
-		case msg := <-msgIn:
-			buf.WriteString(msg.Data)
-			lastWrite = time.Now()
-
-		case <-time.After(batchWaitTime):
-			if time.Since(lastWrite) > batchWaitTime && buf.Len() > 0 {
-				msgOut <- &ClientOut{
-					Data: buf.String(),
-				}
-				buf.Reset()
-			}
-		}
-	}
-}
-
 // Server-side StreamBlocks implementation, this receives data from the client
 // and sends it to the clientOut channel
 func (this *IPCServer) StreamBlocks(srv proto.Butterfish_StreamBlocksServer) error {
@@ -214,9 +188,35 @@ func (this *IPCServer) StreamBlocks(srv proto.Butterfish_StreamBlocksServer) err
 	}
 }
 
+const batchWaitTime = 400 * time.Millisecond
+
+// Receive messages from msgIn, write the data inside to a bytes buffer and
+// write down the time, then send the buffer to the clientOut channel only
+// if we haven't received any new messages in the last 100ms
+func streamBatcher(msgIn <-chan *ClientOut, msgOut chan<- *ClientOut) {
+	var buf bytes.Buffer
+	var lastWrite time.Time
+
+	for {
+		select {
+		case msg := <-msgIn:
+			buf.WriteString(msg.Data)
+			lastWrite = time.Now()
+
+		case <-time.After(batchWaitTime):
+			if time.Since(lastWrite) > batchWaitTime && buf.Len() > 0 {
+				msgOut <- &ClientOut{
+					Data: buf.String(),
+				}
+				buf.Reset()
+			}
+		}
+	}
+}
+
 // create a new channel and run streamBatcher in a goroutine, return the
 // channel we created
-func newStreamBatcher(msgOut chan *ClientOut) chan *ClientOut {
+func newStreamBatcher(msgOut chan<- *ClientOut) chan *ClientOut {
 	msgIn := make(chan *ClientOut)
 	go streamBatcher(msgIn, msgOut)
 	return msgIn

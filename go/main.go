@@ -299,7 +299,7 @@ func getMiniCmd(cmd string) string {
 }
 
 var availableCommands = []string{
-	"prompt", "help", "summarize", "exit",
+	"prompt", "gencmd", "exec", "remoteexec", "help", "summarize", "exit",
 }
 
 // Given a file path we attempt to semantically summarize its content.
@@ -462,6 +462,11 @@ type ButterfishCtx struct {
 func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 	cmd = strings.TrimSpace(cmd)
 	miniCmd := getMiniCmd(cmd)
+	txt := ""
+	fields := strings.Fields(cmd)
+	if len(fields) > 1 {
+		txt = strings.Join(fields[1:], " ")
+	}
 
 	switch miniCmd {
 	case "exit":
@@ -491,33 +496,29 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 		return err
 
 	case "execremote":
-		fields := strings.Fields(cmd)
-
-		if this.commandRegister == "" && len(fields) == 1 {
+		if this.commandRegister == "" && txt == "" {
 			return errors.New("No command to execute")
 		}
 
-		var execCmd string
-		if len(fields) > 1 {
-			execCmd = strings.Join(fields[1:], " ")
-		}
-		this.execremoteCommand(execCmd)
+		this.execremoteCommand(txt)
 
 	case "exec":
-		fields := strings.Fields(cmd)
-		if this.commandRegister == "" && len(fields) == 1 {
+		if this.commandRegister == "" && txt == "" {
 			return errors.New("No command to execute")
 		}
 
-		var execCmd string
-		if len(fields) > 1 {
-			execCmd = strings.Join(fields[1:], " ")
+		this.execCommand(txt)
+
+	case "prompt":
+		if txt == "" {
+			return errors.New("Please provide a prompt")
 		}
-		this.execCommand(execCmd)
+
+		writer := NewStyledWriter(this.out, questionStyle)
+		return this.gptClient.CompletionStream(this.ctx, txt, writer)
 
 	default:
-		writer := NewStyledWriter(this.out, questionStyle)
-		return this.gptClient.CompletionStream(this.ctx, cmd, writer)
+		return errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
 
 	}
 
