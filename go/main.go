@@ -234,7 +234,7 @@ const summarizeListOfFactsPrompt = `The following is a list of facts about file 
 
 Description and Important Facts:`
 
-const gencmdPrompt = `A shell command that does the following actions. Respond with only the shell command.
+const gencmdPrompt = `Write a shell command that accomplishes the following goal. Respond with only the shell command.
 '''
 %s
 '''
@@ -357,6 +357,28 @@ func (this *ButterfishCtx) gencmdCommand(description string) error {
 	return nil
 }
 
+// Function that executes a command on the local host as a child and streams
+// the stdout/stderr to a writer. If the context is cancelled then the child
+// process is killed.
+func executeCommand(ctx context.Context, cmd string, out io.Writer) error {
+	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c.Stdout = out
+	c.Stderr = out
+	return c.Run()
+}
+
+func (this *ButterfishCtx) execCommand(cmd string) error {
+	if cmd == "" && this.commandRegister == "" {
+		return errors.New("No command to execute")
+	}
+	if cmd == "" {
+		cmd = this.commandRegister
+	}
+
+	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
+	return executeCommand(this.ctx, cmd, this.out)
+}
+
 // Execute the command stored in commandRegister on the remote host
 func (this *ButterfishCtx) execremoteCommand(cmd string) error {
 	if cmd == "" && this.commandRegister == "" {
@@ -367,12 +389,14 @@ func (this *ButterfishCtx) execremoteCommand(cmd string) error {
 	}
 	cmd += "\n"
 
+	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
 	return this.clientController.Write(0, cmd)
 }
 
 func (this *ButterfishCtx) updateCommandRegister(cmd string) {
+	cmd = strings.TrimSpace(cmd)
 	this.commandRegister = cmd
-	fmt.Fprintf(this.out, "Command register updated to:\n %s", cmd)
+	fmt.Fprintf(this.out, "Command register updated to:\n %s\n", cmd)
 }
 
 type ButterfishCtx struct {
@@ -428,6 +452,18 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 			execCmd = strings.Join(fields[1:], " ")
 		}
 		this.execremoteCommand(execCmd)
+
+	case "exec":
+		fields := strings.Fields(cmd)
+		if this.commandRegister == "" && len(fields) == 1 {
+			return errors.New("No command to execute")
+		}
+
+		var execCmd string
+		if len(fields) > 1 {
+			execCmd = strings.Join(fields[1:], " ")
+		}
+		this.execCommand(execCmd)
 
 	default:
 		return this.gptClient.CompletionStream(this.ctx, cmd, this.out, questionStyle)
