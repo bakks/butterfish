@@ -70,7 +70,7 @@ const ansiPattern = "[\u001B\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\
 
 var ansiRegexp = regexp.MustCompile(ansiPattern)
 
-// String ANSI tty control codes out of a string
+// Strip ANSI tty control codes out of a string
 func stripANSI(str string) string {
 	return ansiRegexp.ReplaceAllString(str, "")
 }
@@ -93,6 +93,52 @@ func filterNonPrintable(s string) string {
 
 func sanitizeOutputString(output string) string {
 	return filterNonPrintable(stripANSI(output))
+}
+
+// An implementation of io.Writer that renders output with a lipgloss style
+// and filters out the special token "NOOP". This is specially handled -
+// we seem to get "NO" as a separate token from GPT.
+type StyledWriter struct {
+	Writer io.Writer
+	Style  lipgloss.Style
+	cache  []byte
+}
+
+// Writer for StyledWriter
+// This is a bit insane but it's a dumb way to filter out NOOP split into
+// two tokens, should probably be rewritten
+func (this *StyledWriter) Write(p []byte) (n int, err error) {
+	if string(p) == "NOOP" {
+		// This doesn't seem to actually happen since it gets split into two
+		// tokens? but let's code defensively
+		return len(p), nil
+	}
+
+	if string(p) == "NO" {
+		this.cache = append(this.cache, p...)
+		return len(p), nil
+	}
+	if string(p) == "OP" && this.cache != nil {
+		// We have a NOOP, discard it
+		this.cache = nil
+		return len(p), nil
+	}
+
+	if this.cache != nil {
+		p = append(this.cache, p...)
+	}
+
+	str := string(p)
+	rendered := this.Style.Render(str)
+	b := []byte(rendered)
+	return this.Writer.Write(b)
+}
+
+func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
+	return &StyledWriter{
+		Writer: writer,
+		Style:  style,
+	}
 }
 
 // We're multiplexing here between the stdin/stdout of this
@@ -287,12 +333,13 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	}
 
 	fmt.Fprintf(this.out, "Summarizing %s\n", path)
+	writer := NewStyledWriter(this.out, summarizeStyle)
 
 	if bytesRead < bytesPerChunk {
 		// the entire document fits within the token limit, summarize directly
 		prompt := fmt.Sprintf(summarizePrompt, path, string(buffer))
 		//fmt.Fprintf(console, prompt)
-		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out, summarizeStyle)
+		err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
 		if err != nil {
 			return err
 		}
@@ -324,7 +371,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 		mergedFacts := facts.String()
 		prompt := fmt.Sprintf(summarizeListOfFactsPrompt, path, mergedFacts)
 		fmt.Fprintf(this.out, prompt)
-		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out, summarizeStyle)
+		err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
 
 	}
 
@@ -367,6 +414,8 @@ func executeCommand(ctx context.Context, cmd string, out io.Writer) error {
 	return c.Run()
 }
 
+// Execute the command as a child of this process (rather than a remote
+// process), either from the command register or from a command string
 func (this *ButterfishCtx) execCommand(cmd string) error {
 	if cmd == "" && this.commandRegister == "" {
 		return errors.New("No command to execute")
@@ -379,7 +428,8 @@ func (this *ButterfishCtx) execCommand(cmd string) error {
 	return executeCommand(this.ctx, cmd, this.out)
 }
 
-// Execute the command stored in commandRegister on the remote host
+// Execute the command stored in commandRegister on the remote host,
+// either from the command register or from a command string
 func (this *ButterfishCtx) execremoteCommand(cmd string) error {
 	if cmd == "" && this.commandRegister == "" {
 		return errors.New("No command to execute")
@@ -466,7 +516,8 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 		this.execCommand(execCmd)
 
 	default:
-		return this.gptClient.CompletionStream(this.ctx, cmd, this.out, questionStyle)
+		writer := NewStyledWriter(this.out, questionStyle)
+		return this.gptClient.CompletionStream(this.ctx, cmd, writer)
 
 	}
 
@@ -495,7 +546,8 @@ func (this *ButterfishCtx) serverMultiplexer() {
 			}
 
 			cmd := fmt.Sprintf(shellOutPrompt, clientData.Data)
-			err := this.gptClient.CompletionStream(this.ctx, cmd, this.out, errorStyle)
+			writer := NewStyledWriter(this.out, errorStyle)
+			err := this.gptClient.CompletionStream(this.ctx, cmd, writer)
 			if err != nil {
 				fmt.Fprintf(this.out, "Error: %v", err)
 				continue
@@ -647,7 +699,8 @@ func main() {
 
 	case "prompt <prompt>":
 		gpt := getGPTClient(config.Verbose)
-		err := gpt.CompletionStream(ctx, cli.Prompt.Prompt, os.Stdout, questionStyle)
+		writer := NewStyledWriter(os.Stdout, errorStyle)
+		err := gpt.CompletionStream(ctx, cli.Prompt.Prompt, writer)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)

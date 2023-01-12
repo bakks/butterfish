@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/PullRequestInc/go-gpt3"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type GPT struct {
@@ -26,7 +25,7 @@ func NewGPT(token string, verbose bool) *GPT {
 // Run a GPT completion request and stream the response to the given writer
 // TODO the CompletionStream gpt3 method doesn't currently pass any signal
 // that it's done streaming results.
-func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.Writer, style lipgloss.Style) error {
+func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.Writer) error {
 	req := gpt3.CompletionRequest{
 		Prompt:    []string{prompt},
 		MaxTokens: gpt3.IntPtr(GPTMaxTokens),
@@ -38,10 +37,7 @@ func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.
 		}
 
 		text := resp.Choices[0].Text
-		if text != "NOOP" {
-			rendered := style.Render(text)
-			fmt.Fprintf(writer, rendered)
-		}
+		writer.Write([]byte(text))
 	}
 
 	if this.verbose {
