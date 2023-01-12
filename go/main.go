@@ -345,16 +345,16 @@ func (this *ButterfishCtx) summarizeCommand(paths []string) error {
 
 // Given a description of functionality, we call GPT to generate a shell
 // command
-func (this *ButterfishCtx) gencmdCommand(description string) error {
+func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 	prompt := fmt.Sprintf(gencmdPrompt, description)
 	resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	this.updateCommandRegister(resp)
-	fmt.Fprintf(this.out, "Run exec or execremote to execute.")
-	return nil
+	fmt.Fprintf(this.out, "Run exec or execremote to execute\n")
+	return resp, nil
 }
 
 // Function that executes a command on the local host as a child and streams
@@ -437,7 +437,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 		}
 
 		description := strings.Join(fields[1:], " ")
-		err := this.gencmdCommand(description)
+		_, err := this.gencmdCommand(description)
 		return err
 
 	case "execremote":
@@ -550,8 +550,6 @@ func getGPTClient(verbose bool) *GPT {
 var cli struct {
 	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
 
-	//Help struct{} `cmd:"" short:"h" help:"Show help."`
-
 	Wrap struct {
 		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
 	} `cmd:"" help:"Wrap a command (e.g. zsh) to expose to Butterfish."`
@@ -567,6 +565,11 @@ var cli struct {
 	Summarize struct {
 		Files []string `arg:"" help:"File paths to summarize."`
 	} `cmd:"" help:"Semantically summarize a list of files."`
+
+	Gencmd struct {
+		Prompt string `arg:"" help:"Prompt describing the desired shell command."`
+		Force  bool   `short:"f" default:"false" help:"Execute the command without prompting."`
+	} `cmd:"" help:"Generate a shell command from a prompt."`
 }
 
 type butterfishConfig struct {
@@ -656,6 +659,24 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
+		}
+
+	case "gencmd <prompt>":
+		butterfish := newButterfishCtx(ctx, config)
+		cmd, err := butterfish.gencmdCommand(cli.Gencmd.Prompt)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		if !cli.Gencmd.Force {
+			fmt.Printf("Generated command:\n %s\n", cmd)
+		} else {
+			err := butterfish.execCommand(cmd)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 		}
 
 	default:
