@@ -6,12 +6,15 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 
 ## Philosophy
 
-- Piggyback on CLI concepts, i.e. shell, files, dotfiles, etc. Support existing tools rather than replace, e.g. wrap the shell.
-- Two execution paths: directly from command line with `butterfish <cmd>`, or in the Butterfish console.
-- Use the Butterfish console as chat interface and server, wrapped shells are the clients, enabling the console to read output, check for errors, and inject commands from the server.
-- Written in golang, I simply will not spend more time with pip or anaconda.
+- You can get pretty far by giving GPT some context information and asking directly for something useful, "e.g. does this shell output contain an error? '...'". A human must check output but becomes faster overall given this support.
+- We want to distill LLM concepts for Unix command lines - shell, files, dotfiles, etc. Support existing tools rather than replace, e.g. wrap a shell and give you useful info without explicit invocation.
+- We're going to experiment with many modes of LLM invocation:
+  - Mode 1: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
+  - Mode 2: The butterfish console, a persistent window that allows you to execute the CLI functionality but with persistent context.
+  - Mode 3: Wrap a local command and control it from the console, e.g. tell you if you have an error.
+- Written in golang, my opinion is that Python package management and distribution is very broken.
 - This is experimental, unpolished, no backwards compatibility guarantee.
-- External contribution highly encouraged.
+- External contribution and feedback highly encouraged. Submit a PR.
 
 ## Features
 
