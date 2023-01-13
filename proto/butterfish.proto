@@ -3,9 +3,29 @@ syntax = "proto3";
 option go_package = "github.com/teglon/butterfish/proto";
 
 service Butterfish {
-  rpc StreamBlocks(stream StreamBlock) returns (stream StreamBlock) {}
+  rpc StreamsForWrapping(stream ClientPush) returns (stream ServerPush) {}
 }
 
-message StreamBlock {
+message ClientPush {
+  oneof msg {
+    ClientOpen client_open = 2;
+    ClientInput client_input = 3;
+    ClientOutput client_output = 4;
+  }
+}
+
+message ClientOutput {
+  bytes data = 1;
+}
+
+message ClientOpen {
+  string wrappedCommand = 1;
+}
+
+message ClientInput {
+  bytes data = 1;
+}
+
+message ServerPush {
   bytes data = 1;
 }

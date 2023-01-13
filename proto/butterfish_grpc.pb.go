@@ -22,7 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ButterfishClient interface {
-	StreamBlocks(ctx context.Context, opts ...grpc.CallOption) (Butterfish_StreamBlocksClient, error)
+	StreamsForWrapping(ctx context.Context, opts ...grpc.CallOption) (Butterfish_StreamsForWrappingClient, error)
 }
 
 type butterfishClient struct {
@@ -33,31 +33,31 @@ func NewButterfishClient(cc grpc.ClientConnInterface) ButterfishClient {
 	return &butterfishClient{cc}
 }
 
-func (c *butterfishClient) StreamBlocks(ctx context.Context, opts ...grpc.CallOption) (Butterfish_StreamBlocksClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Butterfish_ServiceDesc.Streams[0], "/Butterfish/StreamBlocks", opts...)
+func (c *butterfishClient) StreamsForWrapping(ctx context.Context, opts ...grpc.CallOption) (Butterfish_StreamsForWrappingClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Butterfish_ServiceDesc.Streams[0], "/Butterfish/StreamsForWrapping", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &butterfishStreamBlocksClient{stream}
+	x := &butterfishStreamsForWrappingClient{stream}
 	return x, nil
 }
 
-type Butterfish_StreamBlocksClient interface {
-	Send(*StreamBlock) error
-	Recv() (*StreamBlock, error)
+type Butterfish_StreamsForWrappingClient interface {
+	Send(*ClientPush) error
+	Recv() (*ServerPush, error)
 	grpc.ClientStream
 }
 
-type butterfishStreamBlocksClient struct {
+type butterfishStreamsForWrappingClient struct {
 	grpc.ClientStream
 }
 
-func (x *butterfishStreamBlocksClient) Send(m *StreamBlock) error {
+func (x *butterfishStreamsForWrappingClient) Send(m *ClientPush) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *butterfishStreamBlocksClient) Recv() (*StreamBlock, error) {
-	m := new(StreamBlock)
+func (x *butterfishStreamsForWrappingClient) Recv() (*ServerPush, error) {
+	m := new(ServerPush)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (x *butterfishStreamBlocksClient) Recv() (*StreamBlock, error) {
 // All implementations must embed UnimplementedButterfishServer
 // for forward compatibility
 type ButterfishServer interface {
-	StreamBlocks(Butterfish_StreamBlocksServer) error
+	StreamsForWrapping(Butterfish_StreamsForWrappingServer) error
 	mustEmbedUnimplementedButterfishServer()
 }
 
@@ -76,8 +76,8 @@ type ButterfishServer interface {
 type UnimplementedButterfishServer struct {
 }
 
-func (UnimplementedButterfishServer) StreamBlocks(Butterfish_StreamBlocksServer) error {
-	return status.Errorf(codes.Unimplemented, "method StreamBlocks not implemented")
+func (UnimplementedButterfishServer) StreamsForWrapping(Butterfish_StreamsForWrappingServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamsForWrapping not implemented")
 }
 func (UnimplementedButterfishServer) mustEmbedUnimplementedButterfishServer() {}
 
@@ -92,26 +92,26 @@ func RegisterButterfishServer(s grpc.ServiceRegistrar, srv ButterfishServer) {
 	s.RegisterService(&Butterfish_ServiceDesc, srv)
 }
 
-func _Butterfish_StreamBlocks_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ButterfishServer).StreamBlocks(&butterfishStreamBlocksServer{stream})
+func _Butterfish_StreamsForWrapping_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ButterfishServer).StreamsForWrapping(&butterfishStreamsForWrappingServer{stream})
 }
 
-type Butterfish_StreamBlocksServer interface {
-	Send(*StreamBlock) error
-	Recv() (*StreamBlock, error)
+type Butterfish_StreamsForWrappingServer interface {
+	Send(*ServerPush) error
+	Recv() (*ClientPush, error)
 	grpc.ServerStream
 }
 
-type butterfishStreamBlocksServer struct {
+type butterfishStreamsForWrappingServer struct {
 	grpc.ServerStream
 }
 
-func (x *butterfishStreamBlocksServer) Send(m *StreamBlock) error {
+func (x *butterfishStreamsForWrappingServer) Send(m *ServerPush) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *butterfishStreamBlocksServer) Recv() (*StreamBlock, error) {
-	m := new(StreamBlock)
+func (x *butterfishStreamsForWrappingServer) Recv() (*ClientPush, error) {
+	m := new(ClientPush)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -127,8 +127,8 @@ var Butterfish_ServiceDesc = grpc.ServiceDesc{
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "StreamBlocks",
-			Handler:       _Butterfish_StreamBlocks_Handler,
+			StreamName:    "StreamsForWrapping",
+			Handler:       _Butterfish_StreamsForWrapping_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

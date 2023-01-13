@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/bakks/butterfish/proto"
 )
@@ -34,35 +36,57 @@ import (
 //│                    │     bidirectional       │                      │
 //└────────────────────┘     gRPC stream         └──────────────────────┘
 
-type ClientController interface {
-	Write(client int, data string) error
-	GetReader() <-chan *ClientOut
-}
-
-func (this *IPCServer) GetReader() <-chan *ClientOut {
-	return this.clientOut
-}
-
-type ClientOut struct {
-	Client int
-	Data   string
-}
-
-func (this *IPCServer) Write(client int, data string) error {
-	this.mutex.Lock()
-	srv := this.clients[client]
-	this.mutex.Unlock()
-
-	return srv.Send(&proto.StreamBlock{Data: []byte(data)})
-}
-
 func getHost() string {
 	const hostname = "localhost"
 	const port = 8099
 	return fmt.Sprintf("%s:%d", hostname, port)
 }
 
-func runIPCClient(ctx context.Context) (proto.Butterfish_StreamBlocksClient, error) {
+type IPCClient struct {
+	client proto.Butterfish_StreamsForWrappingClient
+}
+
+func (this *IPCClient) Recv() (*proto.ServerPush, error) {
+	return this.client.Recv()
+}
+
+func (this *IPCClient) SendOutput(output []byte) error {
+	msg := &proto.ClientPush{
+		Msg: &proto.ClientPush_ClientOutput{
+			ClientOutput: &proto.ClientOutput{
+				Data: output,
+			},
+		},
+	}
+
+	return this.client.Send(msg)
+}
+
+func (this *IPCClient) SendInput(input []byte) error {
+	msg := &proto.ClientPush{
+		Msg: &proto.ClientPush_ClientInput{
+			ClientInput: &proto.ClientInput{
+				Data: input,
+			},
+		},
+	}
+
+	return this.client.Send(msg)
+}
+
+func (this *IPCClient) SendWrappedCommand(cmd string) error {
+	msg := &proto.ClientPush{
+		Msg: &proto.ClientPush_ClientOpen{
+			ClientOpen: &proto.ClientOpen{
+				WrappedCommand: cmd,
+			},
+		},
+	}
+
+	return this.client.Send(msg)
+}
+
+func runIPCClient(ctx context.Context) (*IPCClient, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
@@ -79,50 +103,50 @@ func runIPCClient(ctx context.Context) (proto.Butterfish_StreamBlocksClient, err
 	//defer conn.Close()
 	client := proto.NewButterfishClient(conn)
 
-	var streamClient proto.Butterfish_StreamBlocksClient
+	var streamClient proto.Butterfish_StreamsForWrappingClient
 
 	log.Printf("Opening bidirectional stream...")
 
 	// loop to wait until server is alive
 	for {
-		streamClient, err = client.StreamBlocks(ctx)
+		streamClient, err = client.StreamsForWrapping(ctx)
 		if err != nil {
-			log.Printf("Failed to connect to server: %v", err)
-			time.Sleep(5 * time.Second)
-			continue
+			st, _ := status.FromError(err)
+			if st.Code() == codes.Unavailable {
+				log.Printf("Failed to connect to server, waiting and retrying")
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			// unknown error, bail out
+			return nil, err
 		}
-		break
+		break // if successful we break out
 	}
 
 	log.Printf("Connected.")
 
-	return streamClient, nil
+	wrappedClient := &IPCClient{streamClient}
+
+	return wrappedClient, nil
 }
 
-func runIPCServer(ctx context.Context, output io.Writer) ClientController {
-	lis, err := net.Listen("tcp", getHost())
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-	var opts []grpc.ServerOption
-	grpcServer := grpc.NewServer(opts...)
-	srv := NewIPCServer(output)
-	proto.RegisterButterfishServer(grpcServer, srv)
+type ClientController interface {
+	Write(client int, data string) error
+	GetReader() <-chan *ClientOut
+}
 
-	go func() {
-		grpcServer.Serve(lis)
-	}()
+func (this *IPCServer) GetReader() <-chan *ClientOut {
+	return this.clientOut
+}
 
-	go func() {
-		<-ctx.Done()
-		grpcServer.Stop()
-	}()
-
-	return srv
+type ClientOut struct {
+	Client int
+	Data   []byte
 }
 
 func packageRPCStream(
-	client proto.Butterfish_StreamBlocksClient,
+	client *IPCClient,
 	c chan<- *byteMsg) {
 	// Loop indefinitely
 	for {
@@ -146,45 +170,160 @@ func packageRPCStream(
 type IPCServer struct {
 	proto.UnimplementedButterfishServer
 	clientOut     chan *ClientOut
-	mutex         sync.Mutex
-	clientCounter int
-	clients       map[int]proto.Butterfish_StreamBlocksServer
 	output        io.Writer
+	clientMutex   sync.Mutex
+	clientCounter int
+	clients       map[int]proto.Butterfish_StreamsForWrappingServer
+	clientOpenCmd map[int]string
+	clientLastCmd map[int]string
 }
 
-func NewIPCServer(output io.Writer) *IPCServer {
-	return &IPCServer{
-		clients:   make(map[int]proto.Butterfish_StreamBlocksServer),
-		clientOut: make(chan *ClientOut),
-		output:    output,
+func RunIPCServer(ctx context.Context, output io.Writer) ClientController {
+	lis, err := net.Listen("tcp", getHost())
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
 	}
+	var opts []grpc.ServerOption
+	grpcServer := grpc.NewServer(opts...)
+	srv := &IPCServer{
+		output:        output,
+		clientOut:     make(chan *ClientOut),
+		clients:       make(map[int]proto.Butterfish_StreamsForWrappingServer),
+		clientOpenCmd: make(map[int]string),
+		clientLastCmd: make(map[int]string),
+	}
+	proto.RegisterButterfishServer(grpcServer, srv)
+
+	go func() {
+		grpcServer.Serve(lis)
+	}()
+
+	go func() {
+		<-ctx.Done()
+		grpcServer.Stop()
+	}()
+
+	return srv
 }
 
-// Server-side StreamBlocks implementation, this receives data from the client
-// and sends it to the clientOut channel
-func (this *IPCServer) StreamBlocks(srv proto.Butterfish_StreamBlocksServer) error {
+func (this *IPCServer) Write(client int, data string) error {
+	this.clientMutex.Lock()
+	srv := this.clients[client]
+	this.clientMutex.Unlock()
 
-	// assign client number and this client/server pair
-	this.mutex.Lock()
-	clientNum := this.clientCounter
+	msg := &proto.ServerPush{
+		Data: []byte(data),
+	}
+	return srv.Send(msg)
+}
+
+func (this *IPCServer) clientGetServer(client int) (proto.Butterfish_StreamsForWrappingServer, error) {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	srv, ok := this.clients[client]
+
+	if !ok {
+		return nil, fmt.Errorf("Client %d not found", client)
+	}
+
+	return srv, nil
+}
+
+func (this *IPCServer) clientNew(srv proto.Butterfish_StreamsForWrappingServer) int {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	clientId := this.clientCounter
+	this.clients[clientId] = srv
 	this.clientCounter++
-	this.clients[clientNum] = srv
-	this.mutex.Unlock()
+	return clientId
+}
+
+func (this *IPCServer) clientSetOpenCommand(client int, cmd string) {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	this.clientOpenCmd[client] = cmd
+}
+
+func (this *IPCServer) clientSetLastCommand(client int, cmd string) {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	this.clientLastCmd[client] = cmd
+}
+
+func (this *IPCServer) clientGetLastCommand(client int) (string, error) {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	last, ok := this.clientLastCmd[client]
+
+	if !ok {
+		return "", fmt.Errorf("Client %d not found", client)
+	}
+
+	return last, nil
+}
+
+func (this *IPCServer) clientGetOpenCommand(client int) (string, error) {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+	cmd, ok := this.clientOpenCmd[client]
+
+	if !ok {
+		return "", fmt.Errorf("Client %d not found", client)
+	}
+
+	return cmd, nil
+}
+
+func (this *IPCServer) clientDelete(client int) {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	delete(this.clients, client)
+	delete(this.clientOpenCmd, client)
+	delete(this.clientLastCmd, client)
+}
+
+// Server-side StreamsForWrapping implementation, this receives data from the client
+// and sends it to the clientOut channel
+func (this *IPCServer) StreamsForWrapping(srv proto.Butterfish_StreamsForWrappingServer) error {
+	// assign client number
+	clientNum := this.clientNew(srv)
 
 	batchingOut := newStreamBatcher(this.clientOut)
 	fmt.Fprintf(this.output, "Client %d connected", clientNum)
 
 	for {
-		block, err := srv.Recv()
+		msgIn, err := srv.Recv()
 		if err != nil {
+			this.clientDelete(clientNum)
 			return err
 		}
 
-		msg := &ClientOut{
-			Client: clientNum,
-			Data:   string(block.Data),
+		switch msg := msgIn.Msg.(type) {
+		case *proto.ClientPush_ClientOpen:
+			this.clientSetOpenCommand(clientNum, msg.ClientOpen.WrappedCommand)
+
+		case *proto.ClientPush_ClientInput:
+			this.clientSetLastCommand(clientNum, string(msg.ClientInput.Data))
+
+		case *proto.ClientPush_ClientOutput:
+			// data received from the client's stdout
+			// package it in a ClientOut and send to the batchingOut channel
+			msgOut := &ClientOut{
+				Client: clientNum,
+				Data:   msg.ClientOutput.Data,
+			}
+			batchingOut <- msgOut
+
+		default:
+			panic(fmt.Sprintf("Unknown message type: %T", msg))
 		}
-		batchingOut <- msg
+
 	}
 }
 
@@ -200,13 +339,13 @@ func streamBatcher(msgIn <-chan *ClientOut, msgOut chan<- *ClientOut) {
 	for {
 		select {
 		case msg := <-msgIn:
-			buf.WriteString(msg.Data)
+			buf.Write(msg.Data)
 			lastWrite = time.Now()
 
 		case <-time.After(batchWaitTime):
 			if time.Since(lastWrite) > batchWaitTime && buf.Len() > 0 {
 				msgOut <- &ClientOut{
-					Data: buf.String(),
+					Data: buf.Bytes(),
 				}
 				buf.Reset()
 			}

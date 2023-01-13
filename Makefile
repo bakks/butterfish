@@ -16,4 +16,7 @@ bin/butterfish: proto/butterfish.pb.go $(gofiles) Makefile
 clean:
 	rm -f bin/* proto/*.go
 
-.PHONY: all clean
+watch:
+	find . -name "*.go" -o -name "*.proto" | entr -c make
+
+.PHONY: all clean watch

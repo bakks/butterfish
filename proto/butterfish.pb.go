@@ -20,16 +20,20 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type StreamBlock struct {
+type ClientPush struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// Types that are assignable to Msg:
+	//	*ClientPush_ClientOpen
+	//	*ClientPush_ClientInput
+	//	*ClientPush_ClientOutput
+	Msg isClientPush_Msg `protobuf_oneof:"msg"`
 }
 
-func (x *StreamBlock) Reset() {
-	*x = StreamBlock{}
+func (x *ClientPush) Reset() {
+	*x = ClientPush{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_butterfish_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -37,13 +41,13 @@ func (x *StreamBlock) Reset() {
 	}
 }
 
-func (x *StreamBlock) String() string {
+func (x *ClientPush) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StreamBlock) ProtoMessage() {}
+func (*ClientPush) ProtoMessage() {}
 
-func (x *StreamBlock) ProtoReflect() protoreflect.Message {
+func (x *ClientPush) ProtoReflect() protoreflect.Message {
 	mi := &file_butterfish_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -55,12 +59,243 @@ func (x *StreamBlock) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StreamBlock.ProtoReflect.Descriptor instead.
-func (*StreamBlock) Descriptor() ([]byte, []int) {
+// Deprecated: Use ClientPush.ProtoReflect.Descriptor instead.
+func (*ClientPush) Descriptor() ([]byte, []int) {
 	return file_butterfish_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *StreamBlock) GetData() []byte {
+func (m *ClientPush) GetMsg() isClientPush_Msg {
+	if m != nil {
+		return m.Msg
+	}
+	return nil
+}
+
+func (x *ClientPush) GetClientOpen() *ClientOpen {
+	if x, ok := x.GetMsg().(*ClientPush_ClientOpen); ok {
+		return x.ClientOpen
+	}
+	return nil
+}
+
+func (x *ClientPush) GetClientInput() *ClientInput {
+	if x, ok := x.GetMsg().(*ClientPush_ClientInput); ok {
+		return x.ClientInput
+	}
+	return nil
+}
+
+func (x *ClientPush) GetClientOutput() *ClientOutput {
+	if x, ok := x.GetMsg().(*ClientPush_ClientOutput); ok {
+		return x.ClientOutput
+	}
+	return nil
+}
+
+type isClientPush_Msg interface {
+	isClientPush_Msg()
+}
+
+type ClientPush_ClientOpen struct {
+	ClientOpen *ClientOpen `protobuf:"bytes,2,opt,name=client_open,json=clientOpen,proto3,oneof"`
+}
+
+type ClientPush_ClientInput struct {
+	ClientInput *ClientInput `protobuf:"bytes,3,opt,name=client_input,json=clientInput,proto3,oneof"`
+}
+
+type ClientPush_ClientOutput struct {
+	ClientOutput *ClientOutput `protobuf:"bytes,4,opt,name=client_output,json=clientOutput,proto3,oneof"`
+}
+
+func (*ClientPush_ClientOpen) isClientPush_Msg() {}
+
+func (*ClientPush_ClientInput) isClientPush_Msg() {}
+
+func (*ClientPush_ClientOutput) isClientPush_Msg() {}
+
+type ClientOutput struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+}
+
+func (x *ClientOutput) Reset() {
+	*x = ClientOutput{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_butterfish_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ClientOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientOutput) ProtoMessage() {}
+
+func (x *ClientOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_butterfish_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientOutput.ProtoReflect.Descriptor instead.
+func (*ClientOutput) Descriptor() ([]byte, []int) {
+	return file_butterfish_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ClientOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ClientOpen struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	WrappedCommand string `protobuf:"bytes,1,opt,name=wrappedCommand,proto3" json:"wrappedCommand,omitempty"`
+}
+
+func (x *ClientOpen) Reset() {
+	*x = ClientOpen{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_butterfish_proto_msgTypes[2]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ClientOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientOpen) ProtoMessage() {}
+
+func (x *ClientOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_butterfish_proto_msgTypes[2]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientOpen.ProtoReflect.Descriptor instead.
+func (*ClientOpen) Descriptor() ([]byte, []int) {
+	return file_butterfish_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ClientOpen) GetWrappedCommand() string {
+	if x != nil {
+		return x.WrappedCommand
+	}
+	return ""
+}
+
+type ClientInput struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+}
+
+func (x *ClientInput) Reset() {
+	*x = ClientInput{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_butterfish_proto_msgTypes[3]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ClientInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientInput) ProtoMessage() {}
+
+func (x *ClientInput) ProtoReflect() protoreflect.Message {
+	mi := &file_butterfish_proto_msgTypes[3]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientInput.ProtoReflect.Descriptor instead.
+func (*ClientInput) Descriptor() ([]byte, []int) {
+	return file_butterfish_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ClientInput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type ServerPush struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+}
+
+func (x *ServerPush) Reset() {
+	*x = ServerPush{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_butterfish_proto_msgTypes[4]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ServerPush) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerPush) ProtoMessage() {}
+
+func (x *ServerPush) ProtoReflect() protoreflect.Message {
+	mi := &file_butterfish_proto_msgTypes[4]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerPush.ProtoReflect.Descriptor instead.
+func (*ServerPush) Descriptor() ([]byte, []int) {
+	return file_butterfish_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ServerPush) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
@@ -71,16 +306,35 @@ var File_butterfish_proto protoreflect.FileDescriptor
 
 var file_butterfish_proto_rawDesc = []byte{
 	0x0a, 0x10, 0x62, 0x75, 0x74, 0x74, 0x65, 0x72, 0x66, 0x69, 0x73, 0x68, 0x2e, 0x70, 0x72, 0x6f,
-	0x74, 0x6f, 0x22, 0x21, 0x0a, 0x0b, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x42, 0x6c, 0x6f, 0x63,
-	0x6b, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61, 0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52,
-	0x04, 0x64, 0x61, 0x74, 0x61, 0x32, 0x3e, 0x0a, 0x0a, 0x42, 0x75, 0x74, 0x74, 0x65, 0x72, 0x66,
-	0x69, 0x73, 0x68, 0x12, 0x30, 0x0a, 0x0c, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x42, 0x6c, 0x6f,
-	0x63, 0x6b, 0x73, 0x12, 0x0c, 0x2e, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x42, 0x6c, 0x6f, 0x63,
-	0x6b, 0x1a, 0x0c, 0x2e, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x42, 0x6c, 0x6f, 0x63, 0x6b, 0x22,
-	0x00, 0x28, 0x01, 0x30, 0x01, 0x42, 0x24, 0x5a, 0x22, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
-	0x63, 0x6f, 0x6d, 0x2f, 0x74, 0x65, 0x67, 0x6c, 0x6f, 0x6e, 0x2f, 0x62, 0x75, 0x74, 0x74, 0x65,
-	0x72, 0x66, 0x69, 0x73, 0x68, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f,
-	0x74, 0x6f, 0x33,
+	0x74, 0x6f, 0x22, 0xac, 0x01, 0x0a, 0x0a, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x50, 0x75, 0x73,
+	0x68, 0x12, 0x2e, 0x0a, 0x0b, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f, 0x6f, 0x70, 0x65, 0x6e,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0b, 0x2e, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x4f,
+	0x70, 0x65, 0x6e, 0x48, 0x00, 0x52, 0x0a, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x4f, 0x70, 0x65,
+	0x6e, 0x12, 0x31, 0x0a, 0x0c, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f, 0x69, 0x6e, 0x70, 0x75,
+	0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0c, 0x2e, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74,
+	0x49, 0x6e, 0x70, 0x75, 0x74, 0x48, 0x00, 0x52, 0x0b, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x49,
+	0x6e, 0x70, 0x75, 0x74, 0x12, 0x34, 0x0a, 0x0d, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f, 0x6f,
+	0x75, 0x74, 0x70, 0x75, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0d, 0x2e, 0x43, 0x6c,
+	0x69, 0x65, 0x6e, 0x74, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x48, 0x00, 0x52, 0x0c, 0x63, 0x6c,
+	0x69, 0x65, 0x6e, 0x74, 0x4f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x42, 0x05, 0x0a, 0x03, 0x6d, 0x73,
+	0x67, 0x22, 0x22, 0x0a, 0x0c, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x4f, 0x75, 0x74, 0x70, 0x75,
+	0x74, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61, 0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52,
+	0x04, 0x64, 0x61, 0x74, 0x61, 0x22, 0x34, 0x0a, 0x0a, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x4f,
+	0x70, 0x65, 0x6e, 0x12, 0x26, 0x0a, 0x0e, 0x77, 0x72, 0x61, 0x70, 0x70, 0x65, 0x64, 0x43, 0x6f,
+	0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x77, 0x72, 0x61,
+	0x70, 0x70, 0x65, 0x64, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x22, 0x21, 0x0a, 0x0b, 0x43,
+	0x6c, 0x69, 0x65, 0x6e, 0x74, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61,
+	0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61, 0x22, 0x20,
+	0x0a, 0x0a, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x50, 0x75, 0x73, 0x68, 0x12, 0x12, 0x0a, 0x04,
+	0x64, 0x61, 0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61,
+	0x32, 0x42, 0x0a, 0x0a, 0x42, 0x75, 0x74, 0x74, 0x65, 0x72, 0x66, 0x69, 0x73, 0x68, 0x12, 0x34,
+	0x0a, 0x12, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x73, 0x46, 0x6f, 0x72, 0x57, 0x72, 0x61, 0x70,
+	0x70, 0x69, 0x6e, 0x67, 0x12, 0x0b, 0x2e, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x50, 0x75, 0x73,
+	0x68, 0x1a, 0x0b, 0x2e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x50, 0x75, 0x73, 0x68, 0x22, 0x00,
+	0x28, 0x01, 0x30, 0x01, 0x42, 0x24, 0x5a, 0x22, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
+	0x6f, 0x6d, 0x2f, 0x74, 0x65, 0x67, 0x6c, 0x6f, 0x6e, 0x2f, 0x62, 0x75, 0x74, 0x74, 0x65, 0x72,
+	0x66, 0x69, 0x73, 0x68, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x33,
 }
 
 var (
@@ -95,18 +349,25 @@ func file_butterfish_proto_rawDescGZIP() []byte {
 	return file_butterfish_proto_rawDescData
 }
 
-var file_butterfish_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_butterfish_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_butterfish_proto_goTypes = []interface{}{
-	(*StreamBlock)(nil), // 0: StreamBlock
+	(*ClientPush)(nil),   // 0: ClientPush
+	(*ClientOutput)(nil), // 1: ClientOutput
+	(*ClientOpen)(nil),   // 2: ClientOpen
+	(*ClientInput)(nil),  // 3: ClientInput
+	(*ServerPush)(nil),   // 4: ServerPush
 }
 var file_butterfish_proto_depIdxs = []int32{
-	0, // 0: Butterfish.StreamBlocks:input_type -> StreamBlock
-	0, // 1: Butterfish.StreamBlocks:output_type -> StreamBlock
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: ClientPush.client_open:type_name -> ClientOpen
+	3, // 1: ClientPush.client_input:type_name -> ClientInput
+	1, // 2: ClientPush.client_output:type_name -> ClientOutput
+	0, // 3: Butterfish.StreamsForWrapping:input_type -> ClientPush
+	4, // 4: Butterfish.StreamsForWrapping:output_type -> ServerPush
+	4, // [4:5] is the sub-list for method output_type
+	3, // [3:4] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_butterfish_proto_init() }
@@ -116,7 +377,55 @@ func file_butterfish_proto_init() {
 	}
 	if !protoimpl.UnsafeEnabled {
 		file_butterfish_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StreamBlock); i {
+			switch v := v.(*ClientPush); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_butterfish_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ClientOutput); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_butterfish_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ClientOpen); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_butterfish_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ClientInput); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_butterfish_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ServerPush); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -128,13 +437,18 @@ func file_butterfish_proto_init() {
 			}
 		}
 	}
+	file_butterfish_proto_msgTypes[0].OneofWrappers = []interface{}{
+		(*ClientPush_ClientOpen)(nil),
+		(*ClientPush_ClientInput)(nil),
+		(*ClientPush_ClientOutput)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_butterfish_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

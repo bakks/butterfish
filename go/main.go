@@ -22,7 +22,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/go/charmcomponents/console"
-	"github.com/bakks/butterfish/proto"
 )
 
 // Main driver for the Butterfish set of command line tools. These are tools
@@ -147,7 +146,7 @@ func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
 func wrappingMultiplexer(
 	ctx context.Context,
 	cancel context.CancelFunc,
-	remoteClient proto.Butterfish_StreamBlocksClient,
+	remoteClient *IPCClient,
 	childIn io.Writer,
 	parentIn, remoteIn, childOut <-chan *byteMsg) {
 
@@ -174,7 +173,7 @@ func wrappingMultiplexer(
 
 			// Filter out characters and send to server
 			printedStr := sanitizeOutputString(string(s2.Data))
-			err := remoteClient.Send(&proto.StreamBlock{Data: []byte(printedStr)})
+			err := remoteClient.SendOutput([]byte(printedStr))
 			if err != nil {
 				if err == io.EOF {
 					log.Printf("Remote server closed connection, exiting...\n")
@@ -207,7 +206,7 @@ func wrappingMultiplexer(
 // Based on example at https://github.com/creack/pty
 // Apparently you can't start a shell like zsh without
 // this more complex command execution
-func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client proto.Butterfish_StreamBlocksClient) error {
+func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client *IPCClient) error {
 	// Create arbitrary command.
 	c := exec.Command(command[0], command[1:]...)
 
@@ -249,6 +248,8 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 	go readerToChannel(ptmx, childOut)
 	// Read from remote
 	go packageRPCStream(client, remoteIn)
+
+	client.SendWrappedCommand(strings.Join(command, " "))
 
 	wrappingMultiplexer(ctx, cancel, client, ptmx, parentIn, remoteIn, childOut)
 
@@ -440,7 +441,7 @@ func (this *ButterfishCtx) execremoteCommand(cmd string) error {
 	cmd += "\n"
 
 	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
-	return this.clientController.Write(0, cmd)
+	return this.clientController.Write(0, cmd) // TODO figure out a way to select a specific client
 }
 
 func (this *ButterfishCtx) updateCommandRegister(cmd string) {
@@ -685,7 +686,7 @@ func main() {
 		}
 		cons := console.NewConsoleProgram(cmdCallback, exitCallback)
 
-		clientController := runIPCServer(ctx, cons)
+		clientController := RunIPCServer(ctx, cons)
 
 		butterfishCtx := ButterfishCtx{
 			ctx:              ctx,
