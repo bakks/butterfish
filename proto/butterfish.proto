@@ -8,9 +8,9 @@ service Butterfish {
 
 message ClientPush {
   oneof msg {
-    ClientOpen client_open = 2;
-    ClientInput client_input = 3;
-    ClientOutput client_output = 4;
+    ClientOpen client_open = 1;
+    ClientInput client_input = 2;
+    ClientOutput client_output = 3;
   }
 }
 
