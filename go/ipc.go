@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,20 +132,6 @@ func runIPCClient(ctx context.Context) (*IPCClient, error) {
 	return wrappedClient, nil
 }
 
-type ClientController interface {
-	Write(client int, data string) error
-	GetReader() <-chan *ClientOut
-}
-
-func (this *IPCServer) GetReader() <-chan *ClientOut {
-	return this.clientOut
-}
-
-type ClientOut struct {
-	Client int
-	Data   []byte
-}
-
 func packageRPCStream(
 	client *IPCClient,
 	c chan<- *byteMsg) {
@@ -178,6 +165,21 @@ type IPCServer struct {
 	clientLastCmd map[int]string
 }
 
+type ClientOut struct {
+	Client int
+	Data   []byte
+}
+
+type ClientController interface {
+	Write(client int, data string) error
+	GetReader() <-chan *ClientOut
+	GetClientWithOpenCmdLike(cmd string) int
+}
+
+func (this *IPCServer) GetReader() <-chan *ClientOut {
+	return this.clientOut
+}
+
 func RunIPCServer(ctx context.Context, output io.Writer) ClientController {
 	lis, err := net.Listen("tcp", getHost())
 	if err != nil {
@@ -204,6 +206,19 @@ func RunIPCServer(ctx context.Context, output io.Writer) ClientController {
 	}()
 
 	return srv
+}
+
+func (this *IPCServer) GetClientWithOpenCmdLike(cmd string) int {
+	this.clientMutex.Lock()
+	defer this.clientMutex.Unlock()
+
+	for client, openCmd := range this.clientOpenCmd {
+		if strings.Contains(openCmd, cmd) {
+			return client
+		}
+	}
+
+	return -1
 }
 
 func (this *IPCServer) Write(client int, data string) error {

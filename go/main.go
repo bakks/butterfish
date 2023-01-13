@@ -441,7 +441,12 @@ func (this *ButterfishCtx) execremoteCommand(cmd string) error {
 	cmd += "\n"
 
 	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
-	return this.clientController.Write(0, cmd) // TODO figure out a way to select a specific client
+	client := this.clientController.GetClientWithOpenCmdLike("sh")
+	if client == -1 {
+		return errors.New("No wrapped clients with open command like 'sh' found")
+	}
+
+	return this.clientController.Write(client, cmd)
 }
 
 func (this *ButterfishCtx) updateCommandRegister(cmd string) {
@@ -501,14 +506,14 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 			return errors.New("No command to execute")
 		}
 
-		this.execremoteCommand(txt)
+		return this.execremoteCommand(txt)
 
 	case "exec":
 		if this.commandRegister == "" && txt == "" {
 			return errors.New("No command to execute")
 		}
 
-		this.execCommand(txt)
+		return this.execCommand(txt)
 
 	case "prompt":
 		if txt == "" {
@@ -535,7 +540,7 @@ func (this *ButterfishCtx) serverMultiplexer() {
 		case cmd := <-this.consoleCmdChan:
 			err := this.handleConsoleCommand(cmd)
 			if err != nil {
-				fmt.Fprintf(this.out, "Error: %v", err)
+				fmt.Fprintf(this.out, "Error: %v\n", err)
 				continue
 			}
 
