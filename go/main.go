@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -90,8 +90,8 @@ func filterNonPrintable(s string) string {
 	}, s)
 }
 
-func sanitizeOutputString(output string) string {
-	return filterNonPrintable(stripANSI(output))
+func sanitizeTTYData(data []byte) []byte {
+	return []byte(filterNonPrintable(stripANSI(string(data))))
 }
 
 // An implementation of io.Writer that renders output with a lipgloss style
@@ -150,13 +150,34 @@ func wrappingMultiplexer(
 	childIn io.Writer,
 	parentIn, remoteIn, childOut <-chan *byteMsg) {
 
+	buf := bytes.NewBuffer(nil)
+
 	for {
 		select {
 
-		// Receive data from this process's stdin and write it only
-		// to the child process' stdin
+		// Receive data from this process's stdin and write it to the child
+		// process' stdin, add it to a local buffer, send to remote when
+		// we hit a carriage return
 		case s1 := <-parentIn:
-			_, err := fmt.Fprint(childIn, string(s1.Data))
+			if bytes.Contains(s1.Data, []byte{'\r'}) {
+				// the CR might be in the middle of a longer byte array, so we concat
+				// with the existing butter and add any others to the cleared buffer
+				concatted := append(buf.Bytes(), s1.Data...)
+				split := bytes.Split(concatted, []byte{'\r'})
+
+				if len(split) > 0 && len(split[0]) > 0 {
+					buf.Reset()
+					if len(split) > 1 {
+						buf.Write(split[1])
+					}
+					// Send to remote
+					remoteClient.SendInput(sanitizeTTYData(concatted))
+				}
+			} else {
+				buf.Write(s1.Data)
+			}
+
+			_, err := childIn.Write(s1.Data)
 			if err != nil {
 				log.Printf("Error writing to child process: %s\n", err)
 			}
@@ -169,11 +190,11 @@ func wrappingMultiplexer(
 			}
 
 			// Write to this process's stdout
-			binary.Write(os.Stdout, binary.LittleEndian, s2.Data)
+			os.Stdout.Write(s2.Data)
 
 			// Filter out characters and send to server
-			printedStr := sanitizeOutputString(string(s2.Data))
-			err := remoteClient.SendOutput([]byte(printedStr))
+			printed := sanitizeTTYData(s2.Data)
+			err := remoteClient.SendOutput(printed)
 			if err != nil {
 				if err == io.EOF {
 					log.Printf("Remote server closed connection, exiting...\n")
@@ -258,7 +279,7 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 
 const GPTMaxTokens = 1024
 
-const shellOutPrompt = `The following is output from a user running a shell command, if it contains an error then print the specific segment that is an error and explain briefly how to solve the error, otherwise respond with only "NOOP". "%s"`
+const shellOutPrompt = `The following is output from a user inside a "%s" shell, the user ran the command "%s", if the output contains an error then print the specific segment that is an error and explain briefly how to solve the error, otherwise respond with only "NOOP". "%s"`
 
 const summarizePrompt = `The following is a raw text file with path "%s", summarize the file contents, the file's purpose, and write a list of the file's key elements:
 '''
@@ -531,6 +552,35 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 	return nil
 }
 
+func (this *ButterfishCtx) printError(err error, prefix ...string) {
+	if len(prefix) > 0 {
+		fmt.Fprintf(this.out, "%s error: %s\n", prefix[0], err.Error())
+	} else {
+		fmt.Fprintf(this.out, "Error: %s\n", err.Error())
+	}
+}
+
+func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string, output []byte) {
+	// Find the client's last command, i.e. what they entered into the shell
+	// It's normal for this to error if the client has not entered anything yet,
+	// in that case we just return without action
+	lastCmd, err := this.clientController.GetClientLastCommand(client)
+	if err != nil {
+		return
+	}
+
+	// interpolate the prompt to ask if there's an error in the output and
+	// call GPT, the response will be streamed (but filter the special token
+	// combo "NOOP")
+	prompt := fmt.Sprintf(shellOutPrompt, openCmd, lastCmd, output)
+	writer := NewStyledWriter(this.out, errorStyle)
+	err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
+	if err != nil {
+		this.printError(err)
+		return
+	}
+}
+
 func (this *ButterfishCtx) serverMultiplexer() {
 	clientInput := this.clientController.GetReader()
 	fmt.Fprintln(this.out, "Butterfish server active...")
@@ -540,24 +590,24 @@ func (this *ButterfishCtx) serverMultiplexer() {
 		case cmd := <-this.consoleCmdChan:
 			err := this.handleConsoleCommand(cmd)
 			if err != nil {
-				fmt.Fprintf(this.out, "Error: %v\n", err)
+				this.printError(err)
 				continue
 			}
 
 		case clientData := <-clientInput:
-			// if the client data message is greater than 35 runes then we call GPT
-			// for error detection and solutions
-			// TODO this is a very dumb predicate
-			if len(clientData.Data) < 35 {
+			// Find the client's open/wrapping command, e.g. "zsh"
+			client := clientData.Client
+			wrappedCommand, err := this.clientController.GetClientOpenCommand(client)
+			if err != nil {
+				this.printError(err, "on client input")
 				continue
 			}
 
-			cmd := fmt.Sprintf(shellOutPrompt, clientData.Data)
-			writer := NewStyledWriter(this.out, errorStyle)
-			err := this.gptClient.CompletionStream(this.ctx, cmd, writer)
-			if err != nil {
-				fmt.Fprintf(this.out, "Error: %v", err)
-				continue
+			// If we think the client is wrapping a shell and the clientdata is
+			// greater than 35 bytes (a pretty dumb predicate), we'll check
+			// for unexpected / error output and try to be helpful
+			if strings.Contains(wrappedCommand, "sh") && len(clientData.Data) > 35 {
+				this.checkClientOutputForError(client, wrappedCommand, clientData.Data)
 			}
 
 		case <-this.ctx.Done():

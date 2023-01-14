@@ -174,6 +174,8 @@ type ClientController interface {
 	Write(client int, data string) error
 	GetReader() <-chan *ClientOut
 	GetClientWithOpenCmdLike(cmd string) int
+	GetClientOpenCommand(client int) (string, error)
+	GetClientLastCommand(client int) (string, error)
 }
 
 func (this *IPCServer) GetReader() <-chan *ClientOut {
@@ -239,7 +241,7 @@ func (this *IPCServer) clientGetServer(client int) (proto.Butterfish_StreamsForW
 	srv, ok := this.clients[client]
 
 	if !ok {
-		return nil, fmt.Errorf("Client %d not found", client)
+		return nil, fmt.Errorf("Client %d server instance not found", client)
 	}
 
 	return srv, nil
@@ -269,26 +271,26 @@ func (this *IPCServer) clientSetLastCommand(client int, cmd string) {
 	this.clientLastCmd[client] = cmd
 }
 
-func (this *IPCServer) clientGetLastCommand(client int) (string, error) {
+func (this *IPCServer) GetClientLastCommand(client int) (string, error) {
 	this.clientMutex.Lock()
 	defer this.clientMutex.Unlock()
 
 	last, ok := this.clientLastCmd[client]
 
 	if !ok {
-		return "", fmt.Errorf("Client %d not found", client)
+		return "", fmt.Errorf("Client %d last command not found", client)
 	}
 
 	return last, nil
 }
 
-func (this *IPCServer) clientGetOpenCommand(client int) (string, error) {
+func (this *IPCServer) GetClientOpenCommand(client int) (string, error) {
 	this.clientMutex.Lock()
 	defer this.clientMutex.Unlock()
 	cmd, ok := this.clientOpenCmd[client]
 
 	if !ok {
-		return "", fmt.Errorf("Client %d not found", client)
+		return "", fmt.Errorf("Client %d open command not found", client)
 	}
 
 	return cmd, nil
@@ -310,7 +312,7 @@ func (this *IPCServer) StreamsForWrapping(srv proto.Butterfish_StreamsForWrappin
 	clientNum := this.clientNew(srv)
 
 	batchingOut := newStreamBatcher(this.clientOut)
-	fmt.Fprintf(this.output, "Client %d connected", clientNum)
+	fmt.Fprintf(this.output, "Client %d connected\n", clientNum)
 
 	for {
 		msgIn, err := srv.Recv()
