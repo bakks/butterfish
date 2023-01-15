@@ -332,6 +332,8 @@ var availableCommands = []string{
 	"prompt", "gencmd", "exec", "remoteexec", "help", "summarize", "exit",
 }
 
+// Read a local file, break into chunks of a given number of bytes,
+// call the callback for each chunk
 func chunkFile(
 	path string,
 	chunkSize int,
@@ -345,7 +347,7 @@ func chunkFile(
 	defer f.Close()
 
 	buf := make([]byte, chunkSize)
-	for i := 0; i < maxChunks; i++ {
+	for i := 0; i < maxChunks || maxChunks == -1; i++ {
 		n, err := f.Read(buf)
 		if err != nil && err != io.EOF {
 			return err
@@ -361,6 +363,35 @@ func chunkFile(
 	}
 
 	return nil
+}
+
+// embedFile takes a path to a file, splits the file into chunks, and calls
+// the embedding API for each chunk
+func (this *ButterfishCtx) embedFile(path string) ([][]float64, error) {
+	embeddings := [][]float64{}
+	chunks := []string{}
+	const chunkSize = 1024
+	const chunksPerCall = 8
+
+	err := chunkFile(path, chunkSize, -1, func(i int, chunk []byte) error {
+		chunks = append(chunks, string(chunk))
+		if len(chunks) == chunksPerCall {
+			newEmbeddings, err := this.gptClient.Embeddings(this.ctx, chunks)
+			if err != nil {
+				return err
+			}
+
+			embeddings = append(embeddings, newEmbeddings...)
+			chunks = []string{}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return embeddings, nil
 }
 
 // Given a file path we attempt to semantically summarize its content.
@@ -562,6 +593,17 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 
 		writer := NewStyledWriter(this.out, questionStyle)
 		return false, this.gptClient.CompletionStream(this.ctx, txt, writer)
+
+	case "index":
+		if txt == "" {
+			return false, errors.New("Please provide file(s) to index")
+		}
+		// TODO make this a loop to do multiple files
+		embeddings, err := this.embedFile(txt)
+		for _, embedding := range embeddings {
+			fmt.Fprintf(this.out, "Embedding: %v ...\n", embedding[0:8])
+		}
+		return false, err
 
 	default:
 		return false, errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
