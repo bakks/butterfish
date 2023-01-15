@@ -43,7 +43,7 @@ type ConsoleProgram struct {
 func NewConsoleProgram(commandCallback func(string), exitCallback func()) *ConsoleProgram {
 	consoleModel := NewConsoleModel(commandCallback)
 	wrapper := alt.NewAltScreenWrapper(consoleModel)
-	program := tea.NewProgram(wrapper, tea.WithAltScreen())
+	program := tea.NewProgram(wrapper, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	go func() {
 		_, err := program.Run()

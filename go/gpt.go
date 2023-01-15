@@ -49,7 +49,11 @@ func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.
 }
 
 func printPrompt(writer io.Writer, prompt string) {
-	fmt.Fprintf(writer, "↑ %s", prompt)
+	fmt.Fprintf(writer, "↑ %s\n", prompt)
+}
+
+func printResponse(writer io.Writer, response string) {
+	fmt.Fprintf(writer, "↓ %s\n", response)
 }
 
 // Run a GPT completion request and return the response
@@ -67,9 +71,47 @@ func (this *GPT) Completion(ctx context.Context, prompt string, writer io.Writer
 		return "", err
 	}
 
+	if this.verbose {
+		printResponse(writer, resp.Choices[0].Text)
+	}
 	return resp.Choices[0].Text, nil
 }
 
 func (this *GPT) SetVerbose(verbose bool) {
 	this.verbose = verbose
+}
+
+const GPTEmbeddingsMaxTokens = 8192
+const GPTEmbeddingsModel = "text-embedding-ada-002"
+
+func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, error) {
+	req := gpt3.EmbeddingsRequest{
+		Input: input,
+		Model: GPTEmbeddingsModel,
+	}
+
+	if this.verbose {
+		summary := fmt.Sprintf("Embedding %d strings: [", len(input))
+		for i, s := range input {
+			if i > 0 {
+				summary += ",\n"
+			} else {
+				summary += "\n"
+			}
+			summary += s
+		}
+		summary += "]"
+	}
+
+	resp, err := this.client.Embeddings(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	result := [][]float64{}
+	for _, embedding := range resp.Data {
+		result = append(result, embedding.Embedding)
+	}
+
+	return result, nil
 }

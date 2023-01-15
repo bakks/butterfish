@@ -78,7 +78,7 @@ func stripANSI(str string) string {
 func filterNonPrintable(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch r {
-		case '\n', '\t':
+		case '\n', '\t': // we don't want to filter these out though
 			return r
 
 		default:
@@ -114,7 +114,7 @@ func (this *StyledWriter) Write(p []byte) (n int, err error) {
 	}
 
 	if string(p) == "NO" {
-		this.cache = append(this.cache, p...)
+		this.cache = p
 		return len(p), nil
 	}
 	if string(p) == "OP" && this.cache != nil {
@@ -125,12 +125,20 @@ func (this *StyledWriter) Write(p []byte) (n int, err error) {
 
 	if this.cache != nil {
 		p = append(this.cache, p...)
+		this.cache = nil
 	}
 
 	str := string(p)
 	rendered := this.Style.Render(str)
 	b := []byte(rendered)
-	return this.Writer.Write(b)
+	_, err = this.Writer.Write(b)
+	if err != nil {
+		return 0, err
+	}
+	// use len(p) rather than len(b) because it would be unexpected to get
+	// a different number of bytes written than were passed in, (lipgloss
+	// render adds ANSI codes)
+	return len(p), nil
 }
 
 func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
@@ -324,6 +332,37 @@ var availableCommands = []string{
 	"prompt", "gencmd", "exec", "remoteexec", "help", "summarize", "exit",
 }
 
+func chunkFile(
+	path string,
+	chunkSize int,
+	maxChunks int,
+	callback func(int, []byte) error) error {
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	buf := make([]byte, chunkSize)
+	for i := 0; i < maxChunks; i++ {
+		n, err := f.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+
+		err = callback(i, buf[:n])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Given a file path we attempt to semantically summarize its content.
 // If the file is short enough, we ask directly for a summary, otherwise
 // we ask for a list of facts and then summarize those.
@@ -337,67 +376,45 @@ var availableCommands = []string{
 // of both your inputs and outputs. As a rough rule of thumb, 1 token is
 // approximately 4 characters or 0.75 words for English text.
 func (this *ButterfishCtx) summarizePath(path string) error {
-	// open file
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
 	const bytesPerChunk = 3800
 	const maxChunks = 8
-	buffer := make([]byte, bytesPerChunk)
-
-	// read file
-	bytesRead, err := file.Read(buffer)
-	if err != nil && err != io.EOF {
-		return err
-	}
 
 	fmt.Fprintf(this.out, "Summarizing %s\n", path)
 	writer := NewStyledWriter(this.out, summarizeStyle)
+	chunks := [][]byte{}
 
-	if bytesRead < bytesPerChunk {
+	chunkFile(path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
+		chunks = append(chunks, buf)
+		return nil
+	})
+
+	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
-		prompt := fmt.Sprintf(summarizePrompt, path, string(buffer))
-		//fmt.Fprintf(console, prompt)
-		err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
+		prompt := fmt.Sprintf(summarizePrompt, path, string(chunks[0]))
+		return this.gptClient.CompletionStream(this.ctx, prompt, writer)
+	}
+
+	// the document doesn't fit within the token limit, we'll iterate over it
+	// and summarize each chunk as facts, then ask for a summary of facts
+	facts := strings.Builder{}
+
+	for _, chunk := range chunks {
+		if len(chunk) < 16 {
+			break
+		}
+
+		prompt := fmt.Sprintf(summarizeFactsPrompt, path, string(chunk))
+		resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 		if err != nil {
 			return err
 		}
-	} else {
-		// the document doesn't fit within the token limit, we'll iterate over it
-		// and summarize each chunk as facts, then ask for a summary of facts
-
-		facts := strings.Builder{}
-
-		for i := 0; i < maxChunks; i++ {
-			prompt := fmt.Sprintf(summarizeFactsPrompt, path, string(buffer))
-			resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
-			if err != nil {
-				return err
-			}
-			facts.WriteString(resp)
-			fmt.Fprintf(this.out, "Chunk %d: %s", i, resp)
-
-			bytesRead, err := file.Read(buffer)
-			if err != nil && err != io.EOF {
-				return err
-			}
-
-			if bytesRead < 16 {
-				break
-			}
-		}
-
-		mergedFacts := facts.String()
-		prompt := fmt.Sprintf(summarizeListOfFactsPrompt, path, mergedFacts)
-		fmt.Fprintf(this.out, prompt)
-		err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
-
+		facts.WriteString(resp)
+		facts.WriteString("\n")
 	}
 
-	return nil
+	mergedFacts := facts.String()
+	prompt := fmt.Sprintf(summarizeListOfFactsPrompt, path, mergedFacts)
+	return this.gptClient.CompletionStream(this.ctx, prompt, writer)
 }
 
 // Iterate through a list of file paths and summarize each
@@ -477,16 +494,17 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 }
 
 type ButterfishCtx struct {
-	ctx              context.Context  // global context, should be passed through to other calls
-	gptClient        *GPT             // GPT client
-	out              io.Writer        // output writer
-	commandRegister  string           // landing space for generated commands
-	consoleCmdChan   <-chan string    // channel for console commands
-	clientController ClientController // client controller
+	ctx              context.Context   // global context, should be passed through to other calls
+	config           *butterfishConfig // configuration
+	gptClient        *GPT              // GPT client
+	out              io.Writer         // output writer
+	commandRegister  string            // landing space for generated commands
+	consoleCmdChan   <-chan string     // channel for console commands
+	clientController ClientController  // client controller
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
-func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
+func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 	cmd = strings.TrimSpace(cmd)
 	miniCmd := getMiniCmd(cmd)
 	txt := ""
@@ -498,6 +516,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 	switch miniCmd {
 	case "exit":
 		fmt.Fprintf(this.out, "Exiting...")
+		return true, nil
 
 	case "help":
 		fmt.Fprintf(this.out, "Available commands: %s", strings.Join(availableCommands, ", "))
@@ -510,46 +529,46 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) error {
 		}
 
 		err := this.summarizeCommand(fields[1:])
-		return err
+		return false, err
 
 	case "gencmd":
 		fields := strings.Split(cmd, " ")
 		if len(fields) < 2 {
-			return errors.New("Please provide a description to generate a command")
+			return false, errors.New("Please provide a description to generate a command")
 		}
 
 		description := strings.Join(fields[1:], " ")
 		_, err := this.gencmdCommand(description)
-		return err
+		return false, err
 
 	case "execremote":
 		if this.commandRegister == "" && txt == "" {
-			return errors.New("No command to execute")
+			return false, errors.New("No command to execute")
 		}
 
-		return this.execremoteCommand(txt)
+		return false, this.execremoteCommand(txt)
 
 	case "exec":
 		if this.commandRegister == "" && txt == "" {
-			return errors.New("No command to execute")
+			return false, errors.New("No command to execute")
 		}
 
-		return this.execCommand(txt)
+		return false, this.execCommand(txt)
 
 	case "prompt":
 		if txt == "" {
-			return errors.New("Please provide a prompt")
+			return false, errors.New("Please provide a prompt")
 		}
 
 		writer := NewStyledWriter(this.out, questionStyle)
-		return this.gptClient.CompletionStream(this.ctx, txt, writer)
+		return false, this.gptClient.CompletionStream(this.ctx, txt, writer)
 
 	default:
-		return errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
+		return false, errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
 
 	}
 
-	return nil
+	return false, nil
 }
 
 func (this *ButterfishCtx) printError(err error, prefix ...string) {
@@ -588,10 +607,13 @@ func (this *ButterfishCtx) serverMultiplexer() {
 	for {
 		select {
 		case cmd := <-this.consoleCmdChan:
-			err := this.handleConsoleCommand(cmd)
+			exit, err := this.handleConsoleCommand(cmd)
 			if err != nil {
 				this.printError(err)
 				continue
+			}
+			if exit {
+				return
 			}
 
 		case clientData := <-clientInput:
@@ -633,6 +655,7 @@ func newButterfishCtx(ctx context.Context, config *butterfishConfig) *Butterfish
 
 	return &ButterfishCtx{
 		ctx:       ctx,
+		config:    config,
 		gptClient: gpt,
 		out:       os.Stdout,
 	}
@@ -745,6 +768,7 @@ func main() {
 
 		butterfishCtx := ButterfishCtx{
 			ctx:              ctx,
+			config:           config,
 			gptClient:        gpt,
 			out:              cons,
 			consoleCmdChan:   consoleCommand,
