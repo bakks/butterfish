@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"unicode"
@@ -367,23 +369,17 @@ func chunkFile(
 
 // embedFile takes a path to a file, splits the file into chunks, and calls
 // the embedding API for each chunk
-func (this *ButterfishCtx) embedFile(path string) ([][]float64, error) {
-	embeddings := [][]float64{}
-	chunks := []string{}
+func (this *ButterfishCtx) embedFile(path string) ([]AnnotatedVector, error) {
 	const chunkSize = 1024
 	const chunksPerCall = 8
+	const maxChunks = 8 * 128
 
-	err := chunkFile(path, chunkSize, -1, func(i int, chunk []byte) error {
+	chunks := []string{}
+	annotatedVectors := []AnnotatedVector{}
+
+	// first we chunk the file
+	err := chunkFile(path, chunkSize, maxChunks, func(i int, chunk []byte) error {
 		chunks = append(chunks, string(chunk))
-		if len(chunks) == chunksPerCall {
-			newEmbeddings, err := this.gptClient.Embeddings(this.ctx, chunks)
-			if err != nil {
-				return err
-			}
-
-			embeddings = append(embeddings, newEmbeddings...)
-			chunks = []string{}
-		}
 		return nil
 	})
 
@@ -391,7 +387,109 @@ func (this *ButterfishCtx) embedFile(path string) ([][]float64, error) {
 		return nil, err
 	}
 
-	return embeddings, nil
+	// then we call the embedding API for each block of chunks
+	for i := 0; i < len(chunks); i += chunksPerCall {
+		callChunks := chunks[i:min(i+chunksPerCall, len(chunks))]
+		newEmbeddings, err := this.gptClient.Embeddings(this.ctx, callChunks)
+		if err != nil {
+			return nil, err
+		}
+
+		// iterate through response, create an annotation, and create an annotated vector
+		for j, embedding := range newEmbeddings {
+			rangeStart := (i + j) * chunkSize
+			rangeEnd := rangeStart + len(callChunks[j])
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return nil, err
+			}
+
+			// The note is the absolute path to the file, the beginning of the
+			// range in bytes, and the end of the range in bytes
+			note := fmt.Sprintf("%s:%d:%d", absPath, rangeStart, rangeEnd)
+
+			av, err := NewAnnotatedVector(note, embedding)
+			if err != nil {
+				return nil, err
+			}
+			annotatedVectors = append(annotatedVectors, av)
+		}
+	}
+
+	return annotatedVectors, nil
+}
+
+// searchFileChunks gets the embeddings for the searchStr using the GPT API,
+// searches the vector index for the closest matches, then returns the notes
+// associated with those vectors
+func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]string, error) {
+	const searchLimit = 3
+	// call embedding API with search string
+	embeddings, err := this.gptClient.Embeddings(this.ctx, []string{searchStr})
+	if err != nil {
+		return nil, err
+	}
+
+	// search the index for the closest matches
+	nearest, err := this.vectorIndex.SearchRaw(embeddings[0], searchLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	notes := []string{}
+	for _, n := range nearest {
+		notes = append(notes, n.Vector.Note)
+	}
+
+	return notes, nil
+}
+
+func fetchFileChunks(notes []string) ([]string, error) {
+	chunks := []string{}
+
+	for _, note := range notes {
+		// parse the note
+		parts := strings.Split(note, ":")
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("invalid note: %s", note)
+		}
+
+		// get the file path, start byte, and end byte
+		path := parts[0]
+		start, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return nil, err
+		}
+		end, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, err
+		}
+
+		// read the file
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+
+		// seek to the start byte
+		_, err = f.Seek(int64(start), 0)
+		if err != nil {
+			return nil, err
+		}
+
+		// read the chunk
+		buf := make([]byte, end-start)
+		_, err = f.Read(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		// add the chunk to the map
+		chunks = append(chunks, string(buf))
+	}
+
+	return chunks, nil
 }
 
 // Given a file path we attempt to semantically summarize its content.
@@ -532,6 +630,7 @@ type ButterfishCtx struct {
 	commandRegister  string            // landing space for generated commands
 	consoleCmdChan   <-chan string     // channel for console commands
 	clientController ClientController  // client controller
+	vectorIndex      *VectorIndex      // in-memory vector index
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
@@ -601,9 +700,37 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		// TODO make this a loop to do multiple files
 		embeddings, err := this.embedFile(txt)
 		for _, embedding := range embeddings {
-			fmt.Fprintf(this.out, "Embedding: %v ...\n", embedding[0:8])
+			fmt.Fprintf(this.out, embedding.String()+"\n")
 		}
+
+		index := NewVectorIndex()
+		for _, embedding := range embeddings {
+			index.AddAnnotatedVector(embedding)
+		}
+		this.vectorIndex = index
 		return false, err
+
+	case "vecsearch":
+		if txt == "" {
+			return false, errors.New("Please provide search parameters")
+		}
+
+		if this.vectorIndex == nil {
+			return false, errors.New("No vector index loaded")
+		}
+		paths, err := this.searchFileChunks(txt)
+		if err != nil {
+			return false, err
+		}
+
+		fileChunks, err := fetchFileChunks(paths)
+		if err != nil {
+			return false, err
+		}
+
+		for i, fileChunk := range fileChunks {
+			fmt.Fprintf(this.out, "%s\n%s\n\n", paths[i], fileChunk)
+		}
 
 	default:
 		return false, errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
@@ -744,6 +871,9 @@ var cli struct {
 		Prompt string `arg:"" help:"Prompt describing the desired shell command."`
 		Force  bool   `short:"f" default:"false" help:"Execute the command without prompting."`
 	} `cmd:"" help:"Generate a shell command from a prompt."`
+
+	Index struct {
+	} `cmd:"" help:"Index the current directory."`
 }
 
 type butterfishConfig struct {
@@ -854,6 +984,9 @@ func main() {
 				os.Exit(1)
 			}
 		}
+
+	case "index":
+		os.Exit(0)
 
 	default:
 		fmt.Printf("Unknown command: %s", kongCtx.Command())
