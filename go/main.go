@@ -319,6 +319,11 @@ const gencmdPrompt = `Write a shell command that accomplishes the following goal
 
 Shell command:`
 
+const questionPrompt = `Answer this question about a file:"%s". Here are some snippets from the file separated by '---'.
+'''
+%s
+'''`
+
 var questionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 var summarizeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
 var errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("198"))
@@ -370,7 +375,7 @@ func chunkFile(
 // embedFile takes a path to a file, splits the file into chunks, and calls
 // the embedding API for each chunk
 func (this *ButterfishCtx) embedFile(path string) ([]AnnotatedVector, error) {
-	const chunkSize = 1024
+	const chunkSize = 768
 	const chunksPerCall = 8
 	const maxChunks = 8 * 128
 
@@ -698,10 +703,13 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 			return false, errors.New("Please provide file(s) to index")
 		}
 		// TODO make this a loop to do multiple files
+		path := txt
 		embeddings, err := this.embedFile(txt)
-		for _, embedding := range embeddings {
-			fmt.Fprintf(this.out, embedding.String()+"\n")
+		if err != nil {
+			return false, err
 		}
+
+		fmt.Fprintf(this.out, "Indexed %s\n", path)
 
 		index := NewVectorIndex()
 		for _, embedding := range embeddings {
@@ -714,10 +722,10 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		if txt == "" {
 			return false, errors.New("Please provide search parameters")
 		}
-
 		if this.vectorIndex == nil {
 			return false, errors.New("No vector index loaded")
 		}
+
 		paths, err := this.searchFileChunks(txt)
 		if err != nil {
 			return false, err
@@ -731,6 +739,31 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		for i, fileChunk := range fileChunks {
 			fmt.Fprintf(this.out, "%s\n%s\n\n", paths[i], fileChunk)
 		}
+
+	case "question":
+		if txt == "" {
+			return false, errors.New("Please provide a question")
+		}
+		if this.vectorIndex == nil {
+			return false, errors.New("No vector index loaded")
+		}
+
+		paths, err := this.searchFileChunks(txt)
+		if err != nil {
+			return false, err
+		}
+
+		fileChunks, err := fetchFileChunks(paths)
+		if err != nil {
+			return false, err
+		}
+
+		samples := fileChunks[:min(len(fileChunks), 2)]
+		exerpts := strings.Join(samples, "\n---\n")
+
+		prompt := fmt.Sprintf(questionPrompt, txt, exerpts)
+		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out)
+		return false, err
 
 	default:
 		return false, errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
