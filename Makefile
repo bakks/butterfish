@@ -4,7 +4,7 @@ buildtime := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 commit := $(shell bash ./bin/gitcommit.sh)
 flags := -X main.BuildVersion=dev -X main.BuildArch=dev -X main.BuildCommit=${commit} -X main.BuildTimestamp=${buildtime} -X main.BuildOs=dev
 
-all: bin/butterfish
+all: build test
 
 proto/butterfish.pb.go: proto/butterfish.proto
 	cd proto && protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative butterfish.proto
@@ -14,9 +14,15 @@ bin/butterfish: proto/butterfish.pb.go $(gofiles) Makefile
 	cd go && go build -ldflags "${flags}" -o ../bin/butterfish
 
 clean:
-	rm -f bin/* proto/*.go
+	rm -f bin/butterfish proto/*.go
 
-watch:
+watch: Makefile
 	find . -name "*.go" -o -name "*.proto" | entr -c make
 
-.PHONY: all clean watch
+test: proto/butterfish.pb.go
+	cd go && go test ./...
+
+build: bin/butterfish
+
+.PHONY: all clean watch test build
+

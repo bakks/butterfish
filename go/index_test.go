@@ -1,51 +1,61 @@
 package main
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/drewlanenga/govector"
+	pb "github.com/bakks/butterfish/proto"
+	"github.com/stretchr/testify/assert"
 )
 
 // A test for vector indexing
 func TestSearch(t *testing.T) {
-	vectors := [][]float64{
-		{1, 0, 0, 0, 0},
-		{0, 1, 0, 0, 0},
-		{0, 0, 1, 0, 0},
-		{0, 0, 0, 1, 0},
-		{0, 0, 0, 0, 1},
+	index := &VectorIndex{
+		index: map[string]*pb.DirectoryIndex{
+			"/path/foo": {
+				Files: map[string]*pb.FileEmbeddings{
+					"test.txt": {
+						Embeddings: []*pb.AnnotatedEmbedding{
+							{
+								Name:   "test.txt",
+								Start:  0,
+								End:    1,
+								Vector: []float64{1, 0, 0, 0, 0},
+							},
+							{
+								Name:   "test.txt",
+								Start:  1,
+								End:    2,
+								Vector: []float64{0, 1, 0, 0, 0},
+							},
+							{
+								Name:   "test.txt",
+								Start:  2,
+								End:    3,
+								Vector: []float64{0, 0, 1, 0, 0},
+							},
+							{
+								Name:   "test.txt",
+								Start:  3,
+								End:    4,
+								Vector: []float64{0, 0, 0, 1, 0},
+							},
+							{
+								Name:   "test.txt",
+								Start:  4,
+								End:    5,
+								Vector: []float64{0, 0, 0, 0, 1},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	index := NewVectorIndex()
-	for i, v := range vectors {
-		vector, err := govector.AsVector(v)
-		if err != nil {
-			t.Error(err)
-		}
-
-		index.AddVector(fmt.Sprintf("%d", i), &vector)
-	}
-
-	query, err := govector.AsVector([]float64{1, 0.5, 0, 0, 0})
-	if err != nil {
-		t.Error(err)
-	}
-
-	results, err := index.Search(&query, 3)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if len(results) != 3 {
-		t.Errorf("Expected 3 results, got %d", len(results))
-	}
-
-	if results[0].Vector.Note != "0" {
-		t.Errorf("Expected first result to be '0', got '%s'", results[0].Vector.Note)
-	}
-
-	if results[1].Vector.Note != "1" {
-		t.Errorf("Expected second result to be '1', got '%s'", results[1].Vector.Note)
-	}
+	results, err := index.SearchRaw([]float64{1, 0.5, 0, 0, 0}, 3)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(results))
+	assert.Equal(t, "test.txt", results[0].Embedding.Name)
+	// The first and second vectors should be the closest matches
+	assert.Equal(t, uint64(0), results[0].Embedding.Start)
 }

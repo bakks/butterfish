@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"unicode"
@@ -343,7 +342,7 @@ var availableCommands = []string{
 // call the callback for each chunk
 func chunkFile(
 	path string,
-	chunkSize int,
+	chunkSize uint64,
 	maxChunks int,
 	callback func(int, []byte) error) error {
 
@@ -372,15 +371,15 @@ func chunkFile(
 	return nil
 }
 
-// embedFile takes a path to a file, splits the file into chunks, and calls
+// EmbedFile takes a path to a file, splits the file into chunks, and calls
 // the embedding API for each chunk
-func (this *ButterfishCtx) embedFile(path string) ([]AnnotatedVector, error) {
-	const chunkSize = 768
+func (this *ButterfishCtx) EmbedFile(path string) ([]*AnnotatedVector, error) {
+	const chunkSize uint64 = 768
 	const chunksPerCall = 8
 	const maxChunks = 8 * 128
 
 	chunks := []string{}
-	annotatedVectors := []AnnotatedVector{}
+	annotatedVectors := []*AnnotatedVector{}
 
 	// first we chunk the file
 	err := chunkFile(path, chunkSize, maxChunks, func(i int, chunk []byte) error {
@@ -402,18 +401,14 @@ func (this *ButterfishCtx) embedFile(path string) ([]AnnotatedVector, error) {
 
 		// iterate through response, create an annotation, and create an annotated vector
 		for j, embedding := range newEmbeddings {
-			rangeStart := (i + j) * chunkSize
-			rangeEnd := rangeStart + len(callChunks[j])
+			rangeStart := uint64(i+j) * chunkSize
+			rangeEnd := rangeStart + uint64(len(callChunks[j]))
 			absPath, err := filepath.Abs(path)
 			if err != nil {
 				return nil, err
 			}
 
-			// The note is the absolute path to the file, the beginning of the
-			// range in bytes, and the end of the range in bytes
-			note := fmt.Sprintf("%s:%d:%d", absPath, rangeStart, rangeEnd)
-
-			av, err := NewAnnotatedVector(note, embedding)
+			av := NewAnnotatedVector(absPath, rangeStart, rangeEnd, embedding)
 			if err != nil {
 				return nil, err
 			}
@@ -427,7 +422,7 @@ func (this *ButterfishCtx) embedFile(path string) ([]AnnotatedVector, error) {
 // searchFileChunks gets the embeddings for the searchStr using the GPT API,
 // searches the vector index for the closest matches, then returns the notes
 // associated with those vectors
-func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]string, error) {
+func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]*ScoredEmbedding, error) {
 	const searchLimit = 3
 	// call embedding API with search string
 	embeddings, err := this.gptClient.Embeddings(this.ctx, []string{searchStr})
@@ -436,46 +431,22 @@ func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]string, error) 
 	}
 
 	// search the index for the closest matches
-	nearest, err := this.vectorIndex.SearchRaw(embeddings[0], searchLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	notes := []string{}
-	for _, n := range nearest {
-		notes = append(notes, n.Vector.Note)
-	}
-
-	return notes, nil
+	return this.vectorIndex.SearchRaw(embeddings[0], searchLimit)
 }
 
-func fetchFileChunks(notes []string) ([]string, error) {
+func fetchFileChunks(embeddings []*ScoredEmbedding) ([]string, error) {
 	chunks := []string{}
 
-	for _, note := range notes {
-		// parse the note
-		parts := strings.Split(note, ":")
-		if len(parts) != 3 {
-			return nil, fmt.Errorf("invalid note: %s", note)
-		}
-
-		// get the file path, start byte, and end byte
-		path := parts[0]
-		start, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return nil, err
-		}
-		end, err := strconv.Atoi(parts[2])
-		if err != nil {
-			return nil, err
-		}
-
+	for _, embedding := range embeddings {
 		// read the file
-		f, err := os.Open(path)
+		f, err := os.Open(embedding.Embedding.Name)
 		if err != nil {
 			return nil, err
 		}
 		defer f.Close()
+
+		start := embedding.Embedding.Start
+		end := embedding.Embedding.End
 
 		// seek to the start byte
 		_, err = f.Seek(int64(start), 0)
@@ -638,6 +609,10 @@ type ButterfishCtx struct {
 	vectorIndex      *VectorIndex      // in-memory vector index
 }
 
+func (this *ButterfishCtx) loadVectorIndex() {
+	this.vectorIndex = NewVectorIndex()
+}
+
 // A function to handle a cmd string when received from consoleCommand channel
 func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 	cmd = strings.TrimSpace(cmd)
@@ -702,20 +677,14 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		if txt == "" {
 			return false, errors.New("Please provide file(s) to index")
 		}
-		// TODO make this a loop to do multiple files
-		path := txt
-		embeddings, err := this.embedFile(txt)
-		if err != nil {
-			return false, err
+
+		if this.vectorIndex == nil {
+			this.loadVectorIndex()
 		}
 
-		fmt.Fprintf(this.out, "Indexed %s\n", path)
-
-		index := NewVectorIndex()
-		for _, embedding := range embeddings {
-			index.AddAnnotatedVector(embedding)
-		}
-		this.vectorIndex = index
+		this.vectorIndex.LoadPaths(fields[1:])
+		this.vectorIndex.SetEmbedder(this)
+		err := this.vectorIndex.UpdatePaths(fields[1:], false)
 		return false, err
 
 	case "vecsearch":
@@ -726,18 +695,18 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 			return false, errors.New("No vector index loaded")
 		}
 
-		paths, err := this.searchFileChunks(txt)
+		scores, err := this.searchFileChunks(txt)
 		if err != nil {
 			return false, err
 		}
 
-		fileChunks, err := fetchFileChunks(paths)
+		fileChunks, err := fetchFileChunks(scores)
 		if err != nil {
 			return false, err
 		}
 
 		for i, fileChunk := range fileChunks {
-			fmt.Fprintf(this.out, "%s\n%s\n\n", paths[i], fileChunk)
+			fmt.Fprintf(this.out, "%s\n%s\n\n", scores[i].Embedding.Name, fileChunk)
 		}
 
 	case "question":

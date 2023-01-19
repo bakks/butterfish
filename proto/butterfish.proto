@@ -2,6 +2,10 @@ syntax = "proto3";
 
 option go_package = "github.com/teglon/butterfish/proto";
 
+// Define the butterfish client/server bidirectional streaming interface.
+// This allows a client to send a stream of messages about a wrapped command,
+// e.g. the client wraps a shell, the user types commands, the client sends
+// information about how they've started the shell, and its stdin/stdout/stderr.
 service Butterfish {
   rpc StreamsForWrapping(stream ClientPush) returns (stream ServerPush) {}
 }
@@ -28,4 +32,28 @@ message ClientInput {
 
 message ServerPush {
   bytes data = 1;
+}
+
+// A format for serializing indexes of vector embeddings for a directory
+// and its constituent files.
+
+import "google/protobuf/timestamp.proto";
+
+message FileEmbeddings {
+  string path = 1;
+  // When the embedding was created, if an earlier timestamp than the file
+  // edit time then the file should be re-embedded.
+  google.protobuf.Timestamp updated_at = 2;
+  repeated AnnotatedEmbedding embeddings = 3;
+}
+
+message DirectoryIndex {
+  map<string, FileEmbeddings> files = 1;
+}
+
+message AnnotatedEmbedding {
+  string name = 1;  // filename, relative path to the DirectoryIndex, e.g. ./foo
+  uint64 start = 2; // start index in bytes to the file chunk
+  uint64 end = 3;   // end index in bytes to the file chunk
+  repeated double vector = 4;
 }
