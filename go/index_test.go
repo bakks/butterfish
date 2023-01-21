@@ -52,7 +52,7 @@ func TestSearch(t *testing.T) {
 		},
 	}
 
-	results, err := index.SearchRaw([]float64{1, 0.5, 0, 0, 0}, 3)
+	results, err := index.Search([]float64{1, 0.5, 0, 0, 0}, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(results))
 	assert.Equal(t, "test.txt", results[0].Embedding.Name)

@@ -373,7 +373,7 @@ func chunkFile(
 
 // EmbedFile takes a path to a file, splits the file into chunks, and calls
 // the embedding API for each chunk
-func (this *ButterfishCtx) EmbedFile(path string) ([]*AnnotatedVector, error) {
+func (this *ButterfishCtx) EmbedFile(ctx context.Context, path string) ([]*AnnotatedVector, error) {
 	const chunkSize uint64 = 768
 	const chunksPerCall = 8
 	const maxChunks = 8 * 128
@@ -383,6 +383,11 @@ func (this *ButterfishCtx) EmbedFile(path string) ([]*AnnotatedVector, error) {
 
 	// first we chunk the file
 	err := chunkFile(path, chunkSize, maxChunks, func(i int, chunk []byte) error {
+		// check if we should bail out
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		chunks = append(chunks, string(chunk))
 		return nil
 	})
@@ -393,6 +398,11 @@ func (this *ButterfishCtx) EmbedFile(path string) ([]*AnnotatedVector, error) {
 
 	// then we call the embedding API for each block of chunks
 	for i := 0; i < len(chunks); i += chunksPerCall {
+		// check if we should bail out
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		callChunks := chunks[i:min(i+chunksPerCall, len(chunks))]
 		newEmbeddings, err := this.gptClient.Embeddings(this.ctx, callChunks)
 		if err != nil {
@@ -431,7 +441,7 @@ func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]*ScoredEmbeddin
 	}
 
 	// search the index for the closest matches
-	return this.vectorIndex.SearchRaw(embeddings[0], searchLimit)
+	return this.vectorIndex.Search(embeddings[0], searchLimit)
 }
 
 func fetchFileChunks(embeddings []*ScoredEmbedding) ([]string, error) {
@@ -609,8 +619,16 @@ type ButterfishCtx struct {
 	vectorIndex      *VectorIndex      // in-memory vector index
 }
 
+// Ensure we have a vector index object, idempotent
 func (this *ButterfishCtx) loadVectorIndex() {
+	if this.vectorIndex != nil {
+		return
+	}
+
 	this.vectorIndex = NewVectorIndex()
+	if this.config.Verbose {
+		this.vectorIndex.SetOutput(this.out)
+	}
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
@@ -673,18 +691,51 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		writer := NewStyledWriter(this.out, questionStyle)
 		return false, this.gptClient.CompletionStream(this.ctx, txt, writer)
 
+	case "clearindex":
+		if txt == "" {
+			txt = "."
+		}
+
+		this.vectorIndex.Clear(txt)
+		return false, nil
+
+	case "showindex":
+		paths := this.vectorIndex.ShowIndexed()
+		for _, path := range paths {
+			fmt.Fprintf(this.out, "%s\n", path)
+		}
+
+		return false, nil
+
+	case "loadindex":
+		if txt == "" {
+			txt = "."
+		}
+
+		fmt.Fprintf(this.out, "Loading indexes for %s (not generating new embeddings)\n", txt)
+		this.loadVectorIndex()
+
+		err := this.vectorIndex.LoadPaths(this.ctx, fields[1:])
+		if err != nil {
+			return false, err
+		}
+
 	case "index":
 		if txt == "" {
-			return false, errors.New("Please provide file(s) to index")
+			txt = "."
 		}
 
-		if this.vectorIndex == nil {
-			this.loadVectorIndex()
+		fmt.Fprintf(this.out, "Indexing %s\n", txt)
+
+		this.loadVectorIndex()
+
+		err := this.vectorIndex.LoadPaths(this.ctx, fields[1:])
+		if err != nil {
+			return false, err
 		}
 
-		this.vectorIndex.LoadPaths(fields[1:])
 		this.vectorIndex.SetEmbedder(this)
-		err := this.vectorIndex.UpdatePaths(fields[1:], false)
+		err = this.vectorIndex.UpdatePaths(this.ctx, fields[1:], false)
 		return false, err
 
 	case "vecsearch":
