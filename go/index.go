@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	pb "github.com/bakks/butterfish/proto"
 	"github.com/drewlanenga/govector"
 	"github.com/golang/protobuf/proto"
+	"golang.org/x/tools/godoc/util"
+	"golang.org/x/tools/godoc/vfs"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -291,6 +295,18 @@ func (this *VectorIndex) ShouldFilterPath(path string) bool {
 	if filepath.Base(path)[0] == '.' {
 		return true
 	}
+
+	// Ignore files that are not text based on file name
+	mimeType := mime.TypeByExtension(filepath.Ext(path))
+	if !strings.HasPrefix(mimeType, "text/") {
+		return true
+	}
+
+	// Ignore files that are not text based on a content check
+	if !util.IsTextFile(vfs.OS("/"), path) {
+		return true
+	}
+
 	return false
 }
 
@@ -322,7 +338,11 @@ func (this *VectorIndex) UpdatePath(ctx context.Context, path string, force bool
 		fmt.Fprintf(this.out, "VectorIndex.UpdatePath(%s)\n", path)
 	}
 
-	path = filepath.Clean(path)
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -353,10 +373,14 @@ func (this *VectorIndex) UpdatePath(ctx context.Context, path string, force bool
 
 			// Skip filtered files
 			if this.ShouldFilterPath(childPath) {
+				if this.verbosity >= 2 {
+					fmt.Fprintf(this.out, "Filtering path %s from update\n", childPath)
+				}
 				return nil
 			}
 
 			if !info.IsDir() {
+				// if this is just a file then add it to the update list
 				toUpdate = append(toUpdate, childPath)
 				stats = append(stats, info)
 			} else {
