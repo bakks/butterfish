@@ -449,7 +449,7 @@ func fetchFileChunks(embeddings []*ScoredEmbedding) ([]string, error) {
 
 	for _, embedding := range embeddings {
 		// read the file
-		f, err := os.Open(embedding.Embedding.Name)
+		f, err := os.Open(embedding.AbsPath)
 		if err != nil {
 			return nil, err
 		}
@@ -757,7 +757,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		}
 
 		for i, fileChunk := range fileChunks {
-			fmt.Fprintf(this.out, "%s\n%s\n\n", scores[i].Embedding.Name, fileChunk)
+			fmt.Fprintf(this.out, "%s\n%s\n\n", scores[i].AbsPath, fileChunk)
 		}
 
 	case "question":

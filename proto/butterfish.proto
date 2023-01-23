@@ -39,20 +39,22 @@ message ServerPush {
 
 import "google/protobuf/timestamp.proto";
 
+// Represents the constituent files of a directory, this should map a relative
+// path from the directory to a file within it (but not within a child dir).
+message DirectoryIndex {
+  // string should be a relative path, e.g. "./foo.txt"
+  map<string, FileEmbeddings> files = 1;
+}
+
 message FileEmbeddings {
-  string path = 1;
+  string path = 1;  // filename, relative path to the DirectoryIndex, e.g. ./foo
   // When the embedding was created, if an earlier timestamp than the file
   // edit time then the file should be re-embedded.
   google.protobuf.Timestamp updated_at = 2;
   repeated AnnotatedEmbedding embeddings = 3;
 }
 
-message DirectoryIndex {
-  map<string, FileEmbeddings> files = 1;
-}
-
 message AnnotatedEmbedding {
-  string name = 1;  // filename, relative path to the DirectoryIndex, e.g. ./foo
   uint64 start = 2; // start index in bytes to the file chunk
   uint64 end = 3;   // end index in bytes to the file chunk
   repeated double vector = 4;

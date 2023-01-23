@@ -15,6 +15,7 @@ import (
 	pb "github.com/bakks/butterfish/proto"
 	"github.com/drewlanenga/govector"
 	"github.com/golang/protobuf/proto"
+	"github.com/spf13/afero"
 	"golang.org/x/tools/godoc/util"
 	"golang.org/x/tools/godoc/vfs"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -39,7 +40,6 @@ func NewAnnotatedVector(name string, start uint64, end uint64, vector []float64)
 
 func (this *AnnotatedVector) ToProto() *pb.AnnotatedEmbedding {
 	return &pb.AnnotatedEmbedding{
-		Name:   this.Name,
 		Start:  this.Start,
 		End:    this.End,
 		Vector: this.Vector,
@@ -56,6 +56,7 @@ func AnnotatedVectorsInternalToProto(internal []*AnnotatedVector) []*pb.Annotate
 
 type ScoredEmbedding struct {
 	Score     float64
+	AbsPath   string
 	Embedding *pb.AnnotatedEmbedding
 }
 
@@ -64,16 +65,19 @@ type Embedder interface {
 }
 
 type VectorIndex struct {
+	// maps absolute path of directory to a directory index
 	index     map[string]*pb.DirectoryIndex
 	embedder  Embedder
 	out       io.Writer
 	verbosity int
+	fs        afero.Fs
 }
 
 func NewVectorIndex() *VectorIndex {
 	return &VectorIndex{
 		index: make(map[string]*pb.DirectoryIndex),
 		out:   os.Stdout,
+		fs:    afero.NewOsFs(),
 	}
 }
 
@@ -105,8 +109,8 @@ func (this *VectorIndex) Search(query []float64, k int) ([]*ScoredEmbedding, err
 func (this *VectorIndex) SearchWithVector(query *govector.Vector, k int) ([]*ScoredEmbedding, error) {
 	scored := []*ScoredEmbedding{}
 
-	for _, dirIndex := range this.index {
-		for _, fileIndex := range dirIndex.Files {
+	for dirIndexAbsPath, dirIndex := range this.index {
+		for filename, fileIndex := range dirIndex.Files {
 			for _, embedding := range fileIndex.Embeddings {
 				govec, err := govector.AsVector(embedding.Vector)
 
@@ -114,7 +118,10 @@ func (this *VectorIndex) SearchWithVector(query *govector.Vector, k int) ([]*Sco
 				if err != nil {
 					return nil, err
 				}
-				scored = append(scored, &ScoredEmbedding{distance, embedding})
+
+				absPath := filepath.Join(dirIndexAbsPath, filename)
+				scoredEmbedding := &ScoredEmbedding{distance, absPath, embedding}
+				scored = append(scored, scoredEmbedding)
 			}
 		}
 	}
@@ -137,7 +144,7 @@ func (this *VectorIndex) LoadDotfile(dotfile string) error {
 	}
 
 	// Read the entire dotfile into a bytes buffer
-	file, err := os.Open(dotfile)
+	file, err := this.fs.Open(dotfile)
 	if err != nil {
 		return nil
 	}
@@ -221,7 +228,7 @@ func (this *VectorIndex) LoadPath(ctx context.Context, path string) error {
 
 	// Check the path exists, bail out if not
 	path = filepath.Clean(path)
-	fileInfo, err := os.Stat(path)
+	fileInfo, err := this.fs.Stat(path)
 	if err != nil {
 		return err
 	}
@@ -235,7 +242,7 @@ func (this *VectorIndex) LoadPath(ctx context.Context, path string) error {
 	// Check for a butterfish index file, if none found then we take no action,
 	// otherwise we load the index
 	dotfilePath := filepath.Join(dirPath, dotfileName)
-	_, err = os.Stat(dotfilePath)
+	_, err = this.fs.Stat(dotfilePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
@@ -343,7 +350,7 @@ func (this *VectorIndex) UpdatePath(ctx context.Context, path string, force bool
 		return err
 	}
 
-	fileInfo, err := os.Stat(path)
+	fileInfo, err := this.fs.Stat(path)
 	if err != nil {
 		return err
 	}
