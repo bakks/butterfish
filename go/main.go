@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -20,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
 	"github.com/joho/godotenv"
+	"github.com/spf13/afero"
 	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/go/charmcomponents/console"
@@ -338,110 +338,17 @@ var availableCommands = []string{
 	"prompt", "gencmd", "exec", "remoteexec", "help", "summarize", "exit",
 }
 
-// Read a local file, break into chunks of a given number of bytes,
-// call the callback for each chunk
-func chunkFile(
-	path string,
-	chunkSize uint64,
-	maxChunks int,
-	callback func(int, []byte) error) error {
-
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	buf := make([]byte, chunkSize)
-	for i := 0; i < maxChunks || maxChunks == -1; i++ {
-		n, err := f.Read(buf)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if n == 0 {
-			break
-		}
-
-		err = callback(i, buf[:n])
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// EmbedFile takes a path to a file, splits the file into chunks, and calls
-// the embedding API for each chunk
-func (this *ButterfishCtx) EmbedFile(ctx context.Context, path string) ([]*AnnotatedVector, error) {
-	const chunkSize uint64 = 768
-	const chunksPerCall = 8
-	const maxChunks = 8 * 128
-
-	chunks := []string{}
-	annotatedVectors := []*AnnotatedVector{}
-
-	// first we chunk the file
-	err := chunkFile(path, chunkSize, maxChunks, func(i int, chunk []byte) error {
-		// check if we should bail out
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		chunks = append(chunks, string(chunk))
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// then we call the embedding API for each block of chunks
-	for i := 0; i < len(chunks); i += chunksPerCall {
-		// check if we should bail out
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		callChunks := chunks[i:min(i+chunksPerCall, len(chunks))]
-		newEmbeddings, err := this.gptClient.Embeddings(this.ctx, callChunks)
-		if err != nil {
-			return nil, err
-		}
-
-		// iterate through response, create an annotation, and create an annotated vector
-		for j, embedding := range newEmbeddings {
-			rangeStart := uint64(i+j) * chunkSize
-			rangeEnd := rangeStart + uint64(len(callChunks[j]))
-			absPath, err := filepath.Abs(path)
-			if err != nil {
-				return nil, err
-			}
-
-			av := NewAnnotatedVector(absPath, rangeStart, rangeEnd, embedding)
-			if err != nil {
-				return nil, err
-			}
-			annotatedVectors = append(annotatedVectors, av)
-		}
-	}
-
-	return annotatedVectors, nil
-}
-
 // searchFileChunks gets the embeddings for the searchStr using the GPT API,
 // searches the vector index for the closest matches, then returns the notes
 // associated with those vectors
 func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]*ScoredEmbedding, error) {
 	const searchLimit = 3
-	// call embedding API with search string
-	embeddings, err := this.gptClient.Embeddings(this.ctx, []string{searchStr})
-	if err != nil {
-		return nil, err
-	}
-
 	// search the index for the closest matches
-	return this.vectorIndex.Search(embeddings[0], searchLimit)
+	return this.vectorIndex.Search(this.ctx, searchStr, searchLimit)
+}
+
+func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
+	return this.gptClient.Embeddings(ctx, content)
 }
 
 func fetchFileChunks(embeddings []*ScoredEmbedding) ([]string, error) {
@@ -498,7 +405,8 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	writer := NewStyledWriter(this.out, summarizeStyle)
 	chunks := [][]byte{}
 
-	chunkFile(path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
+	fs := afero.NewOsFs()
+	chunkFile(fs, path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
 		chunks = append(chunks, buf)
 		return nil
 	})
@@ -735,7 +643,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		}
 
 		this.vectorIndex.SetEmbedder(this)
-		err = this.vectorIndex.UpdatePaths(this.ctx, fields[1:], false)
+		err = this.vectorIndex.IndexPaths(this.ctx, fields[1:], false)
 		return false, err
 
 	case "vecsearch":

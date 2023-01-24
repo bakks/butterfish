@@ -61,7 +61,7 @@ type ScoredEmbedding struct {
 }
 
 type Embedder interface {
-	EmbedFile(ctx context.Context, path string) ([]*AnnotatedVector, error)
+	CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error)
 }
 
 type VectorIndex struct {
@@ -94,19 +94,25 @@ func (this *VectorIndex) SetVerbosity(verbosity int) {
 	this.verbosity = verbosity
 }
 
-func (this *VectorIndex) Search(query []float64, k int) ([]*ScoredEmbedding, error) {
-	queryVector, err := govector.AsVector(query)
+func (this *VectorIndex) Search(ctx context.Context, query string, numResults int) ([]*ScoredEmbedding, error) {
+	results, err := this.embedder.CalculateEmbeddings(ctx, []string{query})
 	if err != nil {
 		return nil, err
 	}
-	return this.SearchWithVector(&queryVector, k)
+
+	return this.SearchWithVector(results[0], numResults)
 }
 
 // Super naive vector search operation.
 // - First we brute force search by iterating over all stored vectors
 //     and calculating cosine distance
 // - Next we sort based on score
-func (this *VectorIndex) SearchWithVector(query *govector.Vector, k int) ([]*ScoredEmbedding, error) {
+func (this *VectorIndex) SearchWithVector(queryVector []float64, k int) ([]*ScoredEmbedding, error) {
+	query, err := govector.AsVector(queryVector)
+	if err != nil {
+		return nil, err
+	}
+
 	scored := []*ScoredEmbedding{}
 
 	for dirIndexAbsPath, dirIndex := range this.index {
@@ -114,7 +120,7 @@ func (this *VectorIndex) SearchWithVector(query *govector.Vector, k int) ([]*Sco
 			for _, embedding := range fileIndex.Embeddings {
 				govec, err := govector.AsVector(embedding.Vector)
 
-				distance, err := govector.Cosine(*query, govec)
+				distance, err := govector.Cosine(query, govec)
 				if err != nil {
 					return nil, err
 				}
@@ -286,9 +292,9 @@ func (this *VectorIndex) LoadPaths(ctx context.Context, paths []string) error {
 	return nil
 }
 
-func (this *VectorIndex) UpdatePaths(ctx context.Context, paths []string, force bool) error {
+func (this *VectorIndex) IndexPaths(ctx context.Context, paths []string, force bool) error {
 	for _, path := range paths {
-		err := this.UpdatePath(ctx, path, force)
+		err := this.IndexPath(ctx, path, force)
 		if err != nil {
 			return err
 		}
@@ -297,24 +303,60 @@ func (this *VectorIndex) UpdatePaths(ctx context.Context, paths []string, force 
 	return nil
 }
 
-func (this *VectorIndex) ShouldFilterPath(path string) bool {
+// This is a bit of glue to make afero filesystems work with the vfs interface
+type vfsOpener struct {
+	fs afero.Fs
+}
+
+func (this *vfsOpener) Open(path string) (vfs.ReadSeekCloser, error) {
+	return this.fs.Open(path)
+}
+
+// Return true if this is a file we want to index/embed. We use several
+// predicates to determine this.
+// 1. The file must be a non-hidden file (i.e. not starting with a dot)
+// 2. The file must not be a directory (handled separately)
+// 3. The file must be text, not binary, checked by extension/mime-type and
+//    by checking the first few bytes of the file if the extension check passes
+// 4. The file must have been updated since the last indexing, unless forceUpdate is true
+func (this *VectorIndex) IndexableFile(path string, stat os.FileInfo, forceUpdate bool, previousEmbeddings *pb.FileEmbeddings) bool {
 	// Ignore dotfiles/hidden files
 	if filepath.Base(path)[0] == '.' {
-		return true
+		return false
 	}
 
 	// Ignore files that are not text based on file name
 	mimeType := mime.TypeByExtension(filepath.Ext(path))
 	if !strings.HasPrefix(mimeType, "text/") {
-		return true
+		return false
 	}
+
+	opener := &vfsOpener{this.fs}
 
 	// Ignore files that are not text based on a content check
-	if !util.IsTextFile(vfs.OS("/"), path) {
-		return true
+	if !util.IsTextFile(opener, path) {
+		return false
 	}
 
-	return false
+	if !forceUpdate && previousEmbeddings != nil {
+		// Ignore files that have not changed since the last indexing
+		if previousEmbeddings.UpdatedAt.AsTime().Unix() >= stat.ModTime().Unix() {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (this *VectorIndex) FilterUnindexablefiles(paths []string, stats []os.FileInfo, forceUpdate bool, dirIndex *pb.DirectoryIndex) []string {
+	var filteredPaths []string
+	for i, path := range paths {
+		previousEmbeddings := dirIndex.Files[path]
+		if this.IndexableFile(path, stats[i], forceUpdate, previousEmbeddings) {
+			filteredPaths = append(filteredPaths, path)
+		}
+	}
+	return filteredPaths
 }
 
 func (this *VectorIndex) Clear(path string) {
@@ -334,9 +376,15 @@ func (this *VectorIndex) ShowIndexed() []string {
 	return paths
 }
 
+func NewDirectoryIndex() *pb.DirectoryIndex {
+	return &pb.DirectoryIndex{
+		Files: make(map[string]*pb.FileEmbeddings),
+	}
+}
+
 // Force means that we will re-index the file even if the target file hasn't
 // changed since the last index
-func (this *VectorIndex) UpdatePath(ctx context.Context, path string, force bool) error {
+func (this *VectorIndex) IndexPath(ctx context.Context, path string, forceUpdate bool) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -369,107 +417,112 @@ func (this *VectorIndex) UpdatePath(ctx context.Context, path string, force bool
 		dirPath = path
 		toUpdate = []string{}
 
-		err := filepath.Walk(path, func(childPath string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if path == childPath {
-				return nil
-			}
-
-			// Skip filtered files
-			if this.ShouldFilterPath(childPath) {
-				if this.verbosity >= 2 {
-					fmt.Fprintf(this.out, "Filtering path %s from update\n", childPath)
-				}
-				return nil
-			}
-
-			if !info.IsDir() {
-				// if this is just a file then add it to the update list
-				toUpdate = append(toUpdate, childPath)
-				stats = append(stats, info)
-			} else {
-				// recursively update subdirectories
-				this.UpdatePath(ctx, childPath, force)
-			}
-			return nil
+		// call UpdatePath recursively for each subdirectory
+		err = forEachSubdir(ctx, this.fs, path, func(ctx context.Context, path string) error {
+			return this.IndexPath(ctx, path, forceUpdate)
 		})
+
+		// get each non-directory file and stat in the path
+		toUpdate, stats, err = listFiles(ctx, this.fs, path)
 		if err != nil {
 			return nil
 		}
 	}
 
+	// Fetch directory index, create a new one if none found
 	dirIndex, ok := this.index[dirPath]
 	if !ok {
-		dirIndex = &pb.DirectoryIndex{
-			Files: make(map[string]*pb.FileEmbeddings),
-		}
+		dirIndex = NewDirectoryIndex()
 		this.index[dirPath] = dirIndex
 	}
 
-	// Unless we're force-updating we only update files that have changed since
-	// the last indexing
-	if !force {
-		confirmed := []string{}
-
-		for i, path := range toUpdate {
-			fileIndex, ok := dirIndex.Files[path]
-			if ok {
-				// if we found an index
-				if fileIndex.UpdatedAt.AsTime().Unix() >= stats[i].ModTime().Unix() {
-					// if the file has been updated since the last mod time we ignore
-					if this.verbosity >= 1 {
-						fmt.Fprintf(this.out, "Skipping %s, no changes since last update\n", path)
-					}
-					continue
-				}
-				// otherwise fall through to line below
-			}
-			// didn't find already indexed file, add it to confirmed list
-			confirmed = append(confirmed, path)
-		}
-
-		toUpdate = confirmed
-	}
+	toUpdate = this.FilterUnindexablefiles(toUpdate, stats, forceUpdate, dirIndex)
 
 	// Update the index for each file
 	for _, path := range toUpdate {
-		timestamp := time.Now()
-		embeddings, err := this.embedFile(ctx, path)
+		fileEmbeddings, err := this.EmbedFile(ctx, path)
 		if err != nil {
 			return err
-		}
-
-		protoEmbeddings := AnnotatedVectorsInternalToProto(embeddings)
-		fileEmbeddings := &pb.FileEmbeddings{
-			Path:       path,
-			UpdatedAt:  timestamppb.New(timestamp),
-			Embeddings: protoEmbeddings,
 		}
 
 		dirIndex.Files[path] = fileEmbeddings
 	}
 
-	this.SavePath(dirPath)
+	// TODO remove files that have been deleted
+
+	if len(dirIndex.Files) > 0 {
+		this.SavePath(dirPath)
+	}
 
 	return nil
 }
 
-func (this *VectorIndex) embedFile(ctx context.Context, path string) ([]*AnnotatedVector, error) {
+func (this *VectorIndex) EmbedFile(ctx context.Context, path string) (*pb.FileEmbeddings, error) {
+	timestamp := time.Now()
+	embeddings, err := this.GetEmbeddedVectors(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	protoEmbeddings := AnnotatedVectorsInternalToProto(embeddings)
+	fileEmbeddings := &pb.FileEmbeddings{
+		Path:       path,
+		UpdatedAt:  timestamppb.New(timestamp),
+		Embeddings: protoEmbeddings,
+	}
+
+	return fileEmbeddings, nil
+}
+
+// EmbedFile takes a path to a file, splits the file into chunks, and calls
+// the embedding API for each chunk
+func (this *VectorIndex) GetEmbeddedVectors(ctx context.Context, path string) ([]*AnnotatedVector, error) {
 	if this.embedder == nil {
 		return nil, fmt.Errorf("No embedder set")
 	}
 	if this.verbosity >= 1 {
 		fmt.Fprintf(this.out, "Embedding %s\n", path)
 	}
-	return this.embedder.EmbedFile(ctx, path)
-}
 
-func min(a, b int) int {
-	if a < b {
-		return a
+	const chunkSize uint64 = 768
+	const chunksPerCall = 8
+	const maxChunks = 8 * 128
+
+	annotatedVectors := []*AnnotatedVector{}
+
+	// first we chunk the file
+	chunks, err := getFileChunks(ctx, this.fs, path, chunkSize, maxChunks)
+	if err != nil {
+		return nil, err
 	}
-	return b
+	stringChunks := byteToString(chunks)
+
+	// then we call the embedding API for each block of chunks
+	for i := 0; i < len(chunks); i += chunksPerCall {
+		// check if we should bail out
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		callChunks := stringChunks[i:min(i+chunksPerCall, len(chunks))]
+		newEmbeddings, err := this.embedder.CalculateEmbeddings(ctx, callChunks)
+		if err != nil {
+			return nil, err
+		}
+
+		// iterate through response, create an annotation, and create an annotated vector
+		for j, embedding := range newEmbeddings {
+			rangeStart := uint64(i+j) * chunkSize
+			rangeEnd := rangeStart + uint64(len(callChunks[j]))
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return nil, err
+			}
+
+			av := NewAnnotatedVector(absPath, rangeStart, rangeEnd, embedding)
+			annotatedVectors = append(annotatedVectors, av)
+		}
+	}
+
+	return annotatedVectors, nil
 }
