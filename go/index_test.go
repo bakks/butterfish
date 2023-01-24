@@ -78,14 +78,23 @@ func (this *mockEmbedder) CalculateEmbeddings(ctx context.Context, content []str
 	return embeddings, nil
 }
 
-func getVirtualVectorIndex() (*VectorIndex, *mockEmbedder) {
+func makeFakeFilesystem(t *testing.T) afero.Fs {
 	appFS := afero.NewMemMapFs()
 	// create test files and directories
-	appFS.MkdirAll("/a", 0755)
-	afero.WriteFile(appFS, "/a/one", []byte("111111"), 0644)
-	afero.WriteFile(appFS, "/a/two", []byte("222222"), 0644)
-	afero.WriteFile(appFS, "/a/b/three", []byte("333333"), 0644)
-	afero.WriteFile(appFS, "/a/b/c/d/four", []byte("444444"), 0644)
+	err := appFS.MkdirAll("/a", 0755)
+	assert.NoError(t, err)
+	err = afero.WriteFile(appFS, "/a/one", []byte("111111"), 0644)
+	assert.NoError(t, err)
+	err = afero.WriteFile(appFS, "/a/two", []byte("222222"), 0644)
+	assert.NoError(t, err)
+	err = afero.WriteFile(appFS, "/a/b/three", []byte("333333"), 0644)
+	assert.NoError(t, err)
+	err = afero.WriteFile(appFS, "/a/b/c/d/four", []byte("444444"), 0644)
+	assert.NoError(t, err)
+	return appFS
+}
+
+func newTestVectorIndex(fs afero.Fs) (*VectorIndex, *mockEmbedder) {
 
 	embedder := &mockEmbedder{}
 
@@ -94,7 +103,7 @@ func getVirtualVectorIndex() (*VectorIndex, *mockEmbedder) {
 		embedder:  embedder,
 		out:       os.Stdout,
 		verbosity: 2,
-		fs:        appFS,
+		fs:        fs,
 	}
 
 	return vectorIndex, embedder
@@ -103,10 +112,11 @@ func getVirtualVectorIndex() (*VectorIndex, *mockEmbedder) {
 // The goal here is to test index caching on disk, we use a mock filesystem
 // and mock out the embedding function
 func TestFileCaching(t *testing.T) {
-	index, embedder := getVirtualVectorIndex()
+	fs := makeFakeFilesystem(t)
+	index, embedder := newTestVectorIndex(fs)
 	ctx := context.Background()
 
-	err := index.IndexPath(ctx, "/a/b/c/", false)
+	err := index.IndexPath(ctx, "/a/b/c", false)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, embedder.Calls)
 

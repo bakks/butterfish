@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"io"
-	"os"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 )
@@ -72,48 +72,25 @@ func byteToString(b [][]byte) []string {
 }
 
 // Call a callback for each subdirectory in a given path
-func forEachSubdir(ctx context.Context, fs afero.Fs, path string,
-	fn func(ctx context.Context, path string) error) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
+func forEachSubdir(fs afero.Fs, path string,
+	callback func(path string) error) error {
+
+	stats, err := afero.ReadDir(fs, path)
+	if err != nil {
+		return err
 	}
 
-	return afero.Walk(fs, path, func(childPath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		// Walk produces back the path we started with, so we need to skip it
-		if childPath == path {
-			return nil
-		}
-		// If we find a directory, call the callback
+	for _, info := range stats {
 		if info.IsDir() {
-			return fn(ctx, childPath)
+			p := filepath.Join(path, info.Name())
+			err := callback(p)
+			if err != nil {
+				return err
+			}
 		}
-		return nil
-	})
-}
+	}
 
-// Return a list of filenames and FileInfos for a given directory path
-func listFiles(ctx context.Context, fs afero.Fs, path string) ([]string,
-	[]os.FileInfo, error) {
-	var files []string
-	var stats []os.FileInfo
-
-	err := afero.Walk(fs, path, func(childPath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !info.IsDir() {
-			files = append(files, childPath)
-			stats = append(stats, info)
-		}
-		return nil
-	})
-	return files, stats, err
+	return nil
 }
 
 func min(a, b int) int {

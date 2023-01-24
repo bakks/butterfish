@@ -319,28 +319,28 @@ func (this *vfsOpener) Open(path string) (vfs.ReadSeekCloser, error) {
 // 3. The file must be text, not binary, checked by extension/mime-type and
 //    by checking the first few bytes of the file if the extension check passes
 // 4. The file must have been updated since the last indexing, unless forceUpdate is true
-func (this *VectorIndex) IndexableFile(path string, stat os.FileInfo, forceUpdate bool, previousEmbeddings *pb.FileEmbeddings) bool {
+func (this *VectorIndex) IndexableFile(path string, file os.FileInfo, forceUpdate bool, previousEmbeddings *pb.FileEmbeddings) bool {
 	// Ignore dotfiles/hidden files
-	if filepath.Base(path)[0] == '.' {
+	name := file.Name()
+	if name[0] == '.' {
 		return false
 	}
 
 	// Ignore files that are not text based on file name
-	mimeType := mime.TypeByExtension(filepath.Ext(path))
-	if !strings.HasPrefix(mimeType, "text/") {
+	mimeType := mime.TypeByExtension(filepath.Ext(name))
+	if mimeType != "" && !strings.HasPrefix(mimeType, "text/") {
 		return false
 	}
 
-	opener := &vfsOpener{this.fs}
-
 	// Ignore files that are not text based on a content check
-	if !util.IsTextFile(opener, path) {
+	opener := &vfsOpener{this.fs}
+	if !util.IsTextFile(opener, filepath.Join(path, name)) {
 		return false
 	}
 
 	if !forceUpdate && previousEmbeddings != nil {
 		// Ignore files that have not changed since the last indexing
-		if previousEmbeddings.UpdatedAt.AsTime().Unix() >= stat.ModTime().Unix() {
+		if previousEmbeddings.UpdatedAt.AsTime().Unix() >= file.ModTime().Unix() {
 			return false
 		}
 	}
@@ -348,15 +348,15 @@ func (this *VectorIndex) IndexableFile(path string, stat os.FileInfo, forceUpdat
 	return true
 }
 
-func (this *VectorIndex) FilterUnindexablefiles(paths []string, stats []os.FileInfo, forceUpdate bool, dirIndex *pb.DirectoryIndex) []string {
-	var filteredPaths []string
-	for i, path := range paths {
-		previousEmbeddings := dirIndex.Files[path]
-		if this.IndexableFile(path, stats[i], forceUpdate, previousEmbeddings) {
-			filteredPaths = append(filteredPaths, path)
+func (this *VectorIndex) FilterUnindexablefiles(path string, files []os.FileInfo, forceUpdate bool, dirIndex *pb.DirectoryIndex) []os.FileInfo {
+	var filteredFiles []os.FileInfo
+	for _, file := range files {
+		previousEmbeddings := dirIndex.Files[file.Name()]
+		if this.IndexableFile(path, file, forceUpdate, previousEmbeddings) {
+			filteredFiles = append(filteredFiles, file)
 		}
 	}
-	return filteredPaths
+	return filteredFiles
 }
 
 func (this *VectorIndex) Clear(path string) {
@@ -390,7 +390,7 @@ func (this *VectorIndex) IndexPath(ctx context.Context, path string, forceUpdate
 	}
 
 	if this.verbosity >= 2 {
-		fmt.Fprintf(this.out, "VectorIndex.UpdatePath(%s)\n", path)
+		fmt.Fprintf(this.out, "VectorIndex.IndexPath(%s)\n", path)
 	}
 
 	path, err := filepath.Abs(path)
@@ -403,27 +403,24 @@ func (this *VectorIndex) IndexPath(ctx context.Context, path string, forceUpdate
 		return err
 	}
 
-	var toUpdate []string
-	var stats []os.FileInfo
+	var files []os.FileInfo
 	var dirPath string
 
 	if !fileInfo.IsDir() {
 		// if the path is a specific file then we only update that file
 		dirPath = filepath.Dir(path)
-		toUpdate = []string{path}
-		stats = []os.FileInfo{fileInfo}
+		files = []os.FileInfo{fileInfo}
 	} else {
 		// if the path is a directory then we add all files to update list
 		dirPath = path
-		toUpdate = []string{}
 
 		// call UpdatePath recursively for each subdirectory
-		err = forEachSubdir(ctx, this.fs, path, func(ctx context.Context, path string) error {
+		err = forEachSubdir(this.fs, path, func(path string) error {
 			return this.IndexPath(ctx, path, forceUpdate)
 		})
 
 		// get each non-directory file and stat in the path
-		toUpdate, stats, err = listFiles(ctx, this.fs, path)
+		files, err = afero.ReadDir(this.fs, path)
 		if err != nil {
 			return nil
 		}
@@ -436,16 +433,18 @@ func (this *VectorIndex) IndexPath(ctx context.Context, path string, forceUpdate
 		this.index[dirPath] = dirIndex
 	}
 
-	toUpdate = this.FilterUnindexablefiles(toUpdate, stats, forceUpdate, dirIndex)
+	files = this.FilterUnindexablefiles(dirPath, files, forceUpdate, dirIndex)
 
 	// Update the index for each file
-	for _, path := range toUpdate {
+	for _, file := range files {
+		name := file.Name()
+		path := filepath.Join(dirPath, file.Name())
 		fileEmbeddings, err := this.EmbedFile(ctx, path)
 		if err != nil {
 			return err
 		}
 
-		dirIndex.Files[path] = fileEmbeddings
+		dirIndex.Files[name] = fileEmbeddings
 	}
 
 	// TODO remove files that have been deleted
