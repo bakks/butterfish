@@ -365,32 +365,33 @@ func (this *VectorIndex) dotfilesInPath(ctx context.Context, path string) ([]str
 	return dotfiles, err
 }
 
-func (this *VectorIndex) Clear(path string) error {
-	if path == "" {
-		this.index = make(map[string]*pb.DirectoryIndex)
-	} else {
-		path, err := filepath.Abs(path)
+// Clear out embeddings at a given path, both in memory and on disk
+// We do this by first locating all dotfiles in the path, then deleting
+// the in-memory copy, and finally deleting the dotfiles
+func (this *VectorIndex) Clear(ctx context.Context, path string) error {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
+	dotfiles, err := this.dotfilesInPath(ctx, path)
+	if err != nil {
+		return err
+	}
+
+	for _, dotfile := range dotfiles {
+		if this.verbosity >= 2 {
+			fmt.Fprintf(this.out, "Removing dotfile %s\n", dotfile)
+		}
+
+		err = this.fs.Remove(dotfile)
 		if err != nil {
 			return err
 		}
 
-		delete(this.index, path)
-
-		dotfiles, err := this.dotfilesInPath(context.Background(), path)
-		if err != nil {
-			return err
-		}
-
-		for _, dotfile := range dotfiles {
-			if this.verbosity >= 2 {
-				fmt.Fprintf(this.out, "Removing dotfile %s\n", dotfile)
-			}
-
-			err = this.fs.Remove(dotfile)
-			if err != nil {
-				return err
-			}
-		}
+		// Remove the in-memory copy
+		dirPath := filepath.Dir(dotfile)
+		delete(this.index, dirPath)
 	}
 
 	return nil

@@ -604,7 +604,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 			txt = "."
 		}
 
-		this.vectorIndex.Clear(txt)
+		this.vectorIndex.Clear(this.ctx, txt)
 		return false, nil
 
 	case "showindex":

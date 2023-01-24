@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 
@@ -73,8 +72,6 @@ func (this *mockEmbedder) CalculateEmbeddings(ctx context.Context, content []str
 	}
 
 	this.Calls++
-
-	fmt.Printf("Embedding %v -> %v\n", content, embeddings)
 
 	return embeddings, nil
 }
@@ -159,4 +156,12 @@ func TestFileCaching(t *testing.T) {
 	assert.Equal(t, 2, len(scored))
 	assert.Equal(t, "/a/two", scored[0].AbsPath)
 
+	// Try out clearing the "four" file
+	index.Clear(ctx, "/a/b/c")
+	scored, err = index.Search(ctx, "444", 2)
+	assert.NoError(t, err)
+	assert.NotEqual(t, "/a/b/c/d/four", scored[0].AbsPath)
+	exists, err = afero.Exists(fs, "/a/b/c/d/.butterfish_index")
+	assert.NoError(t, err)
+	assert.False(t, exists)
 }
