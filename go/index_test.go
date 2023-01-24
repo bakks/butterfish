@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -67,13 +68,13 @@ func (this *mockEmbedder) CalculateEmbeddings(ctx context.Context, content []str
 	embeddings := make([][]float64, len(content))
 	for i, str := range content {
 		// create a fake embedding of the ascii values of the first 5 chars
-		embeddings[i] = make([]float64, 5)
-		for j := 0; j < 5 && j < len(str); j++ {
-			embeddings[i][j] = float64(str[j])
-		}
+		embeddings[i] = make([]float64, 128)
+		embeddings[i][int(str[0])] = 1
 	}
 
 	this.Calls++
+
+	fmt.Printf("Embedding %v -> %v\n", content, embeddings)
 
 	return embeddings, nil
 }
@@ -87,7 +88,7 @@ func makeFakeFilesystem(t *testing.T) afero.Fs {
 	assert.NoError(t, err)
 	err = afero.WriteFile(appFS, "/a/two", []byte("222222"), 0644)
 	assert.NoError(t, err)
-	err = afero.WriteFile(appFS, "/a/b/three", []byte("333333"), 0644)
+	err = afero.WriteFile(appFS, "/a/b/nine", []byte("999999"), 0644)
 	assert.NoError(t, err)
 	err = afero.WriteFile(appFS, "/a/b/c/d/four", []byte("444444"), 0644)
 	assert.NoError(t, err)
@@ -121,7 +122,7 @@ func TestFileCaching(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, embedder.Calls)
 
-	scored, err := index.Search(ctx, "444", 1)
+	scored, err := index.Search(ctx, "444", 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(scored))
 	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)
@@ -131,7 +132,7 @@ func TestFileCaching(t *testing.T) {
 	err = index.Load(ctx, "/a/b/c")
 	assert.NoError(t, err)
 
-	scored, err = index.Search(ctx, "444", 1)
+	scored, err = index.Search(ctx, "444", 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(scored))
 	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)
@@ -151,5 +152,11 @@ func TestFileCaching(t *testing.T) {
 	exists, err = afero.Exists(fs, "/a/b/.butterfish_index")
 	assert.NoError(t, err)
 	assert.True(t, exists)
+
+	// Try searching now
+	scored, err = index.Search(ctx, "222222", 2)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(scored))
+	assert.Equal(t, "/a/two", scored[0].AbsPath)
 
 }

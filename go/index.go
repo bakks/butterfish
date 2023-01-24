@@ -248,30 +248,18 @@ func (this *VectorIndex) Load(ctx context.Context, path string) error {
 		dirPath = filepath.Dir(path)
 	}
 
-	// Check for a butterfish index file, if none found then we take no action,
-	// otherwise we load the index
-	dotfilePath := filepath.Join(dirPath, dotfileName)
-	_, err = this.fs.Stat(dotfilePath)
+	dotfiles, err := this.dotfilesInPath(ctx, dirPath)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	} else {
-		err = this.LoadDotfile(dotfilePath)
-		if err != nil {
-			return nil
-		}
+		return err
 	}
 
-	// Call load recursively on all subdirectories
-	err = forEachSubdir(this.fs, dirPath, func(subdirPath string) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	for _, dotfile := range dotfiles {
+		err := this.LoadDotfile(dotfile)
+		if err != nil {
+			return err
 		}
-		return this.Load(ctx, subdirPath)
-	})
-
-	return err
+	}
+	return nil
 }
 
 func (this *VectorIndex) LoadPaths(ctx context.Context, paths []string) error {
@@ -352,13 +340,60 @@ func (this *VectorIndex) FilterUnindexablefiles(path string, files []os.FileInfo
 	return filteredFiles
 }
 
-func (this *VectorIndex) Clear(path string) {
+func (this *VectorIndex) dotfilesInPath(ctx context.Context, path string) ([]string, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	dotfiles := []string{}
+
+	// Use Walk to search recursively for dotfiles
+	err := afero.Walk(this.fs, path, func(path string, info os.FileInfo, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return err
+		}
+
+		if info.Name() == dotfileName {
+			dotfiles = append(dotfiles, path)
+		}
+		return nil
+	})
+
+	return dotfiles, err
+}
+
+func (this *VectorIndex) Clear(path string) error {
 	if path == "" {
 		this.index = make(map[string]*pb.DirectoryIndex)
 	} else {
-		path = filepath.Clean(path)
+		path, err := filepath.Abs(path)
+		if err != nil {
+			return err
+		}
+
 		delete(this.index, path)
+
+		dotfiles, err := this.dotfilesInPath(context.Background(), path)
+		if err != nil {
+			return err
+		}
+
+		for _, dotfile := range dotfiles {
+			if this.verbosity >= 2 {
+				fmt.Fprintf(this.out, "Removing dotfile %s\n", dotfile)
+			}
+
+			err = this.fs.Remove(dotfile)
+			if err != nil {
+				return err
+			}
+		}
 	}
+
+	return nil
 }
 
 func (this *VectorIndex) ShowIndexed() []string {
