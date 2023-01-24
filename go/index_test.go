@@ -136,4 +136,20 @@ func TestFileCaching(t *testing.T) {
 	assert.Equal(t, 1, len(scored))
 	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)
 
+	// Index the same path, we should not have to re-embed
+	assert.Equal(t, 1, embedder.Calls) // this is 1 because search calls embedder
+	err = index.IndexPath(ctx, "/a/b/c", false)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, embedder.Calls)
+
+	// Index everything, we should end up with more dotfiles written
+	err = index.IndexPath(ctx, "/a", false)
+	assert.NoError(t, err)
+	exists, err := afero.Exists(fs, "/a/.butterfish_index")
+	assert.NoError(t, err)
+	assert.True(t, exists)
+	exists, err = afero.Exists(fs, "/a/b/.butterfish_index")
+	assert.NoError(t, err)
+	assert.True(t, exists)
+
 }
