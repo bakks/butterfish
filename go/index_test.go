@@ -116,11 +116,22 @@ func TestFileCaching(t *testing.T) {
 	index, embedder := newTestVectorIndex(fs)
 	ctx := context.Background()
 
+	// index files in /a/b/c, this should only find "four"
 	err := index.IndexPath(ctx, "/a/b/c", false)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, embedder.Calls)
 
 	scored, err := index.Search(ctx, "444", 1)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(scored))
+	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)
+
+	// New index, we should be able to load the cached index and search again
+	index, embedder = newTestVectorIndex(fs)
+	err = index.Load(ctx, "/a/b/c")
+	assert.NoError(t, err)
+
+	scored, err = index.Search(ctx, "444", 1)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(scored))
 	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)

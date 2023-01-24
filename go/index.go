@@ -170,7 +170,7 @@ func (this *VectorIndex) LoadDotfile(dotfile string) error {
 	}
 
 	// put the loaded info in the memory index
-	this.index[dotfile] = &dirIndex
+	this.index[filepath.Dir(dotfile)] = &dirIndex
 
 	if this.verbosity >= 1 {
 		fmt.Fprintf(this.out, "Loaded index cache at %s\n", dotfile)
@@ -210,9 +210,12 @@ func (this *VectorIndex) SavePath(path string) error {
 	}
 
 	dotfilePath := filepath.Join(path, dotfileName)
+	if this.verbosity >= 2 {
+		fmt.Fprintf(this.out, "Writing index cache to %s\n", dotfilePath)
+	}
 
 	// Write the buffer to the dotfile
-	err = ioutil.WriteFile(dotfilePath, buf, 0644)
+	err = afero.WriteFile(this.fs, dotfilePath, buf, 0644)
 	if err != nil {
 		return err
 	}
@@ -223,13 +226,13 @@ func (this *VectorIndex) SavePath(path string) error {
 	return nil
 }
 
-func (this *VectorIndex) LoadPath(ctx context.Context, path string) error {
+func (this *VectorIndex) Load(ctx context.Context, path string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
 	if this.verbosity >= 2 {
-		fmt.Fprintf(this.out, "VectorIndex.LoadPath(%s)\n", path)
+		fmt.Fprintf(this.out, "VectorIndex.Load(%s)\n", path)
 	}
 
 	// Check the path exists, bail out if not
@@ -260,30 +263,20 @@ func (this *VectorIndex) LoadPath(ctx context.Context, path string) error {
 		}
 	}
 
-	// Iterate through files in the directory, if they are directories
-	// then we load them recursively
-	err = filepath.Walk(dirPath, func(childPath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	// Call load recursively on all subdirectories
+	err = forEachSubdir(this.fs, dirPath, func(subdirPath string) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-
-		// filepath.Walk will call this function with the root path
-		if childPath == path {
-			return nil
-		}
-
-		if info.IsDir() {
-			return this.LoadPath(ctx, childPath)
-		}
-		return nil
+		return this.Load(ctx, subdirPath)
 	})
 
-	return nil
+	return err
 }
 
 func (this *VectorIndex) LoadPaths(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		err := this.LoadPath(ctx, path)
+		err := this.Load(ctx, path)
 		if err != nil {
 			return err
 		}
@@ -450,7 +443,7 @@ func (this *VectorIndex) IndexPath(ctx context.Context, path string, forceUpdate
 	// TODO remove files that have been deleted
 
 	if len(dirIndex.Files) > 0 {
-		this.SavePath(dirPath)
+		return this.SavePath(dirPath)
 	}
 
 	return nil
