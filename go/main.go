@@ -23,6 +23,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/go/charmcomponents/console"
+	"github.com/bakks/butterfish/go/embedding"
+	"github.com/bakks/butterfish/go/util"
 )
 
 // Main driver for the Butterfish set of command line tools. These are tools
@@ -363,7 +365,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	chunks := [][]byte{}
 
 	fs := afero.NewOsFs()
-	chunkFile(fs, path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
+	util.ChunkFile(fs, path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
 		chunks = append(chunks, buf)
 		return nil
 	})
@@ -474,14 +476,14 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 }
 
 type ButterfishCtx struct {
-	ctx              context.Context    // global context, should be passed through to other calls
-	config           *butterfishConfig  // configuration
-	gptClient        *GPT               // GPT client
-	out              io.Writer          // output writer
-	commandRegister  string             // landing space for generated commands
-	consoleCmdChan   <-chan string      // channel for console commands
-	clientController ClientController   // client controller
-	vectorIndex      FileEmbeddingIndex // embedding index for searching local files
+	ctx              context.Context              // global context, should be passed through to other calls
+	config           *butterfishConfig            // configuration
+	gptClient        *GPT                         // GPT client
+	out              io.Writer                    // output writer
+	commandRegister  string                       // landing space for generated commands
+	consoleCmdChan   <-chan string                // channel for console commands
+	clientController ClientController             // client controller
+	vectorIndex      embedding.FileEmbeddingIndex // embedding index for searching local files
 }
 
 // Ensure we have a vector index object, idempotent
@@ -490,7 +492,7 @@ func (this *ButterfishCtx) loadVectorIndex() {
 		return
 	}
 
-	index := NewDiskCachedEmbeddingIndex()
+	index := embedding.NewDiskCachedEmbeddingIndex()
 	if this.config.Verbose {
 		index.SetOutput(this.out)
 	}

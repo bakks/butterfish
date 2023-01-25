@@ -1,4 +1,4 @@
-package main
+package embedding
 
 import (
 	"context"
@@ -16,9 +16,11 @@ import (
 	"github.com/drewlanenga/govector"
 	"github.com/golang/protobuf/proto"
 	"github.com/spf13/afero"
-	"golang.org/x/tools/godoc/util"
+	fsutil "golang.org/x/tools/godoc/util"
 	"golang.org/x/tools/godoc/vfs"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	util "github.com/bakks/butterfish/go/util"
 )
 
 type Embedder interface {
@@ -163,7 +165,7 @@ func (this *DiskCachedEmbeddingIndex) SearchWithVector(ctx context.Context,
 	})
 
 	// truncate to numResults results
-	results = results[:min(len(results), numResults)]
+	results = results[:util.Min(len(results), numResults)]
 
 	return results, nil
 }
@@ -381,7 +383,7 @@ func (this *DiskCachedEmbeddingIndex) IndexableFile(path string, file os.FileInf
 
 	// Ignore files that are not text based on a content check
 	opener := &vfsOpener{this.fs}
-	if !util.IsTextFile(opener, filepath.Join(path, name)) {
+	if !fsutil.IsTextFile(opener, filepath.Join(path, name)) {
 		return false
 	}
 
@@ -512,7 +514,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		dirPath = path
 
 		// call UpdatePath recursively for each subdirectory
-		err = forEachSubdir(this.fs, path, func(path string) error {
+		err = util.ForEachSubdir(this.fs, path, func(path string) error {
 			return this.IndexPath(ctx, path, forceUpdate)
 		})
 
@@ -576,11 +578,11 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 	timestamp := time.Now()
 
 	// first we chunk the file
-	chunks, err := getFileChunks(ctx, this.fs, absPath, chunkSize, maxChunks)
+	chunks, err := util.GetFileChunks(ctx, this.fs, absPath, chunkSize, maxChunks)
 	if err != nil {
 		return nil, err
 	}
-	stringChunks := byteToString(chunks)
+	stringChunks := util.ByteToString(chunks)
 
 	// then we call the embedding API for each block of chunks
 	for i := 0; i < len(chunks); i += chunksPerCall {
@@ -589,7 +591,7 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 			return nil, ctx.Err()
 		}
 
-		callChunks := stringChunks[i:min(i+chunksPerCall, len(chunks))]
+		callChunks := stringChunks[i:util.Min(i+chunksPerCall, len(chunks))]
 		newEmbeddings, err := this.embedder.CalculateEmbeddings(ctx, callChunks)
 		if err != nil {
 			return nil, err

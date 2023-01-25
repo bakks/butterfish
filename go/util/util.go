@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 // Read a file, break into chunks of a given number of bytes, up to a maximum
 // number of chunks, and call the callback for each chunk
-func chunkFile(
+func ChunkFile(
 	fs afero.Fs,
 	path string,
 	chunkSize uint64,
@@ -44,10 +44,10 @@ func chunkFile(
 
 // Given a filesystem, a path, a chunk size, and maximum number of chunks,
 // return a list of chunks of the file at the given path
-func getFileChunks(ctx context.Context, fs afero.Fs, path string,
+func GetFileChunks(ctx context.Context, fs afero.Fs, path string,
 	chunkSize uint64, maxChunks int) ([][]byte, error) {
 	var chunks [][]byte
-	err := chunkFile(fs, path, chunkSize, maxChunks, func(i int, chunk []byte) error {
+	err := ChunkFile(fs, path, chunkSize, maxChunks, func(i int, chunk []byte) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -63,7 +63,7 @@ func getFileChunks(ctx context.Context, fs afero.Fs, path string,
 }
 
 // Cast an array of byte arrays to an array of strings
-func byteToString(b [][]byte) []string {
+func ByteToString(b [][]byte) []string {
 	var s []string
 	for _, v := range b {
 		s = append(s, string(v))
@@ -72,7 +72,7 @@ func byteToString(b [][]byte) []string {
 }
 
 // Call a callback for each subdirectory in a given path
-func forEachSubdir(fs afero.Fs, path string,
+func ForEachSubdir(fs afero.Fs, path string,
 	callback func(path string) error) error {
 
 	stats, err := afero.ReadDir(fs, path)
@@ -93,7 +93,7 @@ func forEachSubdir(fs afero.Fs, path string,
 	return nil
 }
 
-func min(a, b int) int {
+func Min(a, b int) int {
 	if a < b {
 		return a
 	}
