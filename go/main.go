@@ -338,51 +338,8 @@ var availableCommands = []string{
 	"prompt", "gencmd", "exec", "remoteexec", "help", "summarize", "exit",
 }
 
-// searchFileChunks gets the embeddings for the searchStr using the GPT API,
-// searches the vector index for the closest matches, then returns the notes
-// associated with those vectors
-func (this *ButterfishCtx) searchFileChunks(searchStr string) ([]*ScoredEmbedding, error) {
-	const searchLimit = 3
-	// search the index for the closest matches
-	return this.vectorIndex.Search(this.ctx, searchStr, searchLimit)
-}
-
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
 	return this.gptClient.Embeddings(ctx, content)
-}
-
-func fetchFileChunks(embeddings []*ScoredEmbedding) ([]string, error) {
-	chunks := []string{}
-
-	for _, embedding := range embeddings {
-		// read the file
-		f, err := os.Open(embedding.AbsPath)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
-
-		start := embedding.Embedding.Start
-		end := embedding.Embedding.End
-
-		// seek to the start byte
-		_, err = f.Seek(int64(start), 0)
-		if err != nil {
-			return nil, err
-		}
-
-		// read the chunk
-		buf := make([]byte, end-start)
-		_, err = f.Read(buf)
-		if err != nil {
-			return nil, err
-		}
-
-		// add the chunk to the map
-		chunks = append(chunks, string(buf))
-	}
-
-	return chunks, nil
 }
 
 // Given a file path we attempt to semantically summarize its content.
@@ -517,14 +474,14 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 }
 
 type ButterfishCtx struct {
-	ctx              context.Context   // global context, should be passed through to other calls
-	config           *butterfishConfig // configuration
-	gptClient        *GPT              // GPT client
-	out              io.Writer         // output writer
-	commandRegister  string            // landing space for generated commands
-	consoleCmdChan   <-chan string     // channel for console commands
-	clientController ClientController  // client controller
-	vectorIndex      *VectorIndex      // in-memory vector index
+	ctx              context.Context    // global context, should be passed through to other calls
+	config           *butterfishConfig  // configuration
+	gptClient        *GPT               // GPT client
+	out              io.Writer          // output writer
+	commandRegister  string             // landing space for generated commands
+	consoleCmdChan   <-chan string      // channel for console commands
+	clientController ClientController   // client controller
+	vectorIndex      FileEmbeddingIndex // embedding index for searching local files
 }
 
 // Ensure we have a vector index object, idempotent
@@ -533,10 +490,12 @@ func (this *ButterfishCtx) loadVectorIndex() {
 		return
 	}
 
-	this.vectorIndex = NewVectorIndex()
+	index := NewDiskCachedEmbeddingIndex()
 	if this.config.Verbose {
-		this.vectorIndex.SetOutput(this.out)
+		index.SetOutput(this.out)
 	}
+
+	this.vectorIndex = index
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
@@ -608,7 +567,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 		return false, nil
 
 	case "showindex":
-		paths := this.vectorIndex.ShowIndexed()
+		paths := this.vectorIndex.IndexedFiles()
 		for _, path := range paths {
 			fmt.Fprintf(this.out, "%s\n", path)
 		}
@@ -654,18 +613,13 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 			return false, errors.New("No vector index loaded")
 		}
 
-		scores, err := this.searchFileChunks(txt)
+		results, err := this.vectorIndex.Search(this.ctx, txt, 5)
 		if err != nil {
 			return false, err
 		}
 
-		fileChunks, err := fetchFileChunks(scores)
-		if err != nil {
-			return false, err
-		}
-
-		for i, fileChunk := range fileChunks {
-			fmt.Fprintf(this.out, "%s\n%s\n\n", scores[i].AbsPath, fileChunk)
+		for _, result := range results {
+			fmt.Fprintf(this.out, "%s\n%s\n\n", result.FilePath, result.Content)
 		}
 
 	case "question":
@@ -676,17 +630,16 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 			return false, errors.New("No vector index loaded")
 		}
 
-		paths, err := this.searchFileChunks(txt)
+		results, err := this.vectorIndex.Search(this.ctx, txt, 3)
 		if err != nil {
 			return false, err
 		}
+		samples := []string{}
 
-		fileChunks, err := fetchFileChunks(paths)
-		if err != nil {
-			return false, err
+		for _, result := range results {
+			samples = append(samples, result.Content)
 		}
 
-		samples := fileChunks[:min(len(fileChunks), 2)]
 		exerpts := strings.Join(samples, "\n---\n")
 
 		prompt := fmt.Sprintf(questionPrompt, txt, exerpts)

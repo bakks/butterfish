@@ -12,7 +12,7 @@ import (
 
 // A basic check to make sure vector comparisons are working
 func TestSearch(t *testing.T) {
-	index := &VectorIndex{
+	index := &DiskCachedEmbeddingIndex{
 		index: map[string]*pb.DirectoryIndex{
 			"/path/foo": {
 				Files: map[string]*pb.FileEmbeddings{
@@ -50,12 +50,12 @@ func TestSearch(t *testing.T) {
 		},
 	}
 
-	results, err := index.SearchWithVector([]float64{1, 0.5, 0, 0, 0}, 3)
+	results, err := index.SearchWithVector(context.Background(), []float64{1, 0.5, 0, 0, 0}, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(results))
-	assert.Equal(t, "/path/foo/test.txt", results[0].AbsPath)
+	assert.Equal(t, "/path/foo/test.txt", results[0].FilePath)
 	// The first and second vectors should be the closest matches
-	assert.Equal(t, uint64(0), results[0].Embedding.Start)
+	assert.Equal(t, uint64(0), results[0].Start)
 }
 
 // A mock embedder that implements the Embedder interface
@@ -92,11 +92,11 @@ func makeFakeFilesystem(t *testing.T) afero.Fs {
 	return appFS
 }
 
-func newTestVectorIndex(fs afero.Fs) (*VectorIndex, *mockEmbedder) {
+func newTestDiskCachedEmbeddingIndex(fs afero.Fs) (*DiskCachedEmbeddingIndex, *mockEmbedder) {
 
 	embedder := &mockEmbedder{}
 
-	vectorIndex := &VectorIndex{
+	vectorIndex := &DiskCachedEmbeddingIndex{
 		index:     map[string]*pb.DirectoryIndex{},
 		embedder:  embedder,
 		out:       os.Stdout,
@@ -111,7 +111,7 @@ func newTestVectorIndex(fs afero.Fs) (*VectorIndex, *mockEmbedder) {
 // and mock out the embedding function
 func TestFileCaching(t *testing.T) {
 	fs := makeFakeFilesystem(t)
-	index, embedder := newTestVectorIndex(fs)
+	index, embedder := newTestDiskCachedEmbeddingIndex(fs)
 	ctx := context.Background()
 
 	// index files in /a/b/c, this should only find "four"
@@ -122,17 +122,21 @@ func TestFileCaching(t *testing.T) {
 	scored, err := index.Search(ctx, "444", 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(scored))
-	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)
+	assert.Equal(t, "/a/b/c/d/four", scored[0].FilePath)
 
 	// New index, we should be able to load the cached index and search again
-	index, embedder = newTestVectorIndex(fs)
-	err = index.Load(ctx, "/a/b/c")
+	index, embedder = newTestDiskCachedEmbeddingIndex(fs)
+	err = index.LoadPath(ctx, "/a/b/c")
 	assert.NoError(t, err)
+
+	indexed := index.IndexedFiles()
+	assert.Equal(t, 1, len(indexed))
+	assert.Equal(t, "/a/b/c/d/four", indexed[0])
 
 	scored, err = index.Search(ctx, "444", 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(scored))
-	assert.Equal(t, "/a/b/c/d/four", scored[0].AbsPath)
+	assert.Equal(t, "/a/b/c/d/four", scored[0].FilePath)
 
 	// Index the same path, we should not have to re-embed
 	assert.Equal(t, 1, embedder.Calls) // this is 1 because search calls embedder
@@ -154,14 +158,16 @@ func TestFileCaching(t *testing.T) {
 	scored, err = index.Search(ctx, "222222", 2)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(scored))
-	assert.Equal(t, "/a/two", scored[0].AbsPath)
+	assert.Equal(t, "/a/two", scored[0].FilePath)
 
 	// Try out clearing the "four" file
 	index.Clear(ctx, "/a/b/c")
 	scored, err = index.Search(ctx, "444", 2)
 	assert.NoError(t, err)
-	assert.NotEqual(t, "/a/b/c/d/four", scored[0].AbsPath)
+	assert.NotEqual(t, "/a/b/c/d/four", scored[0].FilePath)
 	exists, err = afero.Exists(fs, "/a/b/c/d/.butterfish_index")
 	assert.NoError(t, err)
 	assert.False(t, exists)
+
+	// TODO test showindexed
 }
