@@ -100,9 +100,10 @@ func newTestDiskCachedEmbeddingIndex(fs afero.Fs) (*DiskCachedEmbeddingIndex, *m
 		index:     map[string]*pb.DirectoryIndex{},
 		embedder:  embedder,
 		out:       os.Stdout,
-		verbosity: 2,
+		Verbosity: 2,
 		fs:        fs,
 	}
+	vectorIndex.SetDefaultConfig()
 
 	return vectorIndex, embedder
 }

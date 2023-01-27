@@ -52,19 +52,55 @@ type VectorSearchResult struct {
 
 type DiskCachedEmbeddingIndex struct {
 	// maps absolute path of directory to a directory index
-	index     map[string]*pb.DirectoryIndex
-	embedder  Embedder
-	out       io.Writer
-	verbosity int
-	fs        afero.Fs
+	index map[string]*pb.DirectoryIndex
+
+	// Interface to an embedder used to embed chunks of documents
+	embedder Embedder
+
+	// A filesystem interface, used when reading and writing files.
+	// We use an interface here so that we can mock the filesystem during testing.
+	fs afero.Fs
+
+	// The output stream to use for logging
+	out io.Writer
+
+	// The Verbosity level of the output stream
+	// 0 - no output
+	// 1 - most important calls
+	// 2 - more detail about embeddings
+	Verbosity int
+
+	// The name of the file to cache the index on disk
+	DotfileName string
+
+	// When we split a file into chunks, this is the size of each chunk
+	ChunkSize uint64
+
+	// When we call the embedder we batch chunks together into a single call,
+	// this is the number of chunks to batch together
+	ChunksPerCall int
+
+	// For huge files we probably don't want to embed everything, so this is
+	// the maximum number of chunks to embed from a specific file
+	MaxChunks int
 }
 
 func NewDiskCachedEmbeddingIndex() *DiskCachedEmbeddingIndex {
-	return &DiskCachedEmbeddingIndex{
+	index := &DiskCachedEmbeddingIndex{
 		index: make(map[string]*pb.DirectoryIndex),
 		out:   os.Stdout,
 		fs:    afero.NewOsFs(),
 	}
+
+	index.SetDefaultConfig()
+	return index
+}
+
+func (this *DiskCachedEmbeddingIndex) SetDefaultConfig() {
+	this.DotfileName = ".butterfish_index"
+	this.ChunkSize = 768
+	this.ChunksPerCall = 8
+	this.MaxChunks = 8 * 128
 }
 
 func (this *DiskCachedEmbeddingIndex) SetEmbedder(embedder Embedder) {
@@ -73,11 +109,11 @@ func (this *DiskCachedEmbeddingIndex) SetEmbedder(embedder Embedder) {
 
 func (this *DiskCachedEmbeddingIndex) SetOutput(out io.Writer) {
 	this.out = out
-	this.verbosity = 2
+	this.Verbosity = 2
 }
 
 func (this *DiskCachedEmbeddingIndex) SetVerbosity(verbosity int) {
-	this.verbosity = verbosity
+	this.Verbosity = verbosity
 }
 
 // Search the vectors that have been loaded into memory by embedding the
@@ -213,7 +249,7 @@ func (this *DiskCachedEmbeddingIndex) PopulateSearchResults(ctx context.Context,
 func (this *DiskCachedEmbeddingIndex) LoadDotfile(dotfile string) error {
 	dotfile = filepath.Clean(dotfile)
 
-	if this.verbosity >= 2 {
+	if this.Verbosity >= 2 {
 		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.LoadDotfile(%s)\n", dotfile)
 	}
 
@@ -240,13 +276,11 @@ func (this *DiskCachedEmbeddingIndex) LoadDotfile(dotfile string) error {
 	// put the loaded info in the memory index
 	this.index[filepath.Dir(dotfile)] = &dirIndex
 
-	if this.verbosity >= 1 {
+	if this.Verbosity >= 1 {
 		fmt.Fprintf(this.out, "Loaded index cache at %s\n", dotfile)
 	}
 	return nil
 }
-
-const dotfileName = ".butterfish_index"
 
 func (this *DiskCachedEmbeddingIndex) SavePaths(paths []string) error {
 	for _, path := range paths {
@@ -259,7 +293,7 @@ func (this *DiskCachedEmbeddingIndex) SavePaths(paths []string) error {
 }
 
 func (this *DiskCachedEmbeddingIndex) SavePath(path string) error {
-	if this.verbosity >= 2 {
+	if this.Verbosity >= 2 {
 		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.SavePath(%s)\n", path)
 	}
 
@@ -277,8 +311,12 @@ func (this *DiskCachedEmbeddingIndex) SavePath(path string) error {
 		return err
 	}
 
-	dotfilePath := filepath.Join(path, dotfileName)
-	if this.verbosity >= 2 {
+	if this.DotfileName == "" {
+		panic("DotfileName not set")
+	}
+
+	dotfilePath := filepath.Join(path, this.DotfileName)
+	if this.Verbosity >= 2 {
 		fmt.Fprintf(this.out, "Writing index cache to %s\n", dotfilePath)
 	}
 
@@ -288,7 +326,7 @@ func (this *DiskCachedEmbeddingIndex) SavePath(path string) error {
 		return err
 	}
 
-	if this.verbosity >= 1 {
+	if this.Verbosity >= 1 {
 		fmt.Fprintf(this.out, "Saved index cache to %s\n", dotfilePath)
 	}
 	return nil
@@ -299,7 +337,7 @@ func (this *DiskCachedEmbeddingIndex) LoadPath(ctx context.Context, path string)
 		return ctx.Err()
 	}
 
-	if this.verbosity >= 2 {
+	if this.Verbosity >= 2 {
 		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.Load(%s)\n", path)
 	}
 
@@ -424,7 +462,7 @@ func (this *DiskCachedEmbeddingIndex) dotfilesInPath(ctx context.Context, path s
 			return err
 		}
 
-		if info.Name() == dotfileName {
+		if info.Name() == this.DotfileName {
 			dotfiles = append(dotfiles, path)
 		}
 		return nil
@@ -448,7 +486,7 @@ func (this *DiskCachedEmbeddingIndex) Clear(ctx context.Context, path string) er
 	}
 
 	for _, dotfile := range dotfiles {
-		if this.verbosity >= 2 {
+		if this.Verbosity >= 2 {
 			fmt.Fprintf(this.out, "Removing dotfile %s\n", dotfile)
 		}
 
@@ -488,7 +526,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		return ctx.Err()
 	}
 
-	if this.verbosity >= 2 {
+	if this.Verbosity >= 2 {
 		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.IndexPath(%s)\n", path)
 	}
 
@@ -561,13 +599,9 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 	if this.embedder == nil {
 		return nil, fmt.Errorf("No embedder set")
 	}
-	if this.verbosity >= 1 {
+	if this.Verbosity >= 1 {
 		fmt.Fprintf(this.out, "Embedding %s\n", path)
 	}
-
-	const chunkSize uint64 = 768
-	const chunksPerCall = 8
-	const maxChunks = 8 * 128
 
 	annotatedVectors := []*pb.AnnotatedEmbedding{}
 
@@ -577,21 +611,25 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 	}
 	timestamp := time.Now()
 
+	if this.ChunkSize == 0 {
+		panic("Chunk size must be set")
+	}
+
 	// first we chunk the file
-	chunks, err := util.GetFileChunks(ctx, this.fs, absPath, chunkSize, maxChunks)
+	chunks, err := util.GetFileChunks(ctx, this.fs, absPath, this.ChunkSize, this.MaxChunks)
 	if err != nil {
 		return nil, err
 	}
 	stringChunks := util.ByteToString(chunks)
 
 	// then we call the embedding API for each block of chunks
-	for i := 0; i < len(chunks); i += chunksPerCall {
+	for i := 0; i < len(chunks); i += this.ChunksPerCall {
 		// check if we should bail out
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
-		callChunks := stringChunks[i:util.Min(i+chunksPerCall, len(chunks))]
+		callChunks := stringChunks[i:util.Min(i+this.ChunksPerCall, len(chunks))]
 		newEmbeddings, err := this.embedder.CalculateEmbeddings(ctx, callChunks)
 		if err != nil {
 			return nil, err
@@ -599,7 +637,7 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 
 		// iterate through response, create an annotation, and create an annotated vector
 		for j, embedding := range newEmbeddings {
-			rangeStart := uint64(i+j) * chunkSize
+			rangeStart := uint64(i+j) * this.ChunkSize
 			rangeEnd := rangeStart + uint64(len(callChunks[j]))
 
 			av := &pb.AnnotatedEmbedding{
