@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -736,31 +737,80 @@ func initLogging(ctx context.Context) {
 }
 
 func newButterfishCtx(ctx context.Context, config *butterfishConfig) *ButterfishCtx {
-	gpt := getGPTClient(config.Verbose)
-
 	return &ButterfishCtx{
 		ctx:       ctx,
 		config:    config,
-		gptClient: gpt,
+		gptClient: NewGPT(config.OpenAIToken, config.Verbose),
 		out:       os.Stdout,
 	}
 }
 
 func makeButterfishConfig() *butterfishConfig {
 	return &butterfishConfig{
-		Verbose: cli.Verbose,
+		Verbose:     cli.Verbose,
+		OpenAIToken: getOpenAIToken(),
 	}
 }
 
-func getGPTClient(verbose bool) *GPT {
-	err := godotenv.Load()
+const expectedEnvPath = ".config/butterfish/butterfish.env"
+
+func envPath() string {
+	dirname, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal("You need a .env file in the current directory that defines OPENAI_TOKEN.\ne.g. OPENAI_TOKEN=foobar")
+		log.Fatal(err)
+	}
+	return filepath.Join(dirname, expectedEnvPath)
+}
+
+func getOpenAIToken() string {
+	path := envPath()
+
+	// We attempt to get a token from env vars plus an env file
+	godotenv.Load(path)
+	token := os.Getenv("OPENAI_TOKEN")
+
+	if token != "" {
+		return token
 	}
 
-	// initialize GPT API client
-	token := os.Getenv("OPENAI_TOKEN")
-	return NewGPT(token, verbose)
+	// If we don't have a token, we'll prompt the user to create one
+	fmt.Printf("Butterfish requires an OpenAI API key, please visit https://beta.openai.com/account/api-keys to create one and paste it below (it should start with sk-):\n")
+
+	// read in the token and validate
+	fmt.Scanln(&token)
+	token = strings.TrimSpace(token)
+	if token == "" {
+		log.Fatal("No token provided, exiting")
+	}
+	if !strings.HasPrefix(token, "sk-") {
+		log.Fatal("Invalid token provided, exiting")
+	}
+
+	// attempt to write a .env file
+	fmt.Printf("\nSaving token to %s\n", path)
+	err := os.MkdirAll(filepath.Dir(path), 0755)
+	if err != nil {
+		fmt.Printf("Error creating directory: %s\n", err.Error())
+		return token
+	}
+
+	envFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		fmt.Printf("Error creating file: %s\n", err.Error())
+		return token
+	}
+	defer envFile.Close()
+
+	content := fmt.Sprintf("OPENAI_TOKEN=%s\n", token)
+	_, err = envFile.WriteString(content)
+	if err != nil {
+		fmt.Printf("Error writing file: %s\n", err.Error())
+	}
+
+	fmt.Printf("Token saved, you can edit it at any time at %s\n\n", path)
+
+	return token
+
 }
 
 // Kong CLI parser option configuration
@@ -793,7 +843,8 @@ var cli struct {
 }
 
 type butterfishConfig struct {
-	Verbose bool
+	Verbose     bool
+	OpenAIToken string
 }
 
 const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
@@ -840,7 +891,7 @@ func main() {
 
 	case "console":
 		initLogging(ctx)
-		gpt := getGPTClient(config.Verbose)
+		gpt := NewGPT(config.OpenAIToken, config.Verbose)
 
 		// initialize console UI
 		consoleCommand := make(chan string)
@@ -867,7 +918,7 @@ func main() {
 		butterfishCtx.serverMultiplexer()
 
 	case "prompt <prompt>":
-		gpt := getGPTClient(config.Verbose)
+		gpt := NewGPT(config.OpenAIToken, config.Verbose)
 		writer := NewStyledWriter(os.Stdout, errorStyle)
 		err := gpt.CompletionStream(ctx, cli.Prompt.Prompt, writer)
 		if err != nil {
