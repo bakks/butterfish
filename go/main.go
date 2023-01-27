@@ -31,6 +31,44 @@ import (
 // Main driver for the Butterfish set of command line tools. These are tools
 // for using AI capabilities on the command line.
 
+type ColorScheme struct {
+	Foreground string
+	Background string
+	Error      string
+	Color1     string
+	Color2     string
+	Color3     string
+	Color4     string
+	Color5     string
+	Color6     string
+}
+
+// Gruvbox Colorscheme
+// from https://github.com/morhetz/gruvbox
+var gruvboxDark = ColorScheme{
+	Foreground: "#A89984",
+	Background: "#282828",
+	Error:      "#CC241D",
+	Color1:     "#98971A",
+	Color2:     "#D79921",
+	Color3:     "#458588",
+	Color4:     "#B16286",
+	Color5:     "#689D6A",
+	Color6:     "#D65D0E",
+}
+
+var gruvboxLight = ColorScheme{
+	Foreground: "#7C6F64",
+	Background: "#FBF1C7",
+	Error:      "#CC241D",
+	Color1:     "#98971A",
+	Color2:     "#D79921",
+	Color3:     "#458588",
+	Color4:     "#B16286",
+	Color5:     "#689D6A",
+	Color6:     "#D65D0E",
+}
+
 // Data type for passing byte chunks from a wrapped command around
 type byteMsg struct {
 	Data []byte
@@ -326,10 +364,6 @@ const questionPrompt = `Answer this question about a file:"%s". Here are some sn
 %s
 '''`
 
-var questionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-var summarizeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-var errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("198"))
-
 // Clean up the cmd string and return a lowercased first word in it
 func getMiniCmd(cmd string) string {
 	cmd = strings.Split(cmd, " ")[0]
@@ -343,6 +377,15 @@ var availableCommands = []string{
 
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
 	return this.gptClient.Embeddings(ctx, content)
+}
+
+// A local printf that writes to the butterfishctx out using a lipgloss style
+func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
+	fmt.Fprintf(this.out, style.Render(format), a...)
+}
+
+func (this *ButterfishCtx) Printf(format string, a ...any) {
+	fmt.Fprintf(this.out, this.config.Styles.Foreground.Render(format), a...)
 }
 
 // Given a file path we attempt to semantically summarize its content.
@@ -361,8 +404,8 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	const bytesPerChunk = 3800
 	const maxChunks = 8
 
-	fmt.Fprintf(this.out, "Summarizing %s\n", path)
-	writer := NewStyledWriter(this.out, summarizeStyle)
+	this.StylePrintf(this.config.Styles.Question, "Summarizing %s", path)
+	writer := NewStyledWriter(this.out, this.config.Styles.Answer)
 	chunks := [][]byte{}
 
 	fs := afero.NewOsFs()
@@ -558,7 +601,7 @@ func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
 			return false, errors.New("Please provide a prompt")
 		}
 
-		writer := NewStyledWriter(this.out, questionStyle)
+		writer := NewStyledWriter(this.out, this.config.Styles.Answer)
 		return false, this.gptClient.CompletionStream(this.ctx, txt, writer)
 
 	case "clearindex":
@@ -678,7 +721,7 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 	// call GPT, the response will be streamed (but filter the special token
 	// combo "NOOP")
 	prompt := fmt.Sprintf(shellOutPrompt, openCmd, lastCmd, output)
-	writer := NewStyledWriter(this.out, errorStyle)
+	writer := NewStyledWriter(this.out, this.config.Styles.Error)
 	err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
 	if err != nil {
 		this.printError(err)
@@ -745,10 +788,32 @@ func newButterfishCtx(ctx context.Context, config *butterfishConfig) *Butterfish
 	}
 }
 
+type styles struct {
+	Question   lipgloss.Style
+	Answer     lipgloss.Style
+	Summarize  lipgloss.Style
+	Error      lipgloss.Style
+	Foreground lipgloss.Style
+}
+
+func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
+	return &styles{
+		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color1)),
+		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
+		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
+		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
+		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
+	}
+}
+
 func makeButterfishConfig() *butterfishConfig {
+	colorScheme := &gruvboxDark
+
 	return &butterfishConfig{
 		Verbose:     cli.Verbose,
 		OpenAIToken: getOpenAIToken(),
+		ColorScheme: colorScheme,
+		Styles:      colorSchemeToStyles(colorScheme),
 	}
 }
 
@@ -845,6 +910,8 @@ var cli struct {
 type butterfishConfig struct {
 	Verbose     bool
 	OpenAIToken string
+	ColorScheme *ColorScheme
+	Styles      *styles
 }
 
 const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
@@ -919,7 +986,7 @@ func main() {
 
 	case "prompt <prompt>":
 		gpt := NewGPT(config.OpenAIToken, config.Verbose)
-		writer := NewStyledWriter(os.Stdout, errorStyle)
+		writer := NewStyledWriter(os.Stdout, config.Styles.Answer)
 		err := gpt.CompletionStream(ctx, cli.Prompt.Prompt, writer)
 		if err != nil {
 			fmt.Println(err)
