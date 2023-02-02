@@ -17,20 +17,46 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 - This is experimental, unpolished, no backwards compatibility guarantee.
 - External contribution and feedback highly encouraged. Submit a PR! This is something of a playground for my LLM ideas, and others are welcome to make it their playground as well. Expect me to edit the PR liberally and merge aggressively.
 
-## Features
+## Commands
 
-### Simple GPT prompt terminal
+### `prompt`
 
-```
+```bash
 butterfish prompt "[prompt]"
 ```
 
-Example
+This is a straight-through call to the LLM from the command line with a given prompt.
 
-```
+Example:
+
+```bash
 > butterfish prompt "A golang hello world program:"
 ...
 ```
+
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/prompt.gif" alt="Butterfish" width="500px" height="250px" />
+
+### `summarize`
+
+```bash
+butterfish summarize [files...]
+```
+
+Example:
+
+```bash
+> butterfish summarize main.go
+...
+```
+
+Semantically summarize a set of paths.
+This is similar to Langchain and GPTIndex functionality. We read in the file,
+if it's short then we hand it directly to GPT and ask for a summary. If it's
+longer then we break it into chunks and ask GPT for a list of facts from each
+chunk (max 8 chunks), then concatenate facts and ask GPT for an overall
+summary.
+
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/summarize.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### Watch console output, make suggestions
 
@@ -54,21 +80,6 @@ attempt detection of problems/errors and offer suggestions.
 Implementation is dumb: we grab stdout from the wrapped shell and if it's long
 enough we put it in a prompt and ask GPT if there is a problem, and to offer
 advice if so.
-
-### Semantically summarize a specific file
-
-Example:
-
-```
-> butterfish summarize main.go
-...
-```
-
-This is similar to Langchain and GPTIndex functionality. We read in the file,
-if it's short then we hand it directly to GPT and ask for a summary. If it's
-longer then we break it into chunks and ask GPT for a list of facts from each
-chunk (max 8 chunks), then concatenate facts and ask GPT for an overall
-summary.
 
 ## Installation
 
