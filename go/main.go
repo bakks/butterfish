@@ -41,12 +41,13 @@ type ColorScheme struct {
 	Color4     string
 	Color5     string
 	Color6     string
+	Grey       string
 }
 
 // Gruvbox Colorscheme
 // from https://github.com/morhetz/gruvbox
 var gruvboxDark = ColorScheme{
-	Foreground: "#A89984",
+	Foreground: "#ebdbb2",
 	Background: "#282828",
 	Error:      "#fb4934", // red
 	Color1:     "#bb8b26", // green
@@ -55,6 +56,7 @@ var gruvboxDark = ColorScheme{
 	Color4:     "#d3869b", // magenta
 	Color5:     "#8ec07c", // cyan
 	Color6:     "#fe8019", // orange
+	Grey:       "#928374", // gray
 }
 
 var gruvboxLight = ColorScheme{
@@ -67,6 +69,7 @@ var gruvboxLight = ColorScheme{
 	Color4:     "#B16286",
 	Color5:     "#689D6A",
 	Color6:     "#D65D0E",
+	Grey:       "#928374",
 }
 
 // Data type for passing byte chunks from a wrapped command around
@@ -612,21 +615,14 @@ func initLogging(ctx context.Context) {
 	}()
 }
 
-func newButterfishCtx(ctx context.Context, config *butterfishConfig) *ButterfishCtx {
-	return &ButterfishCtx{
-		ctx:       ctx,
-		config:    config,
-		gptClient: NewGPT(config.OpenAIToken, config.Verbose),
-		out:       os.Stdout,
-	}
-}
-
 type styles struct {
 	Question   lipgloss.Style
 	Answer     lipgloss.Style
 	Summarize  lipgloss.Style
+	Prompt     lipgloss.Style
 	Error      lipgloss.Style
 	Foreground lipgloss.Style
+	Grey       lipgloss.Style
 }
 
 func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
@@ -634,8 +630,10 @@ func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
 		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
 		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
+		Prompt:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
 		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
+		Grey:       lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Grey)),
 	}
 }
 
@@ -787,7 +785,6 @@ func main() {
 
 	case "console":
 		initLogging(ctx)
-		gpt := NewGPT(config.OpenAIToken, config.Verbose)
 
 		// initialize console UI
 		consoleCommand := make(chan string)
@@ -797,7 +794,14 @@ func main() {
 		exitCallback := func() {
 			cancel()
 		}
-		cons := console.NewConsoleProgram(cmdCallback, exitCallback)
+		configCallback := func(model console.ConsoleModel) console.ConsoleModel {
+			model.SetStyles(config.Styles.Prompt, config.Styles.Question)
+			return model
+		}
+		cons := console.NewConsoleProgram(configCallback, cmdCallback, exitCallback)
+
+		verboseWriter := NewStyledWriter(cons, config.Styles.Foreground)
+		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
 		clientController := RunIPCServer(ctx, cons)
 
@@ -816,7 +820,8 @@ func main() {
 		butterfishCtx.serverMultiplexer()
 
 	default:
-		gpt := NewGPT(config.OpenAIToken, config.Verbose)
+		verboseWriter := NewStyledWriter(os.Stdout, config.Styles.Foreground)
+		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 		butterfishCtx := ButterfishCtx{
 			ctx:           ctx,
 			cancel:        cancel,

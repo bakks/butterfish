@@ -40,8 +40,11 @@ type ConsoleProgram struct {
 	program *tea.Program
 }
 
-func NewConsoleProgram(commandCallback func(string), exitCallback func()) *ConsoleProgram {
+func NewConsoleProgram(configCallback func(ConsoleModel) ConsoleModel, commandCallback func(string), exitCallback func()) *ConsoleProgram {
 	consoleModel := NewConsoleModel(commandCallback)
+	if configCallback != nil {
+		consoleModel = configCallback(consoleModel)
+	}
 	wrapper := alt.NewAltScreenWrapper(consoleModel)
 	program := tea.NewProgram(wrapper, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
@@ -101,6 +104,11 @@ func NewConsoleModel(callback func(string)) ConsoleModel {
 
 func (this ConsoleModel) Init() tea.Cmd {
 	return textarea.Blink
+}
+
+func (this *ConsoleModel) SetStyles(promptOutStyle, promptTextStyle lipgloss.Style) {
+	this.promptOutStyle = promptOutStyle
+	this.promptTextStyle = promptTextStyle
 }
 
 func consoleChildSizes(width, height int) (int, int, int, int) {

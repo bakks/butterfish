@@ -9,16 +9,18 @@ import (
 )
 
 type GPT struct {
-	client  gpt3.Client
-	verbose bool
+	client        gpt3.Client
+	verbose       bool
+	verboseWriter io.Writer
 }
 
-func NewGPT(token string, verbose bool) *GPT {
+func NewGPT(token string, verbose bool, verboseWriter io.Writer) *GPT {
 	client := gpt3.NewClient(token, gpt3.WithDefaultEngine(gpt3.TextDavinci003Engine))
 
 	return &GPT{
-		client:  client,
-		verbose: verbose,
+		client:        client,
+		verbose:       verbose,
+		verboseWriter: verboseWriter,
 	}
 }
 
@@ -42,7 +44,7 @@ func (this *GPT) CompletionStream(ctx context.Context, prompt string, engine str
 	}
 
 	if this.verbose {
-		printPrompt(writer, prompt)
+		printPrompt(this.verboseWriter, prompt)
 	}
 	err := this.client.CompletionStreamWithEngine(ctx, engine, req, callback)
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
@@ -51,11 +53,11 @@ func (this *GPT) CompletionStream(ctx context.Context, prompt string, engine str
 }
 
 func printPrompt(writer io.Writer, prompt string) {
-	fmt.Fprintf(writer, "↑ %s\n", prompt)
+	fmt.Fprintf(writer, "↑ ---\n%s\n-----\n", prompt)
 }
 
 func printResponse(writer io.Writer, response string) {
-	fmt.Fprintf(writer, "↓ %s\n", response)
+	fmt.Fprintf(writer, "↓ ---\n%s\n-----\n", response)
 }
 
 // Run a GPT completion request and return the response
@@ -66,7 +68,7 @@ func (this *GPT) Completion(ctx context.Context, prompt string, writer io.Writer
 	}
 
 	if this.verbose {
-		printPrompt(writer, prompt)
+		printPrompt(this.verboseWriter, prompt)
 	}
 	resp, err := this.client.Completion(ctx, req)
 	if err != nil {
@@ -74,7 +76,7 @@ func (this *GPT) Completion(ctx context.Context, prompt string, writer io.Writer
 	}
 
 	if this.verbose {
-		printResponse(writer, resp.Choices[0].Text)
+		printResponse(this.verboseWriter, resp.Choices[0].Text)
 	}
 	return resp.Choices[0].Text, nil
 }
@@ -103,6 +105,7 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 			summary += s
 		}
 		summary += "]"
+		fmt.Fprintf(this.verboseWriter, "%s\n", summary)
 	}
 
 	resp, err := this.client.Embeddings(ctx, req)
