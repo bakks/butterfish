@@ -638,7 +638,7 @@ func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	}
 }
 
-func makeButterfishConfig(options *cliOptions) *butterfishConfig {
+func makeButterfishConfig(options *cliShell) *butterfishConfig {
 	colorScheme := &gruvboxDark
 
 	return &butterfishConfig{
@@ -735,7 +735,7 @@ func getBuildInfo() string {
 
 func main() {
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
-	cli := &cliOptions{}
+	cli := &cliShell{}
 
 	cliParser, err := kong.New(cli,
 		kong.Name("butterfish"),
@@ -809,7 +809,7 @@ func main() {
 			out:           os.Stdout,
 		}
 
-		butterfishCtx.ExecCommand(parsedCmd, cli)
+		butterfishCtx.ExecCommand(parsedCmd, &cli.cliConsole)
 
 		os.Exit(1)
 	}

@@ -23,8 +23,8 @@ func (this *ButterfishCtx) Command(cmd string) error {
 	return nil
 }
 
-func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliOptions, error) {
-	options := &cliOptions{}
+func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliConsole, error) {
+	options := &cliConsole{}
 	parser, err := kong.New(options)
 	if err != nil {
 		return nil, nil, err
@@ -35,8 +35,7 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliOptions,
 	return kongCtx, options, err
 }
 
-// Kong CLI parser option configuration
-type cliOptions struct {
+type cliShell struct {
 	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
 
 	Wrap struct {
@@ -46,6 +45,11 @@ type cliOptions struct {
 	Console struct {
 	} `cmd:"" help:"Start a Butterfish console and server."`
 
+	cliConsole
+}
+
+// Kong CLI parser option configuration
+type cliConsole struct {
 	Prompt struct {
 		Prompt []string `arg:"" help:"Prompt to use."`
 		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
@@ -102,7 +106,7 @@ func cleanInput(input []string) string {
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
-func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliOptions) error {
+func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole) error {
 
 	switch parsed.Command() {
 	case "exit", "quit":
