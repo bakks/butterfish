@@ -48,13 +48,13 @@ type ColorScheme struct {
 var gruvboxDark = ColorScheme{
 	Foreground: "#A89984",
 	Background: "#282828",
-	Error:      "#CC241D",
-	Color1:     "#98971A",
-	Color2:     "#D79921",
-	Color3:     "#458588",
-	Color4:     "#B16286",
-	Color5:     "#689D6A",
-	Color6:     "#D65D0E",
+	Error:      "#fb4934", // red
+	Color1:     "#bb8b26", // green
+	Color2:     "#fabd2f", // yellow
+	Color3:     "#458588", // blue
+	Color4:     "#d3869b", // magenta
+	Color5:     "#8ec07c", // cyan
+	Color6:     "#fe8019", // orange
 }
 
 var gruvboxLight = ColorScheme{
@@ -395,7 +395,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	const bytesPerChunk = 3800
 	const maxChunks = 8
 
-	this.StylePrintf(this.config.Styles.Question, "Summarizing %s", path)
+	this.StylePrintf(this.config.Styles.Question, "Summarizing %s\n", path)
 	writer := NewStyledWriter(this.out, this.config.Styles.Answer)
 	chunks := [][]byte{}
 
@@ -631,9 +631,9 @@ type styles struct {
 
 func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	return &styles{
-		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color1)),
+		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
 		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
-		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
+		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
 		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
 	}
