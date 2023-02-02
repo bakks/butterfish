@@ -710,6 +710,24 @@ func getOpenAIToken() string {
 
 }
 
+// Kong configuration for shell arguments (shell meaning when butterfish is
+// invoked, rather than when we're inside a butterfish console).
+// Kong will parse os.Args based on this struct.
+type cliShell struct {
+	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
+
+	Wrap struct {
+		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
+	} `cmd:"" help:"Wrap a command (e.g. zsh) to expose to Butterfish."`
+
+	Console struct {
+	} `cmd:"" help:"Start a Butterfish console and server."`
+
+	// We include the cliConsole options here so that we can parse them and hand them
+	// to the console executor, even though we're in the shell context here
+	cliConsole
+}
+
 type butterfishConfig struct {
 	Verbose     bool
 	OpenAIToken string

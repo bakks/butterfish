@@ -35,19 +35,6 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliConsole,
 	return kongCtx, options, err
 }
 
-type cliShell struct {
-	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
-
-	Wrap struct {
-		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
-	} `cmd:"" help:"Wrap a command (e.g. zsh) to expose to Butterfish."`
-
-	Console struct {
-	} `cmd:"" help:"Start a Butterfish console and server."`
-
-	cliConsole
-}
-
 // Kong CLI parser option configuration
 type cliConsole struct {
 	Prompt struct {
