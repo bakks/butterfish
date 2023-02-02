@@ -22,10 +22,11 @@ func NewGPT(token string, verbose bool) *GPT {
 	}
 }
 
-// Run a GPT completion request and stream the response to the given writer
-// TODO the CompletionStream gpt3 method doesn't currently pass any signal
-// that it's done streaming results.
-func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.Writer) error {
+func (this *GPT) CompletionStream(ctx context.Context, prompt string, engine string, writer io.Writer) error {
+	if engine == "" {
+		engine = gpt3.TextDavinci003Engine
+	}
+
 	req := gpt3.CompletionRequest{
 		Prompt:    []string{prompt},
 		MaxTokens: gpt3.IntPtr(GPTMaxTokens),
@@ -43,7 +44,7 @@ func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.
 	if this.verbose {
 		printPrompt(writer, prompt)
 	}
-	err := this.client.CompletionStream(ctx, req, callback)
+	err := this.client.CompletionStreamWithEngine(ctx, engine, req, callback)
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
 	return err

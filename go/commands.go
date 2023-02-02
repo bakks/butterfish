@@ -40,7 +40,7 @@ type cliConsole struct {
 	Prompt struct {
 		Prompt []string `arg:"" help:"Prompt to use."`
 		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Run a specific GPT prompt, print results, and exit."`
+	} `cmd:"" help:"Run an LLM prompt without prompt wrapping, stream results back."`
 
 	Summarize struct {
 		Files []string `arg:"" help:"File paths to summarize."`
@@ -77,6 +77,7 @@ type cliConsole struct {
 
 	Indexquestion struct {
 		Question string `arg:"" help:"Question to ask."`
+		Model    string `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
 	} `cmd:"" help:"Ask a question of the index."`
 }
 
@@ -102,7 +103,18 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return nil
 
 	case "help":
-		fmt.Fprintf(this.out, "TODO: help\n")
+		parsed.Kong.Stdout = this.out
+		parsed.PrintUsage(false)
+
+	case "prompt <prompt>":
+		input := cleanInput(options.Prompt.Prompt)
+		if input == "" {
+			return errors.New("Please provide a prompt")
+		}
+
+		writer := NewStyledWriter(this.out, this.config.Styles.Answer)
+		model := options.Prompt.Model
+		return this.gptClient.CompletionStream(this.ctx, input, model, writer)
 
 	case "summarize <files>":
 		fields := options.Summarize.Files
@@ -157,15 +169,6 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		}
 
 		return this.execCommand(input)
-
-	case "prompt <prompt>":
-		input := cleanInput(options.Prompt.Prompt)
-		if input == "" {
-			return errors.New("Please provide a prompt")
-		}
-
-		writer := NewStyledWriter(this.out, this.config.Styles.Answer)
-		return this.gptClient.CompletionStream(this.ctx, input, writer)
 
 	case "clearindex <paths>":
 		paths := options.Clearindex.Paths
@@ -237,6 +240,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 	case "indexquestion":
 		input := options.Indexquestion.Question
+		model := options.Indexquestion.Model
 
 		if input == "" {
 			return errors.New("Please provide a question")
@@ -258,7 +262,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		exerpts := strings.Join(samples, "\n---\n")
 
 		prompt := fmt.Sprintf(questionPrompt, input, exerpts)
-		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out)
+		err = this.gptClient.CompletionStream(this.ctx, prompt, model, this.out)
 		return err
 
 	default:

@@ -408,7 +408,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
 		prompt := fmt.Sprintf(summarizePrompt, path, string(chunks[0]))
-		return this.gptClient.CompletionStream(this.ctx, prompt, writer)
+		return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 	}
 
 	// the document doesn't fit within the token limit, we'll iterate over it
@@ -431,7 +431,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 
 	mergedFacts := facts.String()
 	prompt := fmt.Sprintf(summarizeListOfFactsPrompt, path, mergedFacts)
-	return this.gptClient.CompletionStream(this.ctx, prompt, writer)
+	return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 }
 
 // Iterate through a list of file paths and summarize each
@@ -559,7 +559,7 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 	// combo "NOOP")
 	prompt := fmt.Sprintf(shellOutPrompt, openCmd, lastCmd, output)
 	writer := NewStyledWriter(this.out, this.config.Styles.Error)
-	err = this.gptClient.CompletionStream(this.ctx, prompt, writer)
+	err = this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 	if err != nil {
 		this.printError(err)
 		return
