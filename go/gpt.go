@@ -44,6 +44,7 @@ func (this *GPT) CompletionStream(ctx context.Context, prompt string, writer io.
 		printPrompt(writer, prompt)
 	}
 	err := this.client.CompletionStream(ctx, req, callback)
+	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
 	return err
 }

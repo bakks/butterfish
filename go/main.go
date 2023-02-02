@@ -171,8 +171,10 @@ func (this *StyledWriter) Write(p []byte) (n int, err error) {
 	}
 
 	str := string(p)
+	str = strings.ReplaceAll(str, "\x04", "\n") // replace EOF with a newline
 	rendered := this.Style.Render(str)
 	b := []byte(rendered)
+
 	_, err = this.Writer.Write(b)
 	if err != nil {
 		return 0, err
@@ -824,8 +826,10 @@ func main() {
 			out:           os.Stdout,
 		}
 
-		butterfishCtx.ExecCommand(parsedCmd, &cli.cliConsole)
+		err := butterfishCtx.ExecCommand(parsedCmd, &cli.cliConsole)
 
-		os.Exit(1)
+		if err != nil {
+			log.Fatalf("Error: %s\n", err.Error())
+		}
 	}
 }

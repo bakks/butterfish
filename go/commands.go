@@ -106,12 +106,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 	case "summarize <files>":
 		fields := options.Summarize.Files
-		if len(fields) < 2 {
-			fmt.Fprintf(this.out, "Please provide a file path to summarize")
-			break
+		if len(fields) == 0 {
+			return errors.New("Please provide a file path to summarize")
 		}
 
-		err := this.summarizeCommand(fields[1:])
+		err := this.summarizeCommand(fields)
 		return err
 
 	case "gencmd <prompt>":
