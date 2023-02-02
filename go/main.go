@@ -364,17 +364,6 @@ const questionPrompt = `Answer this question about a file:"%s". Here are some sn
 %s
 '''`
 
-// Clean up the cmd string and return a lowercased first word in it
-func getMiniCmd(cmd string) string {
-	cmd = strings.Split(cmd, " ")[0]
-	cmd = strings.ToLower(cmd)
-	return cmd
-}
-
-var availableCommands = []string{
-	"prompt", "gencmd", "exec", "remoteexec", "help", "summarize", "exit",
-}
-
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
 	return this.gptClient.Embeddings(ctx, content)
 }

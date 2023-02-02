@@ -47,8 +47,8 @@ type cliOptions struct {
 	} `cmd:"" help:"Start a Butterfish console and server."`
 
 	Prompt struct {
-		Prompt string `arg:"" help:"Prompt to use."`
-		Model  string `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		Prompt []string `arg:"" help:"Prompt to use."`
+		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
 	} `cmd:"" help:"Run a specific GPT prompt, print results, and exit."`
 
 	Summarize struct {
@@ -56,8 +56,8 @@ type cliOptions struct {
 	} `cmd:"" help:"Semantically summarize a list of files."`
 
 	Gencmd struct {
-		Prompt string `arg:"" help:"Prompt describing the desired shell command."`
-		Force  bool   `short:"f" default:"false" help:"Execute the command without prompting."`
+		Prompt []string `arg:"" help:"Prompt describing the desired shell command."`
+		Force  bool     `short:"f" default:"false" help:"Execute the command without prompting."`
 	} `cmd:"" help:"Generate a shell command from a prompt."`
 
 	Index struct {
@@ -65,11 +65,11 @@ type cliOptions struct {
 	} `cmd:"" help:"Index the current directory."`
 
 	Exec struct {
-		Command string `arg:"" help:"Command to execute."` // make optional?
+		Command []string `arg:"" help:"Command to execute." optional:""`
 	} `cmd:"" help:"Execute a command, either passed in or in command register."`
 
 	Execremote struct {
-		Command string `arg:"" help:"Command to execute."` // make optional?
+		Command []string `arg:"" help:"Command to execute." optional:""`
 	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register."`
 
 	Clearindex struct {
@@ -87,6 +87,18 @@ type cliOptions struct {
 	Indexquestion struct {
 		Question string `arg:"" help:"Question to ask."`
 	} `cmd:"" help:"Ask a question of the index."`
+}
+
+// Given a parsed input split into a slice, join the string together
+// and remove any leading/trailing quotes
+func cleanInput(input []string) string {
+	if input == nil || len(input) == 0 {
+		return ""
+	}
+
+	joined := strings.Join(input, " ")
+	joined = strings.Trim(joined, "\"'")
+	return joined
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
@@ -112,7 +124,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliOptions
 		return err
 
 	case "gencmd <prompt>":
-		input := options.Gencmd.Prompt
+		input := cleanInput(options.Gencmd.Prompt)
 		if input == "" {
 			return errors.New("Please provide a description to generate a command")
 		}
@@ -133,7 +145,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliOptions
 		return nil
 
 	case "execremote <command>":
-		input := options.Execremote.Command
+		input := cleanInput(options.Execremote.Command)
 		if input == "" {
 			input = this.commandRegister
 		}
@@ -145,7 +157,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliOptions
 		return this.execremoteCommand(input)
 
 	case "exec <command>":
-		input := options.Exec.Command
+		input := cleanInput(options.Exec.Command)
 		if input == "" {
 			input = this.commandRegister
 		}
@@ -157,7 +169,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliOptions
 		return this.execCommand(input)
 
 	case "prompt <prompt>":
-		input := options.Prompt.Prompt
+		input := cleanInput(options.Prompt.Prompt)
 		if input == "" {
 			return errors.New("Please provide a prompt")
 		}
