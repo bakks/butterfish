@@ -511,7 +511,6 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 type ButterfishCtx struct {
 	ctx              context.Context              // global context, should be passed through to other calls
 	cancel           context.CancelFunc           // cancel function for the global context
-	cliParser        *kong.Kong                   // kong context for parsing cli arguments
 	inConsoleMode    bool                         // true if we're running in console mode
 	config           *butterfishConfig            // configuration
 	gptClient        *GPT                         // GPT client
@@ -803,7 +802,6 @@ func main() {
 		butterfishCtx := ButterfishCtx{
 			ctx:              ctx,
 			cancel:           cancel,
-			cliParser:        cliParser,
 			inConsoleMode:    true,
 			config:           config,
 			gptClient:        gpt,
@@ -820,7 +818,6 @@ func main() {
 		butterfishCtx := ButterfishCtx{
 			ctx:           ctx,
 			cancel:        cancel,
-			cliParser:     cliParser,
 			inConsoleMode: true,
 			config:        config,
 			gptClient:     gpt,
