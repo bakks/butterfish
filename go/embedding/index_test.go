@@ -162,7 +162,7 @@ func TestFileCaching(t *testing.T) {
 	assert.Equal(t, "/a/two", scored[0].FilePath)
 
 	// Try out clearing the "four" file
-	index.Clear(ctx, "/a/b/c")
+	index.ClearPath(ctx, "/a/b/c")
 	scored, err = index.Search(ctx, "444", 2)
 	assert.NoError(t, err)
 	assert.NotEqual(t, "/a/b/c/d/four", scored[0].FilePath)

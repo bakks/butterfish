@@ -521,6 +521,9 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 
 type ButterfishCtx struct {
 	ctx              context.Context              // global context, should be passed through to other calls
+	cancel           context.CancelFunc           // cancel function for the global context
+	cliParser        *kong.Kong                   // kong context for parsing cli arguments
+	inConsoleMode    bool                         // true if we're running in console mode
 	config           *butterfishConfig            // configuration
 	gptClient        *GPT                         // GPT client
 	out              io.Writer                    // output writer
@@ -542,162 +545,6 @@ func (this *ButterfishCtx) loadVectorIndex() {
 	}
 
 	this.vectorIndex = index
-}
-
-// A function to handle a cmd string when received from consoleCommand channel
-func (this *ButterfishCtx) handleConsoleCommand(cmd string) (bool, error) {
-	cmd = strings.TrimSpace(cmd)
-	miniCmd := getMiniCmd(cmd)
-	txt := ""
-	fields := strings.Fields(cmd)
-	if len(fields) > 1 {
-		txt = strings.Join(fields[1:], " ")
-	}
-
-	switch miniCmd {
-	case "exit":
-		fmt.Fprintf(this.out, "Exiting...")
-		return true, nil
-
-	case "help":
-		fmt.Fprintf(this.out, "Available commands: %s", strings.Join(availableCommands, ", "))
-
-	case "summarize":
-		fields := strings.Fields(cmd)
-		if len(fields) < 2 {
-			fmt.Fprintf(this.out, "Please provide a file path to summarize")
-			break
-		}
-
-		err := this.summarizeCommand(fields[1:])
-		return false, err
-
-	case "gencmd":
-		fields := strings.Split(cmd, " ")
-		if len(fields) < 2 {
-			return false, errors.New("Please provide a description to generate a command")
-		}
-
-		description := strings.Join(fields[1:], " ")
-		_, err := this.gencmdCommand(description)
-		return false, err
-
-	case "execremote":
-		if this.commandRegister == "" && txt == "" {
-			return false, errors.New("No command to execute")
-		}
-
-		return false, this.execremoteCommand(txt)
-
-	case "exec":
-		if this.commandRegister == "" && txt == "" {
-			return false, errors.New("No command to execute")
-		}
-
-		return false, this.execCommand(txt)
-
-	case "prompt":
-		if txt == "" {
-			return false, errors.New("Please provide a prompt")
-		}
-
-		writer := NewStyledWriter(this.out, this.config.Styles.Answer)
-		return false, this.gptClient.CompletionStream(this.ctx, txt, writer)
-
-	case "clearindex":
-		if txt == "" {
-			txt = "."
-		}
-
-		this.vectorIndex.Clear(this.ctx, txt)
-		return false, nil
-
-	case "showindex":
-		paths := this.vectorIndex.IndexedFiles()
-		for _, path := range paths {
-			fmt.Fprintf(this.out, "%s\n", path)
-		}
-
-		return false, nil
-
-	case "loadindex":
-		if txt == "" {
-			txt = "."
-		}
-
-		fmt.Fprintf(this.out, "Loading indexes for %s (not generating new embeddings)\n", txt)
-		this.loadVectorIndex()
-
-		err := this.vectorIndex.LoadPaths(this.ctx, fields[1:])
-		if err != nil {
-			return false, err
-		}
-
-	case "index":
-		if txt == "" {
-			txt = "."
-		}
-
-		fmt.Fprintf(this.out, "Indexing %s\n", txt)
-
-		this.loadVectorIndex()
-
-		err := this.vectorIndex.LoadPaths(this.ctx, fields[1:])
-		if err != nil {
-			return false, err
-		}
-
-		this.vectorIndex.SetEmbedder(this)
-		err = this.vectorIndex.IndexPaths(this.ctx, fields[1:], false)
-		return false, err
-
-	case "vecsearch":
-		if txt == "" {
-			return false, errors.New("Please provide search parameters")
-		}
-		if this.vectorIndex == nil {
-			return false, errors.New("No vector index loaded")
-		}
-
-		results, err := this.vectorIndex.Search(this.ctx, txt, 5)
-		if err != nil {
-			return false, err
-		}
-
-		for _, result := range results {
-			fmt.Fprintf(this.out, "%s\n%s\n\n", result.FilePath, result.Content)
-		}
-
-	case "question":
-		if txt == "" {
-			return false, errors.New("Please provide a question")
-		}
-		if this.vectorIndex == nil {
-			return false, errors.New("No vector index loaded")
-		}
-
-		results, err := this.vectorIndex.Search(this.ctx, txt, 3)
-		if err != nil {
-			return false, err
-		}
-		samples := []string{}
-
-		for _, result := range results {
-			samples = append(samples, result.Content)
-		}
-
-		exerpts := strings.Join(samples, "\n---\n")
-
-		prompt := fmt.Sprintf(questionPrompt, txt, exerpts)
-		err = this.gptClient.CompletionStream(this.ctx, prompt, this.out)
-		return false, err
-
-	default:
-		return false, errors.New("Prefix your input with a command, available commands are: " + strings.Join(availableCommands, ", "))
-
-	}
-
-	return false, nil
 }
 
 func (this *ButterfishCtx) printError(err error, prefix ...string) {
@@ -736,13 +583,9 @@ func (this *ButterfishCtx) serverMultiplexer() {
 	for {
 		select {
 		case cmd := <-this.consoleCmdChan:
-			exit, err := this.handleConsoleCommand(cmd)
+			err := this.Command(cmd)
 			if err != nil {
 				this.printError(err)
-				continue
-			}
-			if exit {
-				return
 			}
 
 		case clientData := <-clientInput:
@@ -806,11 +649,11 @@ func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	}
 }
 
-func makeButterfishConfig() *butterfishConfig {
+func makeButterfishConfig(options *cliOptions) *butterfishConfig {
 	colorScheme := &gruvboxDark
 
 	return &butterfishConfig{
-		Verbose:     cli.Verbose,
+		Verbose:     options.Verbose,
 		OpenAIToken: getOpenAIToken(),
 		ColorScheme: colorScheme,
 		Styles:      colorSchemeToStyles(colorScheme),
@@ -878,35 +721,6 @@ func getOpenAIToken() string {
 
 }
 
-// Kong CLI parser option configuration
-var cli struct {
-	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
-
-	Wrap struct {
-		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
-	} `cmd:"" help:"Wrap a command (e.g. zsh) to expose to Butterfish."`
-
-	Console struct {
-	} `cmd:"" help:"Start a Butterfish console and server."`
-
-	Prompt struct {
-		Prompt string `arg:"" help:"Prompt to use."`
-		Model  string `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Run a specific GPT prompt, print results, and exit."`
-
-	Summarize struct {
-		Files []string `arg:"" help:"File paths to summarize."`
-	} `cmd:"" help:"Semantically summarize a list of files."`
-
-	Gencmd struct {
-		Prompt string `arg:"" help:"Prompt describing the desired shell command."`
-		Force  bool   `short:"f" default:"false" help:"Execute the command without prompting."`
-	} `cmd:"" help:"Generate a shell command from a prompt."`
-
-	Index struct {
-	} `cmd:"" help:"Index the current directory."`
-}
-
 type butterfishConfig struct {
 	Verbose     bool
 	OpenAIToken string
@@ -932,16 +746,23 @@ func getBuildInfo() string {
 
 func main() {
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
+	cli := &cliOptions{}
 
-	kongCtx := kong.Parse(&cli,
+	cliParser, err := kong.New(cli,
 		kong.Name("butterfish"),
 		kong.Description(desc),
 		kong.UsageOnError())
+	if err != nil {
+		panic(err)
+	}
 
-	config := makeButterfishConfig()
+	parsedCmd, err := cliParser.Parse(os.Args[1:])
+	cliParser.FatalIfErrorf(err)
+
+	config := makeButterfishConfig(cli)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	switch kongCtx.Command() {
+	switch parsedCmd.Command() {
 	case "wrap <cmd>":
 		client, err := runIPCClient(ctx)
 		if err != nil {
@@ -974,6 +795,9 @@ func main() {
 
 		butterfishCtx := ButterfishCtx{
 			ctx:              ctx,
+			cancel:           cancel,
+			cliParser:        cliParser,
+			inConsoleMode:    true,
 			config:           config,
 			gptClient:        gpt,
 			out:              cons,
@@ -984,46 +808,20 @@ func main() {
 		// this is blocking
 		butterfishCtx.serverMultiplexer()
 
-	case "prompt <prompt>":
-		gpt := NewGPT(config.OpenAIToken, config.Verbose)
-		writer := NewStyledWriter(os.Stdout, config.Styles.Answer)
-		err := gpt.CompletionStream(ctx, cli.Prompt.Prompt, writer)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-	case "summarize <files>":
-		butterfish := newButterfishCtx(ctx, config)
-		err := butterfish.summarizeCommand(cli.Summarize.Files)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-	case "gencmd <prompt>":
-		butterfish := newButterfishCtx(ctx, config)
-		cmd, err := butterfish.gencmdCommand(cli.Gencmd.Prompt)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		if !cli.Gencmd.Force {
-			fmt.Printf("Generated command:\n %s\n", cmd)
-		} else {
-			err := butterfish.execCommand(cmd)
-			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
-			}
-		}
-
-	case "index":
-		os.Exit(0)
-
 	default:
-		fmt.Printf("Unknown command: %s", kongCtx.Command())
+		gpt := NewGPT(config.OpenAIToken, config.Verbose)
+		butterfishCtx := ButterfishCtx{
+			ctx:           ctx,
+			cancel:        cancel,
+			cliParser:     cliParser,
+			inConsoleMode: true,
+			config:        config,
+			gptClient:     gpt,
+			out:           os.Stdout,
+		}
+
+		butterfishCtx.ExecCommand(parsedCmd, cli)
+
 		os.Exit(1)
 	}
 }

@@ -33,7 +33,8 @@ type FileEmbeddingIndex interface {
 	Vectorize(ctx context.Context, content string) ([]float64, error)
 	SearchWithVector(ctx context.Context, queryVector []float64, k int) ([]*VectorSearchResult, error)
 	PopulateSearchResults(ctx context.Context, embeddings []*VectorSearchResult) error
-	Clear(ctx context.Context, path string) error
+	ClearPaths(ctx context.Context, paths []string) error
+	ClearPath(ctx context.Context, path string) error
 	LoadPaths(ctx context.Context, paths []string) error
 	LoadPath(ctx context.Context, path string) error
 	IndexPaths(ctx context.Context, paths []string, forceUpdate bool) error
@@ -471,10 +472,20 @@ func (this *DiskCachedEmbeddingIndex) dotfilesInPath(ctx context.Context, path s
 	return dotfiles, err
 }
 
+func (this *DiskCachedEmbeddingIndex) ClearPaths(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		err := this.ClearPath(ctx, path)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Clear out embeddings at a given path, both in memory and on disk
 // We do this by first locating all dotfiles in the path, then deleting
 // the in-memory copy, and finally deleting the dotfiles
-func (this *DiskCachedEmbeddingIndex) Clear(ctx context.Context, path string) error {
+func (this *DiskCachedEmbeddingIndex) ClearPath(ctx context.Context, path string) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
