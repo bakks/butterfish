@@ -15,4 +15,4 @@ Type "butterfish prompt 'I need to parse a directory full of log files and find 
 Sleep 1s
 Enter
 
-Sleep 20s
+Sleep 30s

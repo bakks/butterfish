@@ -15,4 +15,4 @@ Type "butterfish summarize ../README.md"
 Sleep 1s
 Enter
 
-Sleep 20s
+Sleep 30s
