@@ -3,9 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/alecthomas/kong"
+	"github.com/bakks/butterfish/go/util"
 )
 
 // Parse and execute a command in a butterfish context
@@ -38,12 +41,12 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliConsole,
 // Kong CLI parser option configuration
 type cliConsole struct {
 	Prompt struct {
-		Prompt []string `arg:"" help:"Prompt to use."`
+		Prompt []string `arg:"" help:"Prompt to use." optional:""`
 		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
 	} `cmd:"" help:"Run an LLM prompt without prompt wrapping, stream results back."`
 
 	Summarize struct {
-		Files []string `arg:"" help:"File paths to summarize."`
+		Files []string `arg:"" help:"File paths to summarize." optional:""`
 	} `cmd:"" help:"Semantically summarize a list of files."`
 
 	Gencmd struct {
@@ -83,7 +86,17 @@ type cliConsole struct {
 
 // Given a parsed input split into a slice, join the string together
 // and remove any leading/trailing quotes
-func cleanInput(input []string) string {
+func (this *ButterfishCtx) cleanInput(input []string) string {
+	// If we're not in console mode and we have piped data then use that as input
+	if !this.inConsoleMode && util.IsPipedStdin() {
+		stdin, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return ""
+		}
+		return string(stdin)
+	}
+
+	// otherwise we use the input
 	if input == nil || len(input) == 0 {
 		return ""
 	}
@@ -106,8 +119,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		parsed.Kong.Stdout = this.out
 		parsed.PrintUsage(false)
 
-	case "prompt <prompt>":
-		input := cleanInput(options.Prompt.Prompt)
+	case "prompt", "prompt <prompt>":
+		input := this.cleanInput(options.Prompt.Prompt)
 		if input == "" {
 			return errors.New("Please provide a prompt")
 		}
@@ -116,17 +129,29 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		model := options.Prompt.Model
 		return this.gptClient.CompletionStream(this.ctx, input, model, writer)
 
+	case "summarize":
+		chunks, err := util.GetChunks(os.Stdin, 3800, 8)
+		if err != nil {
+			return err
+		}
+
+		if len(chunks) == 0 {
+			return errors.New("No input to summarize")
+		}
+
+		return this.SummarizeChunks(chunks)
+
 	case "summarize <files>":
 		fields := options.Summarize.Files
 		if len(fields) == 0 {
-			return errors.New("Please provide a file path to summarize")
+			return errors.New("Please provide file paths or piped data to summarize")
 		}
 
-		err := this.summarizeCommand(fields)
+		err := this.summarizePaths(fields)
 		return err
 
 	case "gencmd <prompt>":
-		input := cleanInput(options.Gencmd.Prompt)
+		input := this.cleanInput(options.Gencmd.Prompt)
 		if input == "" {
 			return errors.New("Please provide a description to generate a command")
 		}
@@ -147,7 +172,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return nil
 
 	case "execremote <command>":
-		input := cleanInput(options.Execremote.Command)
+		input := this.cleanInput(options.Execremote.Command)
 		if input == "" {
 			input = this.commandRegister
 		}
@@ -159,7 +184,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return this.execremoteCommand(input)
 
 	case "exec <command>":
-		input := cleanInput(options.Exec.Command)
+		input := this.cleanInput(options.Exec.Command)
 		if input == "" {
 			input = this.commandRegister
 		}

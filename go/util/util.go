@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -23,9 +24,14 @@ func ChunkFile(
 	}
 	defer f.Close()
 
+	return ChunkFromReader(f, chunkSize, maxChunks, callback)
+}
+
+func ChunkFromReader(reader io.Reader, chunkSize uint64, maxChunks int, callback func(int, []byte) error) error {
 	buf := make([]byte, chunkSize)
+
 	for i := 0; i < maxChunks || maxChunks == -1; i++ {
-		n, err := f.Read(buf)
+		n, err := reader.Read(buf)
 		if err != nil && err != io.EOF {
 			return err
 		}
@@ -46,7 +52,8 @@ func ChunkFile(
 // return a list of chunks of the file at the given path
 func GetFileChunks(ctx context.Context, fs afero.Fs, path string,
 	chunkSize uint64, maxChunks int) ([][]byte, error) {
-	var chunks [][]byte
+	chunks := make([][]byte, 0)
+
 	err := ChunkFile(fs, path, chunkSize, maxChunks, func(i int, chunk []byte) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -55,11 +62,17 @@ func GetFileChunks(ctx context.Context, fs afero.Fs, path string,
 		chunks = append(chunks, chunk)
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
 
-	return chunks, nil
+	return chunks, err
+}
+
+func GetChunks(reader io.Reader, chunkSize uint64, maxChunks int) ([][]byte, error) {
+	chunks := make([][]byte, 0)
+	err := ChunkFromReader(reader, chunkSize, maxChunks, func(i int, chunk []byte) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	return chunks, err
 }
 
 // Cast an array of byte arrays to an array of strings
@@ -98,4 +111,14 @@ func Min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Returns true if there is piped stdin data that can be read
+func IsPipedStdin() bool {
+	fi, _ := os.Stdin.Stat()
+
+	if (fi.Mode() & os.ModeCharDevice) == 0 {
+		return true
+	}
+	return false
 }

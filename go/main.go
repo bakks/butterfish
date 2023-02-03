@@ -336,21 +336,21 @@ const GPTMaxTokens = 1024
 
 const shellOutPrompt = `The following is output from a user inside a "%s" shell, the user ran the command "%s", if the output contains an error then print the specific segment that is an error and explain briefly how to solve the error, otherwise respond with only "NOOP". "%s"`
 
-const summarizePrompt = `The following is a raw text file with path "%s", summarize the file contents, the file's purpose, and write a list of the file's key elements:
+const summarizePrompt = `The following is a raw text file, summarize the file contents, the file's purpose, and write a list of the file's key elements:
 '''
 %s
 '''
 
 Summary:`
 
-const summarizeFactsPrompt = `The following is a raw text file with path "%s", write a bullet-point list of facts from the document starting with the most important.
+const summarizeFactsPrompt = `The following is a raw text file, write a bullet-point list of facts from the document starting with the most important.
 '''
 %s
 '''
 
 Summary:`
 
-const summarizeListOfFactsPrompt = `The following is a list of facts about file "%s", write a description of the file and summarize its important facts in a bulleted list.
+const summarizeListOfFactsPrompt = `The following is a list of facts, write a general description of the document and summarize its important facts in a bulleted list.
 '''
 %s
 '''
@@ -382,35 +382,12 @@ func (this *ButterfishCtx) Printf(format string, a ...any) {
 	fmt.Fprintf(this.out, this.config.Styles.Foreground.Render(format), a...)
 }
 
-// Given a file path we attempt to semantically summarize its content.
-// If the file is short enough, we ask directly for a summary, otherwise
-// we ask for a list of facts and then summarize those.
-
-// From OpenAI documentation:
-// Tokens can be words or just chunks of characters. For example, the word
-// “hamburger” gets broken up into the tokens “ham”, “bur” and “ger”, while a
-// short and common word like “pear” is a single token. Many tokens start with
-// a whitespace, for example “ hello” and “ bye”.
-// The number of tokens processed in a given API request depends on the length
-// of both your inputs and outputs. As a rough rule of thumb, 1 token is
-// approximately 4 characters or 0.75 words for English text.
-func (this *ButterfishCtx) summarizePath(path string) error {
-	const bytesPerChunk = 3800
-	const maxChunks = 8
-
-	this.StylePrintf(this.config.Styles.Question, "Summarizing %s\n", path)
+func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	writer := NewStyledWriter(this.out, this.config.Styles.Answer)
-	chunks := [][]byte{}
-
-	fs := afero.NewOsFs()
-	util.ChunkFile(fs, path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
-		chunks = append(chunks, buf)
-		return nil
-	})
 
 	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
-		prompt := fmt.Sprintf(summarizePrompt, path, string(chunks[0]))
+		prompt := fmt.Sprintf(summarizePrompt, string(chunks[0]))
 		return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 	}
 
@@ -423,7 +400,7 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 			break
 		}
 
-		prompt := fmt.Sprintf(summarizeFactsPrompt, path, string(chunk))
+		prompt := fmt.Sprintf(summarizeFactsPrompt, string(chunk))
 		resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 		if err != nil {
 			return err
@@ -433,14 +410,42 @@ func (this *ButterfishCtx) summarizePath(path string) error {
 	}
 
 	mergedFacts := facts.String()
-	prompt := fmt.Sprintf(summarizeListOfFactsPrompt, path, mergedFacts)
+	prompt := fmt.Sprintf(summarizeListOfFactsPrompt, mergedFacts)
 	return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 }
 
+// Given a file path we attempt to semantically summarize its content.
+// If the file is short enough, we ask directly for a summary, otherwise
+// we ask for a list of facts and then summarize those.
+
+// From OpenAI documentation:
+// Tokens can be words or just chunks of characters. For example, the word
+// “hamburger” gets broken up into the tokens “ham”, “bur” and “ger”, while a
+// short and common word like “pear” is a single token. Many tokens start with
+// a whitespace, for example “ hello” and “ bye”.
+// The number of tokens processed in a given API request depends on the length
+// of both your inputs and outputs. As a rough rule of thumb, 1 token is
+// approximately 4 characters or 0.75 words for English text.
+func (this *ButterfishCtx) SummarizePath(path string) error {
+	const bytesPerChunk = 3800
+	const maxChunks = 8
+
+	this.StylePrintf(this.config.Styles.Question, "Summarizing %s\n", path)
+	chunks := [][]byte{}
+
+	fs := afero.NewOsFs()
+	util.ChunkFile(fs, path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
+		chunks = append(chunks, buf)
+		return nil
+	})
+
+	return this.SummarizeChunks(chunks)
+}
+
 // Iterate through a list of file paths and summarize each
-func (this *ButterfishCtx) summarizeCommand(paths []string) error {
+func (this *ButterfishCtx) summarizePaths(paths []string) error {
 	for _, path := range paths {
-		err := this.summarizePath(path)
+		err := this.SummarizePath(path)
 		if err != nil {
 			return err
 		}
@@ -825,7 +830,7 @@ func main() {
 		butterfishCtx := ButterfishCtx{
 			ctx:           ctx,
 			cancel:        cancel,
-			inConsoleMode: true,
+			inConsoleMode: false,
 			config:        config,
 			gptClient:     gpt,
 			out:           os.Stdout,
