@@ -396,7 +396,7 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	facts := strings.Builder{}
 
 	for _, chunk := range chunks {
-		if len(chunk) < 16 {
+		if len(chunk) < 16 { // if we have a tiny chunk, skip it
 			break
 		}
 
@@ -427,23 +427,22 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 // of both your inputs and outputs. As a rough rule of thumb, 1 token is
 // approximately 4 characters or 0.75 words for English text.
 func (this *ButterfishCtx) SummarizePath(path string) error {
-	const bytesPerChunk = 3800
-	const maxChunks = 8
+	bytesPerChunk := this.config.SummarizeChunkSize
+	maxChunks := this.config.SummarizeMaxChunks
 
 	this.StylePrintf(this.config.Styles.Question, "Summarizing %s\n", path)
-	chunks := [][]byte{}
 
 	fs := afero.NewOsFs()
-	util.ChunkFile(fs, path, bytesPerChunk, maxChunks, func(i int, buf []byte) error {
-		chunks = append(chunks, buf)
-		return nil
-	})
+	chunks, err := util.GetFileChunks(this.ctx, fs, path, uint64(bytesPerChunk), maxChunks)
+	if err != nil {
+		return err
+	}
 
 	return this.SummarizeChunks(chunks)
 }
 
 // Iterate through a list of file paths and summarize each
-func (this *ButterfishCtx) summarizePaths(paths []string) error {
+func (this *ButterfishCtx) SummarizePaths(paths []string) error {
 	for _, path := range paths {
 		err := this.SummarizePath(path)
 		if err != nil {
@@ -646,10 +645,12 @@ func makeButterfishConfig(options *cliShell) *butterfishConfig {
 	colorScheme := &gruvboxDark
 
 	return &butterfishConfig{
-		Verbose:     options.Verbose,
-		OpenAIToken: getOpenAIToken(),
-		ColorScheme: colorScheme,
-		Styles:      colorSchemeToStyles(colorScheme),
+		Verbose:            options.Verbose,
+		OpenAIToken:        getOpenAIToken(),
+		ColorScheme:        colorScheme,
+		Styles:             colorSchemeToStyles(colorScheme),
+		SummarizeChunkSize: 3800, // This safely fits into 4096 token limits
+		SummarizeMaxChunks: 8,    // Summarize 8 chunks before bailing
 	}
 }
 
@@ -737,6 +738,11 @@ type butterfishConfig struct {
 	OpenAIToken string
 	ColorScheme *ColorScheme
 	Styles      *styles
+
+	// How many bytes should we read at a time when summarizing
+	SummarizeChunkSize int
+	// How many chunks into the input should we summarize
+	SummarizeMaxChunks int
 }
 
 const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`

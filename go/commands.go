@@ -130,7 +130,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return this.gptClient.CompletionStream(this.ctx, input, model, writer)
 
 	case "summarize":
-		chunks, err := util.GetChunks(os.Stdin, 3800, 8)
+		chunks, err := util.GetChunks(
+			os.Stdin,
+			uint64(this.config.SummarizeChunkSize),
+			this.config.SummarizeMaxChunks)
+
 		if err != nil {
 			return err
 		}
@@ -147,7 +151,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			return errors.New("Please provide file paths or piped data to summarize")
 		}
 
-		err := this.summarizePaths(fields)
+		err := this.SummarizePaths(fields)
 		return err
 
 	case "gencmd <prompt>":
