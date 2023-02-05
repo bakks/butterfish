@@ -54,6 +54,13 @@ type cliConsole struct {
 		Force  bool     `short:"f" default:"false" help:"Execute the command without prompting."`
 	} `cmd:"" help:"Generate a shell command from a prompt."`
 
+	Rewrite struct {
+		Prompt     string `arg:"" help:"Instruction to the model on how to rewrite."`
+		Inputfile  string `short:"i" help:"File to rewrite."`
+		Outputfile string `short:"o" help:"File to write the rewritten output to."`
+		Inplace    bool   `short:"I" help:"Rewrite the input file in place, cannot be set at the same time as the Output file flag."`
+	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input."`
+
 	Index struct {
 		Paths []string `arg:"" help:"Paths to index."`
 	} `cmd:"" help:"Index the current directory."`
@@ -82,6 +89,17 @@ type cliConsole struct {
 		Question string `arg:"" help:"Question to ask."`
 		Model    string `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
 	} `cmd:"" help:"Ask a question of the index."`
+}
+
+func (this *ButterfishCtx) getPipedStdin() string {
+	if !this.inConsoleMode && util.IsPipedStdin() {
+		stdin, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return ""
+		}
+		return string(stdin)
+	}
+	return ""
 }
 
 // Given a parsed input split into a slice, join the string together
@@ -146,13 +164,64 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return this.SummarizeChunks(chunks)
 
 	case "summarize <files>":
-		fields := options.Summarize.Files
-		if len(fields) == 0 {
+		files := options.Summarize.Files
+		if len(files) == 0 {
 			return errors.New("Please provide file paths or piped data to summarize")
 		}
 
-		err := this.SummarizePaths(fields)
+		err := this.SummarizePaths(files)
 		return err
+
+	case "rewrite <prompt>":
+		prompt := options.Rewrite.Prompt
+		if prompt == "" {
+			return errors.New("Please provide a prompt")
+		}
+		// cannot set Outputfile and Inplace at the same time
+		if options.Rewrite.Outputfile != "" && options.Rewrite.Inplace {
+			return errors.New("Cannot set both outputfile and inplace flags")
+		}
+
+		input := this.getPipedStdin()
+		filename := options.Rewrite.Inputfile
+		if input != "" && filename != "" {
+			return errors.New("Please provide either piped data or a file path, not both")
+		}
+		if input == "" && filename == "" {
+			return errors.New("Please provide a file path or piped data to rewrite")
+		}
+		if filename != "" {
+			// we have a filename but no piped input, read the file
+			content, err := ioutil.ReadFile(filename)
+			if err != nil {
+				return err
+			}
+			input = string(content)
+		}
+
+		edited, err := this.gptClient.Edits(this.ctx, input, prompt, "code-davinci-edit-001")
+		if err != nil {
+			return err
+		}
+
+		outputFile := options.Rewrite.Outputfile
+		// if output file is empty then check inplace flag and use input as output
+		if outputFile == "" && options.Rewrite.Inplace {
+			outputFile = filename
+		}
+
+		if outputFile == "" {
+			// If there's no output file specified then print edited text
+			this.StylePrintf(this.config.Styles.Answer, "%s", edited)
+		} else {
+			// otherwise we write to the output file
+			err = ioutil.WriteFile(outputFile, []byte(edited), 0644)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 
 	case "gencmd <prompt>":
 		input := this.cleanInput(options.Gencmd.Prompt)

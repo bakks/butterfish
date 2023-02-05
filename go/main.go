@@ -151,47 +151,68 @@ type StyledWriter struct {
 // Writer for StyledWriter
 // This is a bit insane but it's a dumb way to filter out NOOP split into
 // two tokens, should probably be rewritten
-func (this *StyledWriter) Write(p []byte) (n int, err error) {
-	if string(p) == "NOOP" {
+func (this *StyledWriter) Write(input []byte) (int, error) {
+	if string(input) == "NOOP" {
 		// This doesn't seem to actually happen since it gets split into two
 		// tokens? but let's code defensively
-		return len(p), nil
+		return len(input), nil
 	}
 
-	if string(p) == "NO" {
-		this.cache = p
-		return len(p), nil
+	if string(input) == "NO" {
+		this.cache = input
+		return len(input), nil
 	}
-	if string(p) == "OP" && this.cache != nil {
+	if string(input) == "OP" && this.cache != nil {
 		// We have a NOOP, discard it
 		this.cache = nil
-		return len(p), nil
+		return len(input), nil
 	}
 
 	if this.cache != nil {
-		p = append(this.cache, p...)
+		input = append(this.cache, input...)
 		this.cache = nil
 	}
 
-	str := string(p)
-	str = strings.ReplaceAll(str, "\x04", "\n") // replace EOF with a newline
-	rendered := this.Style.Render(str)
-	b := []byte(rendered)
+	// Lipgloss is a little tricky - if you render a string with newlines it
+	// turns it into a "block", i.e. each line will be padding to be the same
+	// lengeth. This is not what we want, so we split on newlines and render
+	// each line separately.
+	str := string(input)
+	strBuilder := strings.Builder{}
+	for i, line := range strings.Split(str, "\n") {
+		if i > 0 {
+			strBuilder.WriteString("\n")
+		}
+		strBuilder.WriteString(this.Style.Render(line))
+	}
 
-	_, err = this.Writer.Write(b)
+	rendered := strBuilder.String()
+	renderedBytes := []byte(rendered)
+
+	_, err := this.Writer.Write(renderedBytes)
 	if err != nil {
 		return 0, err
 	}
-	// use len(p) rather than len(b) because it would be unexpected to get
+	// use len(input) rather than len(renderedBytes) because it would be unexpected to get
 	// a different number of bytes written than were passed in, (lipgloss
 	// render adds ANSI codes)
-	return len(p), nil
+	return len(input), nil
 }
 
 func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
+	adjustedStyle := style.
+		UnsetPadding().
+		UnsetMargins().
+		UnsetWidth().
+		UnsetHeight().
+		UnsetMaxWidth().
+		UnsetMaxHeight().
+		UnsetBorderStyle().
+		UnsetWidth()
+
 	return &StyledWriter{
 		Writer: writer,
-		Style:  style,
+		Style:  adjustedStyle,
 	}
 }
 
@@ -811,7 +832,7 @@ func main() {
 		}
 		cons := console.NewConsoleProgram(configCallback, cmdCallback, exitCallback)
 
-		verboseWriter := NewStyledWriter(cons, config.Styles.Foreground)
+		verboseWriter := NewStyledWriter(cons, config.Styles.Grey)
 		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
 		clientController := RunIPCServer(ctx, cons)
@@ -831,7 +852,7 @@ func main() {
 		butterfishCtx.serverMultiplexer()
 
 	default:
-		verboseWriter := NewStyledWriter(os.Stdout, config.Styles.Foreground)
+		verboseWriter := NewStyledWriter(os.Stdout, config.Styles.Grey)
 		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 		butterfishCtx := ButterfishCtx{
 			ctx:           ctx,
@@ -845,7 +866,8 @@ func main() {
 		err := butterfishCtx.ExecCommand(parsedCmd, &cli.cliConsole)
 
 		if err != nil {
-			log.Fatalf("Error: %s\n", err.Error())
+			butterfishCtx.StylePrintf(config.Styles.Error, "Error: %s\n", err.Error())
+			os.Exit(1)
 		}
 	}
 }

@@ -120,3 +120,28 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 
 	return result, nil
 }
+
+const GPTEditModel = "code-davinci-edit-001"
+
+func (this *GPT) Edits(ctx context.Context, content, instruction, model string) (string, error) {
+	if model == "" {
+		model = GPTEditModel
+	}
+
+	req := gpt3.EditsRequest{
+		Model:       model,
+		Input:       content,
+		Instruction: instruction,
+	}
+
+	if this.verbose {
+		printPrompt(this.verboseWriter, fmt.Sprintf("%s\n---\n%s", instruction, content))
+	}
+
+	resp, err := this.client.Edits(ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Choices[0].Text, nil
+}
