@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
+	"strings"
+	"time"
 
 	"github.com/PullRequestInc/go-gpt3"
 )
@@ -88,6 +91,25 @@ func (this *GPT) SetVerbose(verbose bool) {
 const GPTEmbeddingsMaxTokens = 8192
 const GPTEmbeddingsModel = "text-embedding-ada-002"
 
+func withExponentialBackoff(writer io.Writer, f func() error) error {
+	for i := 0; ; i++ {
+		err := f()
+
+		if err != nil && strings.Contains(err.Error(), "429:requests") {
+			// TODO should probably have a better error detection
+			sleepTime := time.Duration(math.Pow(1.6, float64(i+1))) * time.Second
+			fmt.Fprintf(writer, "Rate limited, sleeping for %s\n", sleepTime)
+			time.Sleep(sleepTime)
+
+			if i > 6 {
+				return fmt.Errorf("Getting 429s from GPT-3, giving up after %d retries", i)
+			}
+			continue
+		}
+		return err
+	}
+}
+
 func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, error) {
 	req := gpt3.EmbeddingsRequest{
 		Input: input,
@@ -108,17 +130,21 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 		fmt.Fprintf(this.verboseWriter, "%s\n", summary)
 	}
 
-	resp, err := this.client.Embeddings(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
 	result := [][]float64{}
-	for _, embedding := range resp.Data {
-		result = append(result, embedding.Embedding)
-	}
 
-	return result, nil
+	err := withExponentialBackoff(this.verboseWriter, func() error {
+		resp, err := this.client.Embeddings(ctx, req)
+		if err != nil {
+			return err
+		}
+
+		for _, embedding := range resp.Data {
+			result = append(result, embedding.Embedding)
+		}
+		return nil
+	})
+
+	return result, err
 }
 
 const GPTEditModel = "code-davinci-edit-001"

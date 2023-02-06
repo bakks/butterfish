@@ -82,8 +82,11 @@ type cliConsole struct {
 	} `cmd:"" help:"Clear paths from the index."`
 
 	Loadindex struct {
-		Paths []string `arg:"" help:"Paths to load into the index."`
+		Paths []string `arg:"" help:"Paths to load into the index." optional:""`
 	} `cmd:"" help:"Load paths into the index."`
+
+	Showindex struct {
+	} `cmd:"" help:"Show which files are present in the loaded index."`
 
 	Indexsearch struct {
 		Query string `arg:"" help:"Query to search for."`
@@ -276,6 +279,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return this.execCommand(input)
 
 	case "clearindex <paths>":
+		this.initVectorIndex(nil)
+
 		paths := options.Clearindex.Paths
 		if len(paths) == 0 {
 			paths = []string{"."}
@@ -285,9 +290,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return nil
 
 	case "showindex":
+		this.initVectorIndex(nil)
+
 		paths := this.vectorIndex.IndexedFiles()
 		for _, path := range paths {
-			fmt.Fprintf(this.out, "%s\n", path)
+			this.Printf("%s\n", path)
 		}
 
 		return nil
@@ -298,13 +305,14 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			paths = []string{"."}
 		}
 
-		fmt.Fprintf(this.out, "Loading indexes (not generating new embeddings) for %s\n", strings.Join(paths, ", "))
-		this.loadVectorIndex()
+		this.Printf("Loading indexes (not generating new embeddings) for %s\n", strings.Join(paths, ", "))
+		this.initVectorIndex(paths)
 
 		err := this.vectorIndex.LoadPaths(this.ctx, paths)
 		if err != nil {
 			return err
 		}
+		this.Printf("Loaded %d files\n", len(this.vectorIndex.IndexedFiles()))
 
 	case "index <paths>":
 		paths := options.Index.Paths
@@ -312,20 +320,22 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			paths = []string{"."}
 		}
 
-		fmt.Fprintf(this.out, "Indexing %s\n", strings.Join(paths, ", "))
-
-		this.loadVectorIndex()
+		this.Printf("Indexing %s\n", strings.Join(paths, ", "))
+		this.initVectorIndex(paths)
 
 		err := this.vectorIndex.LoadPaths(this.ctx, paths)
 		if err != nil {
 			return err
 		}
 
-		this.vectorIndex.SetEmbedder(this)
 		err = this.vectorIndex.IndexPaths(this.ctx, paths, false)
+
+		this.Printf("Done, %d files now loaded in the index\n", len(this.vectorIndex.IndexedFiles()))
 		return err
 
 	case "indexsearch <query>":
+		this.initVectorIndex(nil)
+
 		input := options.Indexsearch.Query
 		if input == "" {
 			return errors.New("Please provide search parameters")
@@ -340,7 +350,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		}
 
 		for _, result := range results {
-			fmt.Fprintf(this.out, "%s\n%s\n\n", result.FilePath, result.Content)
+			this.StylePrintf(this.config.Styles.Highlight, "%s : %0.4f\n", result.FilePath, result.Score)
+			this.Printf("%s\n", result.Content)
 		}
 
 	case "indexquestion":

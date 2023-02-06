@@ -84,13 +84,17 @@ type DiskCachedEmbeddingIndex struct {
 	// For huge files we probably don't want to embed everything, so this is
 	// the maximum number of chunks to embed from a specific file
 	MaxChunks int
+
+	// When we embed a path we skip these directories
+	IgnoreDirs []string
 }
 
 func NewDiskCachedEmbeddingIndex() *DiskCachedEmbeddingIndex {
 	index := &DiskCachedEmbeddingIndex{
-		index: make(map[string]*pb.DirectoryIndex),
-		out:   os.Stdout,
-		fs:    afero.NewOsFs(),
+		index:      make(map[string]*pb.DirectoryIndex),
+		out:        os.Stdout,
+		fs:         afero.NewOsFs(),
+		IgnoreDirs: []string{".git"},
 	}
 
 	index.SetDefaultConfig()
@@ -274,8 +278,14 @@ func (this *DiskCachedEmbeddingIndex) LoadDotfile(dotfile string) error {
 		return err
 	}
 
+	absPath, err := filepath.Abs(dotfile)
+	if err != nil {
+		return err
+	}
+	indexName := filepath.Dir(absPath)
+
 	// put the loaded info in the memory index
-	this.index[filepath.Dir(dotfile)] = &dirIndex
+	this.index[indexName] = &dirIndex
 
 	if this.Verbosity >= 1 {
 		fmt.Fprintf(this.out, "Loaded index cache at %s\n", dotfile)
@@ -436,12 +446,33 @@ func (this *DiskCachedEmbeddingIndex) IndexableFile(path string, file os.FileInf
 	return true
 }
 
+// check if a string array contains a string
+func contains(strs []string, str string) bool {
+	for _, s := range strs {
+		if s == str {
+			return true
+		}
+	}
+	return false
+}
+
+func (this *DiskCachedEmbeddingIndex) IndexableDirectory(path string) bool {
+	name := filepath.Base(path)
+
+	if contains(this.IgnoreDirs, name) {
+		return false
+	}
+	return true
+}
+
 func (this *DiskCachedEmbeddingIndex) FilterUnindexablefiles(path string, files []os.FileInfo, forceUpdate bool, dirIndex *pb.DirectoryIndex) []os.FileInfo {
 	var filteredFiles []os.FileInfo
 	for _, file := range files {
 		previousEmbeddings := dirIndex.Files[file.Name()]
 		if this.IndexableFile(path, file, forceUpdate, previousEmbeddings) {
 			filteredFiles = append(filteredFiles, file)
+		} else {
+			fmt.Fprintf(this.out, "Ignoring %s\n", filepath.Join(path, file.Name()))
 		}
 	}
 	return filteredFiles
@@ -564,7 +595,12 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 
 		// call UpdatePath recursively for each subdirectory
 		err = util.ForEachSubdir(this.fs, path, func(path string) error {
-			return this.IndexPath(ctx, path, forceUpdate)
+			if this.IndexableDirectory(path) {
+				return this.IndexPath(ctx, path, forceUpdate)
+			}
+
+			fmt.Fprintf(this.out, "Ignored %s\n", path)
+			return nil
 		})
 
 		// get each non-directory file and stat in the path
@@ -593,6 +629,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		}
 
 		dirIndex.Files[name] = fileEmbeddings
+		fmt.Fprintf(this.out, "Indexed %s\n", path)
 	}
 
 	// TODO remove indexes for files that have been deleted

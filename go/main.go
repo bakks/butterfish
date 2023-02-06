@@ -510,17 +510,34 @@ type ButterfishCtx struct {
 }
 
 // Ensure we have a vector index object, idempotent
-func (this *ButterfishCtx) loadVectorIndex() {
+func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
 	if this.vectorIndex != nil {
-		return
+		return nil
 	}
 
 	index := embedding.NewDiskCachedEmbeddingIndex()
+	index.SetEmbedder(this)
+
 	if this.config.Verbose {
 		index.SetOutput(this.out)
 	}
 
 	this.vectorIndex = index
+
+	if !this.inConsoleMode {
+		// if we're running from the command line then we first load the curr
+		// dir index
+		if pathsToLoad == nil || len(pathsToLoad) == 0 {
+			pathsToLoad = []string{"."}
+		}
+
+		err := this.vectorIndex.LoadPaths(this.ctx, pathsToLoad)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (this *ButterfishCtx) printError(err error, prefix ...string) {
