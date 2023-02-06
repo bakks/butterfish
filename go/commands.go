@@ -420,6 +420,8 @@ func (this *ButterfishCtx) execCommand(cmd string) error {
 		cmd = this.commandRegister
 	}
 
-	this.StylePrintf(this.config.Styles.Question, "exec> %s\n", cmd)
+	if this.config.Verbose {
+		this.StylePrintf(this.config.Styles.Question, "exec> %s\n", cmd)
+	}
 	return executeCommand(this.ctx, cmd, this.out)
 }
