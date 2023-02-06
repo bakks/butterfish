@@ -146,6 +146,7 @@ func (this *PromptLibrary) Load() error {
 	if err != nil {
 		return errors.New("File is not formatted correctly. Please ensure you are passing in a valid YAML file and try again.")
 	}
+
 	if this.Verbose {
 		fmt.Fprintf(this.VerboseWriter, "Loaded %v prompts from %v\n", len(this.Prompts), this.Path)
 	}

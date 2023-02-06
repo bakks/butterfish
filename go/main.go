@@ -150,6 +150,26 @@ type StyledWriter struct {
 	cache  []byte
 }
 
+// Lipgloss is a little tricky - if you render a string with newlines it
+// turns it into a "block", i.e. each line will be padding to be the same
+// length. This is not what we want, so we split on newlines and render
+// each line separately.
+func multilineLipglossRender(style lipgloss.Style, str string) string {
+	strBuilder := strings.Builder{}
+	for i, line := range strings.Split(str, "\n") {
+		if i > 0 {
+			strBuilder.WriteString("\n")
+		}
+
+		if len(line) > 0 {
+			rendered := style.Render(line)
+			strBuilder.WriteString(rendered)
+		}
+	}
+
+	return strBuilder.String()
+}
+
 // Writer for StyledWriter
 // This is a bit insane but it's a dumb way to filter out NOOP split into
 // two tokens, should probably be rewritten
@@ -175,20 +195,8 @@ func (this *StyledWriter) Write(input []byte) (int, error) {
 		this.cache = nil
 	}
 
-	// Lipgloss is a little tricky - if you render a string with newlines it
-	// turns it into a "block", i.e. each line will be padding to be the same
-	// lengeth. This is not what we want, so we split on newlines and render
-	// each line separately.
 	str := string(input)
-	strBuilder := strings.Builder{}
-	for i, line := range strings.Split(str, "\n") {
-		if i > 0 {
-			strBuilder.WriteString("\n")
-		}
-		strBuilder.WriteString(this.Style.Render(line))
-	}
-
-	rendered := strBuilder.String()
+	rendered := multilineLipglossRender(this.Style, str)
 	renderedBytes := []byte(rendered)
 
 	_, err := this.Writer.Write(renderedBytes)
@@ -363,15 +371,16 @@ func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []st
 
 // A local printf that writes to the butterfishctx out using a lipgloss style
 func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
-	fmt.Fprintf(this.out, style.Render(format), a...)
+	str := multilineLipglossRender(style, fmt.Sprintf(format, a...))
+	fmt.Fprintf(this.out, str)
 }
 
 func (this *ButterfishCtx) Printf(format string, a ...any) {
-	fmt.Fprintf(this.out, this.config.Styles.Foreground.Render(format), a...)
+	this.StylePrintf(this.config.Styles.Foreground, format, a...)
 }
 
 func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
-	writer := NewStyledWriter(this.out, this.config.Styles.Answer)
+	writer := NewStyledWriter(this.out, this.config.Styles.Foreground)
 
 	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
@@ -453,48 +462,6 @@ func (this *ButterfishCtx) SummarizePaths(paths []string) error {
 	return nil
 }
 
-// Given a description of functionality, we call GPT to generate a shell
-// command
-func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
-	prompt, err := this.promptLibrary.GetPrompt("generate_command", "content", description)
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
-	if err != nil {
-		return "", err
-	}
-
-	this.updateCommandRegister(resp)
-	fmt.Fprintf(this.out, "Run exec or execremote to execute\n")
-	return resp, nil
-}
-
-// Function that executes a command on the local host as a child and streams
-// the stdout/stderr to a writer. If the context is cancelled then the child
-// process is killed.
-func executeCommand(ctx context.Context, cmd string, out io.Writer) error {
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-	c.Stdout = out
-	c.Stderr = out
-	return c.Run()
-}
-
-// Execute the command as a child of this process (rather than a remote
-// process), either from the command register or from a command string
-func (this *ButterfishCtx) execCommand(cmd string) error {
-	if cmd == "" && this.commandRegister == "" {
-		return errors.New("No command to execute")
-	}
-	if cmd == "" {
-		cmd = this.commandRegister
-	}
-
-	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
-	return executeCommand(this.ctx, cmd, this.out)
-}
-
 // Execute the command stored in commandRegister on the remote host,
 // either from the command register or from a command string
 func (this *ButterfishCtx) execremoteCommand(cmd string) error {
@@ -516,9 +483,16 @@ func (this *ButterfishCtx) execremoteCommand(cmd string) error {
 }
 
 func (this *ButterfishCtx) updateCommandRegister(cmd string) {
+	// If we're not in console mode then we don't care about updating the register
+	if !this.inConsoleMode {
+		return
+	}
+
 	cmd = strings.TrimSpace(cmd)
 	this.commandRegister = cmd
-	fmt.Fprintf(this.out, "Command register updated to:\n %s\n", cmd)
+	this.Printf("Command register updated to:\n")
+	this.StylePrintf(this.config.Styles.Answer, "%s\n", cmd)
+	this.Printf("Run exec or execremote to execute\n")
 }
 
 type ButterfishCtx struct {
@@ -526,7 +500,7 @@ type ButterfishCtx struct {
 	cancel           context.CancelFunc           // cancel function for the global context
 	promptLibrary    *prompt.PromptLibrary        // library of prompts
 	inConsoleMode    bool                         // true if we're running in console mode
-	config           *butterfishConfig            // configuration
+	config           *ButterfishConfig            // configuration
 	gptClient        *GPT                         // GPT client
 	out              io.Writer                    // output writer
 	commandRegister  string                       // landing space for generated commands
@@ -635,6 +609,7 @@ type styles struct {
 	Question   lipgloss.Style
 	Answer     lipgloss.Style
 	Summarize  lipgloss.Style
+	Highlight  lipgloss.Style
 	Prompt     lipgloss.Style
 	Error      lipgloss.Style
 	Foreground lipgloss.Style
@@ -644,7 +619,8 @@ type styles struct {
 func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	return &styles{
 		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
-		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
+		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color1)),
+		Highlight:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Prompt:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
@@ -732,7 +708,7 @@ type cliShell struct {
 	cliConsole
 }
 
-type butterfishConfig struct {
+type ButterfishConfig struct {
 	Verbose     bool
 	OpenAIToken string
 	ColorScheme *ColorScheme
@@ -747,7 +723,7 @@ type butterfishConfig struct {
 	SummarizeMaxChunks int
 }
 
-func makeButterfishConfig(options *cliShell) *butterfishConfig {
+func makeButterfishConfig(options *cliShell) *ButterfishConfig {
 	colorScheme := &gruvboxDark
 
 	promptPath := "~/.config/butterfish/prompts.yaml"
@@ -756,7 +732,7 @@ func makeButterfishConfig(options *cliShell) *butterfishConfig {
 		log.Fatal(err)
 	}
 
-	return &butterfishConfig{
+	return &ButterfishConfig{
 		Verbose:            options.Verbose,
 		OpenAIToken:        getOpenAIToken(),
 		ColorScheme:        colorScheme,
@@ -787,7 +763,7 @@ func getBuildInfo() string {
 // Either way, we'll then add the default prompts to the library, replacing
 // loaded prompts only if OkToReplace is set on them. Then we save the library
 // at the same path.
-func initializePrompts(config *butterfishConfig, writer io.Writer) (*prompt.PromptLibrary, error) {
+func initializePrompts(config *ButterfishConfig, writer io.Writer) (*prompt.PromptLibrary, error) {
 	promptLibrary := prompt.NewPromptLibrary(config.PromptLibraryPath)
 
 	if config.Verbose {

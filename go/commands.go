@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/alecthomas/kong"
@@ -235,8 +238,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			return err
 		}
 
+		// trim whitespace
+		cmd = strings.TrimSpace(cmd)
+
 		if !options.Gencmd.Force {
-			fmt.Printf("Generated command:\n %s\n", cmd)
+			this.StylePrintf(this.config.Styles.Highlight, "%s\n", cmd)
 		} else {
 			err := this.execCommand(cmd)
 			if err != nil {
@@ -375,4 +381,45 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 	}
 
 	return nil
+}
+
+// Given a description of functionality, we call GPT to generate a shell
+// command
+func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
+	prompt, err := this.promptLibrary.GetPrompt("generate_command", "content", description)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
+	if err != nil {
+		return "", err
+	}
+
+	this.updateCommandRegister(resp)
+	return resp, nil
+}
+
+// Function that executes a command on the local host as a child and streams
+// the stdout/stderr to a writer. If the context is cancelled then the child
+// process is killed.
+func executeCommand(ctx context.Context, cmd string, out io.Writer) error {
+	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c.Stdout = out
+	c.Stderr = out
+	return c.Run()
+}
+
+// Execute the command as a child of this process (rather than a remote
+// process), either from the command register or from a command string
+func (this *ButterfishCtx) execCommand(cmd string) error {
+	if cmd == "" && this.commandRegister == "" {
+		return errors.New("No command to execute")
+	}
+	if cmd == "" {
+		cmd = this.commandRegister
+	}
+
+	this.StylePrintf(this.config.Styles.Question, "exec> %s\n", cmd)
+	return executeCommand(this.ctx, cmd, this.out)
 }
