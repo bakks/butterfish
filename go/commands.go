@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
+	"github.com/bakks/butterfish/go/prompt"
 	"github.com/bakks/butterfish/go/util"
 )
 
@@ -359,7 +360,12 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 		exerpts := strings.Join(samples, "\n---\n")
 
-		prompt := fmt.Sprintf(questionPrompt, input, exerpts)
+		prompt, err := this.promptLibrary.GetPrompt(prompt.PromptQuestion,
+			"snippets", exerpts,
+			"question", input)
+		if err != nil {
+			return err
+		}
 		err = this.gptClient.CompletionStream(this.ctx, prompt, model, this.out)
 		return err
 

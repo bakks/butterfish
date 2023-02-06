@@ -20,11 +20,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/creack/pty"
 	"github.com/joho/godotenv"
+	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/afero"
 	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/go/charmcomponents/console"
 	"github.com/bakks/butterfish/go/embedding"
+	"github.com/bakks/butterfish/go/prompt"
 	"github.com/bakks/butterfish/go/util"
 )
 
@@ -355,41 +357,6 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 
 const GPTMaxTokens = 1024
 
-const shellOutPrompt = `The following is output from a user inside a "%s" shell, the user ran the command "%s", if the output contains an error then print the specific segment that is an error and explain briefly how to solve the error, otherwise respond with only "NOOP". "%s"`
-
-const summarizePrompt = `The following is a raw text file, summarize the file contents, the file's purpose, and write a list of the file's key elements:
-'''
-%s
-'''
-
-Summary:`
-
-const summarizeFactsPrompt = `The following is a raw text file, write a bullet-point list of facts from the document starting with the most important.
-'''
-%s
-'''
-
-Summary:`
-
-const summarizeListOfFactsPrompt = `The following is a list of facts, write a general description of the document and summarize its important facts in a bulleted list.
-'''
-%s
-'''
-
-Description and Important Facts:`
-
-const gencmdPrompt = `Write a shell command that accomplishes the following goal. Respond with only the shell command.
-'''
-%s
-'''
-
-Shell command:`
-
-const questionPrompt = `Answer this question about a file:"%s". Here are some snippets from the file separated by '---'.
-'''
-%s
-'''`
-
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
 	return this.gptClient.Embeddings(ctx, content)
 }
@@ -408,7 +375,11 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 
 	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
-		prompt := fmt.Sprintf(summarizePrompt, string(chunks[0]))
+		prompt, err := this.promptLibrary.GetPrompt(prompt.PromptSummarize,
+			"content", string(chunks[0]))
+		if err != nil {
+			return err
+		}
 		return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 	}
 
@@ -421,7 +392,11 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 			break
 		}
 
-		prompt := fmt.Sprintf(summarizeFactsPrompt, string(chunk))
+		prompt, err := this.promptLibrary.GetPrompt(prompt.PromptSummarizeFacts,
+			"content", string(chunk))
+		if err != nil {
+			return err
+		}
 		resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 		if err != nil {
 			return err
@@ -431,7 +406,11 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	}
 
 	mergedFacts := facts.String()
-	prompt := fmt.Sprintf(summarizeListOfFactsPrompt, mergedFacts)
+	prompt, err := this.promptLibrary.GetPrompt(prompt.PromptSummarizeListOfFacts,
+		"content", mergedFacts)
+	if err != nil {
+		return err
+	}
 	return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 }
 
@@ -477,7 +456,11 @@ func (this *ButterfishCtx) SummarizePaths(paths []string) error {
 // Given a description of functionality, we call GPT to generate a shell
 // command
 func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
-	prompt := fmt.Sprintf(gencmdPrompt, description)
+	prompt, err := this.promptLibrary.GetPrompt("generate_command", "content", description)
+	if err != nil {
+		return "", err
+	}
+
 	resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
 	if err != nil {
 		return "", err
@@ -541,6 +524,7 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 type ButterfishCtx struct {
 	ctx              context.Context              // global context, should be passed through to other calls
 	cancel           context.CancelFunc           // cancel function for the global context
+	promptLibrary    *prompt.PromptLibrary        // library of prompts
 	inConsoleMode    bool                         // true if we're running in console mode
 	config           *butterfishConfig            // configuration
 	gptClient        *GPT                         // GPT client
@@ -585,7 +569,14 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 	// interpolate the prompt to ask if there's an error in the output and
 	// call GPT, the response will be streamed (but filter the special token
 	// combo "NOOP")
-	prompt := fmt.Sprintf(shellOutPrompt, openCmd, lastCmd, output)
+	prompt, err := this.promptLibrary.GetPrompt(prompt.PromptWatchShellOutput,
+		"shell_name", openCmd,
+		"command", lastCmd,
+		"output", string(output))
+	if err != nil {
+		this.printError(err)
+	}
+
 	writer := NewStyledWriter(this.out, this.config.Styles.Error)
 	err = this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 	if err != nil {
@@ -653,25 +644,12 @@ type styles struct {
 func colorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	return &styles{
 		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
-		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
+		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
 		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Prompt:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
 		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
 		Grey:       lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Grey)),
-	}
-}
-
-func makeButterfishConfig(options *cliShell) *butterfishConfig {
-	colorScheme := &gruvboxDark
-
-	return &butterfishConfig{
-		Verbose:            options.Verbose,
-		OpenAIToken:        getOpenAIToken(),
-		ColorScheme:        colorScheme,
-		Styles:             colorSchemeToStyles(colorScheme),
-		SummarizeChunkSize: 3800, // This safely fits into 4096 token limits
-		SummarizeMaxChunks: 8,    // Summarize 8 chunks before bailing
 	}
 }
 
@@ -760,10 +738,33 @@ type butterfishConfig struct {
 	ColorScheme *ColorScheme
 	Styles      *styles
 
+	// File for loading/saving the list of prompts
+	PromptLibraryPath string
+
 	// How many bytes should we read at a time when summarizing
 	SummarizeChunkSize int
 	// How many chunks into the input should we summarize
 	SummarizeMaxChunks int
+}
+
+func makeButterfishConfig(options *cliShell) *butterfishConfig {
+	colorScheme := &gruvboxDark
+
+	promptPath := "~/.config/butterfish/prompts.yaml"
+	promptPath, err := homedir.Expand(promptPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return &butterfishConfig{
+		Verbose:            options.Verbose,
+		OpenAIToken:        getOpenAIToken(),
+		ColorScheme:        colorScheme,
+		Styles:             colorSchemeToStyles(colorScheme),
+		PromptLibraryPath:  promptPath,
+		SummarizeChunkSize: 3800, // This safely fits into 4096 token limits
+		SummarizeMaxChunks: 8,    // Summarize 8 chunks before bailing
+	}
 }
 
 const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
@@ -779,7 +780,38 @@ var ( // these are filled in at build time
 )
 
 func getBuildInfo() string {
-	return fmt.Sprintf("%s %s %s (commit %s) (built %s)\n%s\n", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp, license)
+	return fmt.Sprintf("%s %s %s\n(commit %s) (built %s)\n%s\n", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp, license)
+}
+
+// Let's initialize our prompts. If we have a prompt library file, we'll load it.
+// Either way, we'll then add the default prompts to the library, replacing
+// loaded prompts only if OkToReplace is set on them. Then we save the library
+// at the same path.
+func initializePrompts(config *butterfishConfig, writer io.Writer) (*prompt.PromptLibrary, error) {
+	promptLibrary := prompt.NewPromptLibrary(config.PromptLibraryPath)
+
+	if config.Verbose {
+		promptLibrary.Verbose = true
+		promptLibrary.VerboseWriter = writer
+	}
+
+	loaded := false
+
+	if promptLibrary.LibraryFileExists() {
+		err := promptLibrary.Load()
+		if err != nil {
+			return nil, err
+		}
+		loaded = true
+	}
+	promptLibrary.ReplacePrompts(prompt.DefaultPrompts)
+	promptLibrary.Save()
+
+	if !loaded {
+		fmt.Fprintf(writer, "Initialized prompt library at %s\n", config.PromptLibraryPath)
+	}
+
+	return promptLibrary, nil
 }
 
 func main() {
@@ -800,19 +832,23 @@ func main() {
 	config := makeButterfishConfig(cli)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	errorWriter := NewStyledWriter(os.Stderr, config.Styles.Error)
+
+	// There are special commands (console and wrap) which are interpreted here,
+	// the rest are intepreted in commands.go
 	switch parsedCmd.Command() {
 	case "wrap <cmd>":
 		client, err := runIPCClient(ctx)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			fmt.Fprintf(errorWriter, err.Error())
+			os.Exit(2)
 		}
 
 		cmdArr := os.Args[2:]
 		err = wrapCommand(ctx, cancel, cmdArr, client) // this is blocking
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			fmt.Fprintf(errorWriter, err.Error())
+			os.Exit(3)
 		}
 
 	case "console":
@@ -835,11 +871,18 @@ func main() {
 		verboseWriter := NewStyledWriter(cons, config.Styles.Grey)
 		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
+		promptLibrary, err := initializePrompts(config, verboseWriter)
+		if err != nil {
+			fmt.Fprintf(errorWriter, err.Error())
+			os.Exit(1)
+		}
+
 		clientController := RunIPCServer(ctx, cons)
 
 		butterfishCtx := ButterfishCtx{
 			ctx:              ctx,
 			cancel:           cancel,
+			promptLibrary:    promptLibrary,
 			inConsoleMode:    true,
 			config:           config,
 			gptClient:        gpt,
@@ -854,20 +897,28 @@ func main() {
 	default:
 		verboseWriter := NewStyledWriter(os.Stdout, config.Styles.Grey)
 		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
+
+		promptLibrary, err := initializePrompts(config, verboseWriter)
+		if err != nil {
+			fmt.Fprintf(errorWriter, err.Error())
+			os.Exit(1)
+		}
+
 		butterfishCtx := ButterfishCtx{
 			ctx:           ctx,
 			cancel:        cancel,
+			promptLibrary: promptLibrary,
 			inConsoleMode: false,
 			config:        config,
 			gptClient:     gpt,
 			out:           os.Stdout,
 		}
 
-		err := butterfishCtx.ExecCommand(parsedCmd, &cli.cliConsole)
+		err = butterfishCtx.ExecCommand(parsedCmd, &cli.cliConsole)
 
 		if err != nil {
 			butterfishCtx.StylePrintf(config.Styles.Error, "Error: %s\n", err.Error())
-			os.Exit(1)
+			os.Exit(4)
 		}
 	}
 }
