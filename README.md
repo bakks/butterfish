@@ -7,7 +7,7 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 ## What is this thing?
 
 - There's voluminous LLM (GPT-3, etc) experimentation happening now, but I want something that enables Unix-like command line use of LLMs with transparency into the actual prompts. I write code in tmux/neovim, I want to be able to use LLMs without switching a browser.
-- Let's LLM concepts for Unix command lines - shell, files, dotfiles, etc. Let's use pipes!
+- Let's use LLM concepts on the Unix command line - shell, files, dotfiles, etc. Let's use pipes!
 - Not a Python guy.
 
 Solution:
