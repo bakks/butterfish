@@ -177,15 +177,14 @@ advice if so.
 protoc --decode DirectoryIndex butterfish/proto/butterfish.proto < .butterfish_index
 ```
 
-## Installation
-
-TODO: will deploy via homebrew
-
 ## Dev Setup
 
 ```
-brew install protoc protoc-gen-go protoc-gen-go-grpc
+brew install git go protoc protoc-gen-go protoc-gen-go-grpc
+git clone https://github.com/bakks/butterfish
+cd butterfish
 make
+./bin/butterfish prompt "Is this thing working?"
 ```
 
 ## Potential Features
