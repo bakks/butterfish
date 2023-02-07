@@ -2,7 +2,7 @@
 
 Let's do useful things with LLMs from the command line, with a bent towards software engineering.
 
-<img src="https://github.com/bakks/butterfish/raw/main/assets/butterfish.png" alt="Butterfish" width="300px" height="300px" />
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/summarize.gif" alt="Butterfish" width="500px" height="250px" />
 
 ## What is this thing?
 
