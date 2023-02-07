@@ -47,55 +47,58 @@ type cliConsole struct {
 	Prompt struct {
 		Prompt []string `arg:"" help:"Prompt to use." optional:""`
 		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Run an LLM prompt without prompt wrapping, stream results back."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given prompt. It's recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003."`
 
 	Summarize struct {
 		Files []string `arg:"" help:"File paths to summarize." optional:""`
-	} `cmd:"" help:"Semantically summarize a list of files."`
+	} `cmd:"" help:"Semantically summarize a list of files (or piped input). We read in the file, if it's short then we hand it directly to the LLM and ask for a summary. If it's longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall summary."`
 
 	Gencmd struct {
 		Prompt []string `arg:"" help:"Prompt describing the desired shell command."`
 		Force  bool     `short:"f" default:"false" help:"Execute the command without prompting."`
-	} `cmd:"" help:"Generate a shell command from a prompt."`
+	} `cmd:"" help:"Generate a shell command from a prompt, i.e. pass in what you want, a shell command will be generated. Accepts piped input. You can use the -f command to execute it sight-unseen."`
 
 	Rewrite struct {
 		Prompt     string `arg:"" help:"Instruction to the model on how to rewrite."`
 		Inputfile  string `short:"i" help:"File to rewrite."`
 		Outputfile string `short:"o" help:"File to write the rewritten output to."`
 		Inplace    bool   `short:"I" help:"Rewrite the input file in place, cannot be set at the same time as the Output file flag."`
-	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input."`
+	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input, and can output to stdout, output to a given file, or edit the input file in-place."`
 
 	Index struct {
 		Paths []string `arg:"" help:"Paths to index." optional:""`
-	} `cmd:"" help:"Index the current directory."`
+		Force bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
+	} `cmd:"" help:"Recursively index the current directory using embeddings. This will read each file, split it into chunks, embed the chunks, and write a .butterfish_index file to each directory caching the embeddings. If you re-run this it will skip over previously embedded files unless you force a re-index. This implements an exponential backoff if you hit OpenAI API rate limits."`
 
 	Exec struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command, either passed in or in command register."`
+	} `cmd:"" help:"Execute a command, either passed in or in command register. This is specifically for Console after you've run gencmd."`
 
 	Execremote struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register."`
+	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you've run gencmd when you have a wrapped terminal open."`
 
 	Clearindex struct {
 		Paths []string `arg:"" help:"Paths to clear from the index." optional:""`
-	} `cmd:"" help:"Clear paths from the index."`
+	} `cmd:"" help:"Clear paths from the index, both from the in-memory index (if in Console mode) and to delete .butterfish_index files."`
 
 	Loadindex struct {
 		Paths []string `arg:"" help:"Paths to load into the index." optional:""`
-	} `cmd:"" help:"Load paths into the index."`
+	} `cmd:"" help:"Load paths into the index. This is specifically for Console mode when you want to load a set of cached indexes into memory."`
 
 	Showindex struct {
-	} `cmd:"" help:"Show which files are present in the loaded index."`
+		Paths []string `arg:"" help:"Paths to show from the index." optional:""`
+	} `cmd:"" help:"Show which files are present in the loaded index. You can pass in a path but it defaults to the current directory."`
 
 	Indexsearch struct {
-		Query string `arg:"" help:"Query to search for."`
+		Query   string `arg:"" help:"Query to search for."`
+		Results int    `short:"r" default:"5" help:"Number of results to return."`
 	} `cmd:"" help:"Search embedding index and return relevant file snippets."`
 
 	Indexquestion struct {
 		Question string `arg:"" help:"Question to ask."`
 		Model    string `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Ask a question of the index."`
+	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
 }
 
 func (this *ButterfishCtx) getPipedStdin() string {
@@ -289,11 +292,12 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		this.vectorIndex.ClearPaths(this.ctx, paths)
 		return nil
 
-	case "showindex":
-		this.initVectorIndex(nil)
+	case "showindex, showindex <paths>":
+		paths := options.Showindex.Paths
+		this.initVectorIndex(paths)
 
-		paths := this.vectorIndex.IndexedFiles()
-		for _, path := range paths {
+		indexedPaths := this.vectorIndex.IndexedFiles()
+		for _, path := range indexedPaths {
 			this.Printf("%s\n", path)
 		}
 
@@ -327,8 +331,9 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		if err != nil {
 			return err
 		}
+		force := options.Index.Force
 
-		err = this.vectorIndex.IndexPaths(this.ctx, paths, false)
+		err = this.vectorIndex.IndexPaths(this.ctx, paths, force)
 
 		this.Printf("Done, %d files now loaded in the index\n", len(this.vectorIndex.IndexedFiles()))
 		return err
@@ -340,8 +345,9 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		if input == "" {
 			return errors.New("Please provide search parameters")
 		}
+		numResults := options.Indexsearch.Results
 
-		results, err := this.vectorIndex.Search(this.ctx, input, 5)
+		results, err := this.vectorIndex.Search(this.ctx, input, numResults)
 		if err != nil {
 			return err
 		}
