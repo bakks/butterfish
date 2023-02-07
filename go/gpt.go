@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PullRequestInc/go-gpt3"
+	"github.com/bakks/butterfish/go/util"
 )
 
 type GPT struct {
@@ -124,7 +125,7 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 			} else {
 				summary += "\n"
 			}
-			summary += s[:int(math.Min(20, float64(len(s))))]
+			summary += s[:util.Min(20, len(s))]
 		}
 		summary += "\n]"
 		fmt.Fprintf(this.verboseWriter, "%s\n", summary)

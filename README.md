@@ -81,6 +81,12 @@ Implementation is dumb: we grab stdout from the wrapped shell and if it's long
 enough we put it in a prompt and ask GPT if there is a problem, and to offer
 advice if so.
 
+### Embeddings
+
+```
+protoc --decode DirectoryIndex butterfish/proto/butterfish.proto < .butterfish_index
+```
+
 ## Installation
 
 TODO: will deploy via homebrew

@@ -515,7 +515,8 @@ func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
 		return nil
 	}
 
-	index := embedding.NewDiskCachedEmbeddingIndex()
+	out := NewStyledWriter(this.out, this.config.Styles.Foreground)
+	index := embedding.NewDiskCachedEmbeddingIndex(out)
 	index.SetEmbedder(this)
 
 	if this.config.Verbose {

@@ -92,10 +92,10 @@ type DiskCachedEmbeddingIndex struct {
 	IgnoreFiles []string
 }
 
-func NewDiskCachedEmbeddingIndex() *DiskCachedEmbeddingIndex {
+func NewDiskCachedEmbeddingIndex(writer io.Writer) *DiskCachedEmbeddingIndex {
 	index := &DiskCachedEmbeddingIndex{
 		index:       make(map[string]*pb.DirectoryIndex),
-		out:         os.Stdout,
+		out:         writer,
 		fs:          afero.NewOsFs(),
 		IgnoreDirs:  []string{".git"},
 		IgnoreFiles: []string{".gitignore", ".gitmodules", "go.sum", "LICENSE", "LICENSE.md"},
