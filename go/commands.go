@@ -47,11 +47,11 @@ type cliConsole struct {
 	Prompt struct {
 		Prompt []string `arg:"" help:"Prompt to use." optional:""`
 		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given prompt. It's recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given prompt. It is recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003."`
 
 	Summarize struct {
 		Files []string `arg:"" help:"File paths to summarize." optional:""`
-	} `cmd:"" help:"Semantically summarize a list of files (or piped input). We read in the file, if it's short then we hand it directly to the LLM and ask for a summary. If it's longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall summary."`
+	} `cmd:"" help:"Semantically summarize a list of files (or piped input). We read in the file, if it is short then we hand it directly to the LLM and ask for a summary. If it is longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall summary."`
 
 	Gencmd struct {
 		Prompt []string `arg:"" help:"Prompt describing the desired shell command."`
@@ -72,11 +72,11 @@ type cliConsole struct {
 
 	Exec struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command, either passed in or in command register. This is specifically for Console after you've run gencmd."`
+	} `cmd:"" help:"Execute a command, either passed in or in command register. This is specifically for Console after you have run gencmd."`
 
 	Execremote struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you've run gencmd when you have a wrapped terminal open."`
+	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you have run gencmd when you have a wrapped terminal open."`
 
 	Clearindex struct {
 		Paths []string `arg:"" help:"Paths to clear from the index." optional:""`

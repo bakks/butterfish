@@ -42,7 +42,7 @@ OPENAI_TOKEN=sk-foobar
 
 Here's the command help:
 
-```bash
+```
 > butterfish --help
 
 Usage: butterfish <command>
@@ -63,11 +63,11 @@ Commands:
 
   prompt [<prompt> ...]
     Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given
-    prompt. It's recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003.
+    prompt. It is recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003.
 
   summarize [<files> ...]
-    Semantically summarize a list of files (or piped input). We read in the file, if it's short then we hand it directly to the LLM and ask for a summary.
-    If it's longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall
+    Semantically summarize a list of files (or piped input). We read in the file, if it is short then we hand it directly to the LLM and ask for a summary.
+    If it is longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall
     summary.
 
   gencmd <prompt> ...
@@ -84,11 +84,11 @@ Commands:
     an exponential backoff if you hit OpenAI API rate limits.
 
   exec [<command> ...]
-    Execute a command, either passed in or in command register. This is specifically for Console after you've run gencmd.
+    Execute a command, either passed in or in command register. This is specifically for Console after you have run gencmd.
 
   execremote [<command> ...]
-    Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you've run gencmd when you have
-    a wrapped terminal open.
+    Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you have run gencmd when you
+    have a wrapped terminal open.
 
   clearindex [<paths> ...]
     Clear paths from the index, both from the in-memory index (if in Console mode) and to delete .butterfish_index files.
@@ -107,8 +107,6 @@ Commands:
     the index command first.
 
 Run "butterfish <command> --help" for more information on a command.
-
-
 ```
 
 ### `prompt`

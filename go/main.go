@@ -761,7 +761,7 @@ func makeButterfishConfig(options *cliShell) *ButterfishConfig {
 	}
 }
 
-const description = `Let's do useful things with LLMs from the command line, with a bent towards software engineering.`
+const description = `Do useful things with LLMs from the command line, with a bent towards software engineering.`
 
 const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 
