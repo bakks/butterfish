@@ -17,6 +17,10 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+      - name: Workaround Git Security Warning
+        run: |
+          # See: https://github.com/actions/runner-images/issues/6775.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: git fetch --force --tags
       - uses: actions/setup-go@v3
         with:
