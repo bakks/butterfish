@@ -124,9 +124,9 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 			} else {
 				summary += "\n"
 			}
-			summary += s
+			summary += s[:int(math.Min(20, float64(len(s))))]
 		}
-		summary += "]"
+		summary += "\n]"
 		fmt.Fprintf(this.verboseWriter, "%s\n", summary)
 	}
 

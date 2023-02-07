@@ -87,14 +87,18 @@ type DiskCachedEmbeddingIndex struct {
 
 	// When we embed a path we skip these directories
 	IgnoreDirs []string
+
+	// When we embed a path we skip these files
+	IgnoreFiles []string
 }
 
 func NewDiskCachedEmbeddingIndex() *DiskCachedEmbeddingIndex {
 	index := &DiskCachedEmbeddingIndex{
-		index:      make(map[string]*pb.DirectoryIndex),
-		out:        os.Stdout,
-		fs:         afero.NewOsFs(),
-		IgnoreDirs: []string{".git"},
+		index:       make(map[string]*pb.DirectoryIndex),
+		out:         os.Stdout,
+		fs:          afero.NewOsFs(),
+		IgnoreDirs:  []string{".git"},
+		IgnoreFiles: []string{".gitignore", ".gitmodules", "go.sum", "LICENSE", "LICENSE.md"},
 	}
 
 	index.SetDefaultConfig()
@@ -103,8 +107,8 @@ func NewDiskCachedEmbeddingIndex() *DiskCachedEmbeddingIndex {
 
 func (this *DiskCachedEmbeddingIndex) SetDefaultConfig() {
 	this.DotfileName = ".butterfish_index"
-	this.ChunkSize = 768
-	this.ChunksPerCall = 8
+	this.ChunkSize = 256
+	this.ChunksPerCall = 32
 	this.MaxChunks = 8 * 128
 }
 
@@ -430,6 +434,11 @@ func (this *DiskCachedEmbeddingIndex) IndexableFile(path string, file os.FileInf
 		return false
 	}
 
+	// Ignore files in the disallow list
+	if contains(this.IgnoreFiles, name) {
+		return false
+	}
+
 	// Ignore files that are not text based on a content check
 	opener := &vfsOpener{this.fs}
 	if !fsutil.IsTextFile(opener, filepath.Join(path, name)) {
@@ -468,11 +477,15 @@ func (this *DiskCachedEmbeddingIndex) IndexableDirectory(path string) bool {
 func (this *DiskCachedEmbeddingIndex) FilterUnindexablefiles(path string, files []os.FileInfo, forceUpdate bool, dirIndex *pb.DirectoryIndex) []os.FileInfo {
 	var filteredFiles []os.FileInfo
 	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
 		previousEmbeddings := dirIndex.Files[file.Name()]
 		if this.IndexableFile(path, file, forceUpdate, previousEmbeddings) {
 			filteredFiles = append(filteredFiles, file)
 		} else {
-			fmt.Fprintf(this.out, "Ignoring %s\n", filepath.Join(path, file.Name()))
+			fmt.Fprintf(this.out, "Ignored %s\n", filepath.Join(path, file.Name()))
 		}
 	}
 	return filteredFiles

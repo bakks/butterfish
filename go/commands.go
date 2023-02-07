@@ -66,7 +66,7 @@ type cliConsole struct {
 	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input."`
 
 	Index struct {
-		Paths []string `arg:"" help:"Paths to index."`
+		Paths []string `arg:"" help:"Paths to index." optional:""`
 	} `cmd:"" help:"Index the current directory."`
 
 	Exec struct {
@@ -78,7 +78,7 @@ type cliConsole struct {
 	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register."`
 
 	Clearindex struct {
-		Paths []string `arg:"" help:"Paths to clear from the index."`
+		Paths []string `arg:"" help:"Paths to clear from the index." optional:""`
 	} `cmd:"" help:"Clear paths from the index."`
 
 	Loadindex struct {
@@ -278,7 +278,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 		return this.execCommand(input)
 
-	case "clearindex <paths>":
+	case "clearindex", "clearindex <paths>":
 		this.initVectorIndex(nil)
 
 		paths := options.Clearindex.Paths
@@ -299,7 +299,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 		return nil
 
-	case "loadindex <paths>":
+	case "loadindex", "loadindex <paths>":
 		paths := options.Loadindex.Paths
 		if len(paths) == 0 {
 			paths = []string{"."}
@@ -314,7 +314,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		}
 		this.Printf("Loaded %d files\n", len(this.vectorIndex.IndexedFiles()))
 
-	case "index <paths>":
+	case "index", "index <paths>":
 		paths := options.Index.Paths
 		if len(paths) == 0 {
 			paths = []string{"."}
@@ -340,9 +340,6 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		if input == "" {
 			return errors.New("Please provide search parameters")
 		}
-		if this.vectorIndex == nil {
-			return errors.New("No vector index loaded")
-		}
 
 		results, err := this.vectorIndex.Search(this.ctx, input, 5)
 		if err != nil {
@@ -354,7 +351,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			this.Printf("%s\n", result.Content)
 		}
 
-	case "indexquestion":
+	case "indexquestion <question>":
 		input := options.Indexquestion.Question
 		model := options.Indexquestion.Model
 
