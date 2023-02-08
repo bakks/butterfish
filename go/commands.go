@@ -292,7 +292,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		this.vectorIndex.ClearPaths(this.ctx, paths)
 		return nil
 
-	case "showindex, showindex <paths>":
+	case "showindex", "showindex <paths>":
 		paths := options.Showindex.Paths
 		this.initVectorIndex(paths)
 

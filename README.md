@@ -8,7 +8,7 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 
 - There's voluminous LLM (GPT-3, etc) experimentation happening now, but I want something that enables Unix-like command line use of LLMs with transparency into the actual prompts. I write code in tmux/neovim, I want to be able to use LLMs without switching a browser.
 - Let's use LLM concepts on the Unix command line - shell, files, dotfiles, etc. Let's use pipes!
-- Not a Python guy.
+- Not a Python guy, prefer Go.
 
 Solution:
 
@@ -44,11 +44,11 @@ Here's the command help:
 
 ```
 > butterfish --help
-
 Usage: butterfish <command>
 
-Let's do useful things with LLMs from the command line,
-with a bent towards software engineering.
+Do useful things with LLMs from the command line, with a bent towards software
+engineering. v0.0.9 darwin amd64 (commit 568c297) (built 2023-02-07T04:32:13Z)
+MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.
@@ -62,51 +62,67 @@ Commands:
     Start a Butterfish console and server.
 
   prompt [<prompt> ...]
-    Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given
-    prompt. It is recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003.
+    Run an LLM prompt without wrapping, stream results back. Accepts piped
+    input. This is a straight-through call to the LLM from the command line with
+    a given prompt. It is recommended that you wrap the prompt with quotes.
+    This defaults to the text-davinci-003.
 
   summarize [<files> ...]
-    Semantically summarize a list of files (or piped input). We read in the file, if it is short then we hand it directly to the LLM and ask for a summary.
-    If it is longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall
-    summary.
+    Semantically summarize a list of files (or piped input). We read in the
+    file, if it is short then we hand it directly to the LLM and ask for a
+    summary. If it is longer then we break it into chunks and ask for a list of
+    facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for
+    an overall summary.
 
   gencmd <prompt> ...
-    Generate a shell command from a prompt, i.e. pass in what you want, a shell command will be generated. Accepts piped input. You can use the -f command to
-    execute it sight-unseen.
+    Generate a shell command from a prompt, i.e. pass in what you want, a shell
+    command will be generated. Accepts piped input. You can use the -f command
+    to execute it sight-unseen.
 
   rewrite <prompt>
-    Rewrite a file using a prompt, must specify either a file path or provide piped input, and can output to stdout, output to a given file, or edit the input
-    file in-place.
+    Rewrite a file using a prompt, must specify either a file path or provide
+    piped input, and can output to stdout, output to a given file, or edit the
+    input file in-place.
 
   index [<paths> ...]
-    Recursively index the current directory using embeddings. This will read each file, split it into chunks, embed the chunks, and write a .butterfish_index
-    file to each directory caching the embeddings. If you re-run this it will skip over previously embedded files unless you force a re-index. This implements
-    an exponential backoff if you hit OpenAI API rate limits.
+    Recursively index the current directory using embeddings. This will
+    read each file, split it into chunks, embed the chunks, and write a
+    .butterfish_index file to each directory caching the embeddings. If you
+    re-run this it will skip over previously embedded files unless you force a
+    re-index. This implements an exponential backoff if you hit OpenAI API rate
+    limits.
 
   exec [<command> ...]
-    Execute a command, either passed in or in command register. This is specifically for Console after you have run gencmd.
+    Execute a command, either passed in or in command register. This is
+    specifically for Console after you have run gencmd.
 
   execremote [<command> ...]
-    Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you have run gencmd when you
-    have a wrapped terminal open.
+    Execute a command in a wrapped shell, either passed in or in command
+    register. This is specifically for Console mode after you have run gencmd
+    when you have a wrapped terminal open.
 
   clearindex [<paths> ...]
-    Clear paths from the index, both from the in-memory index (if in Console mode) and to delete .butterfish_index files.
+    Clear paths from the index, both from the in-memory index (if in Console
+    mode) and to delete .butterfish_index files.
 
   loadindex [<paths> ...]
-    Load paths into the index. This is specifically for Console mode when you want to load a set of cached indexes into memory.
+    Load paths into the index. This is specifically for Console mode when you
+    want to load a set of cached indexes into memory.
 
   showindex [<paths> ...]
-    Show which files are present in the loaded index. You can pass in a path but it defaults to the current directory.
+    Show which files are present in the loaded index. You can pass in a path but
+    it defaults to the current directory.
 
   indexsearch <query>
     Search embedding index and return relevant file snippets.
 
   indexquestion <question>
-    Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run
-    the index command first.
+    Ask a question using the embeddings index. This fetches text snippets from
+    the index and passes them to the LLM to generate an answer, thus you need to
+    run the index command first.
 
 Run "butterfish <command> --help" for more information on a command.
+
 ```
 
 ### `prompt`
@@ -117,11 +133,11 @@ butterfish prompt "[prompt]"
 
 This is a straight-through call to the LLM from the command line with a given prompt.
 
-Example:
+Examples:
 
 ```bash
-> butterfish prompt "A golang hello world program:"
-...
+butterfish prompt "Write me a poem about placeholder text"
+echo "Explain unix pipes to me:" | butterfish prompt
 ```
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/prompt.gif" alt="Butterfish" width="500px" height="250px" />
@@ -135,8 +151,7 @@ butterfish summarize [files...]
 Example:
 
 ```bash
-> butterfish summarize main.go
-...
+butterfish summarize ./README.md
 ```
 
 Semantically summarize a set of paths.
@@ -155,13 +170,13 @@ Add gif here
 First start the Butterfish console:
 
 ```
-> butterfish console
+butterfish console
 ```
 
 In another terminal start a wrapped shell:
 
 ```
-> butterfish wrap zsh
+butterfish wrap zsh
 ```
 
 Now when you run commands in the wrapped shell, the console will automatically

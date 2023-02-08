@@ -107,7 +107,7 @@ func NewDiskCachedEmbeddingIndex(writer io.Writer) *DiskCachedEmbeddingIndex {
 
 func (this *DiskCachedEmbeddingIndex) SetDefaultConfig() {
 	this.DotfileName = ".butterfish_index"
-	this.ChunkSize = 256
+	this.ChunkSize = 512
 	this.ChunksPerCall = 32
 	this.MaxChunks = 8 * 128
 }

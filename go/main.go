@@ -756,7 +756,7 @@ func makeButterfishConfig(options *cliShell) *ButterfishConfig {
 		ColorScheme:        colorScheme,
 		Styles:             colorSchemeToStyles(colorScheme),
 		PromptLibraryPath:  promptPath,
-		SummarizeChunkSize: 3800, // This safely fits into 4096 token limits
+		SummarizeChunkSize: 3600, // This generally fits into 4096 token limits
 		SummarizeMaxChunks: 8,    // Summarize 8 chunks before bailing
 	}
 }
