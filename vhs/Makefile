@@ -4,7 +4,7 @@ gifs = $(patsubst %.tape,gif/%.gif,$(tapes))
 all: $(gifs)
 
 gif/%.gif: %.tape
-	@echo "Generating $@.gif"
+	@echo "Generating $@"
 	vhs $<
 
 .PHONY: all

@@ -11,7 +11,7 @@ Set Padding 10
 
 Hide Sleep 2s Show
 
-Type "butterfish exec 'git pull main origin'"
+Type "butterfish exec 'chmod Makefile 644'"
 Sleep 1s
 Enter
 Sleep 10s
