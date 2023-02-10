@@ -95,84 +95,83 @@ OPENAI_TOKEN=sk-foobar
 Here's the command help:
 
 ```
-
 > butterfish --help
-> Usage: butterfish <command>
+Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. v0.0.9 darwin amd64 (commit 568c297) (built 2023-02-07T04:32:13Z)
+engineering. v0.0.10 darwin amd64 (commit ecdc5b2) (built 2023-02-10T03:18:11Z)
 MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
--h, --help Show context-sensitive help.
--v, --verbose Verbose mode, prints full LLM prompts.
+  -h, --help       Show context-sensitive help.
+  -v, --verbose    Verbose mode, prints full LLM prompts.
 
 Commands:
-wrap <cmd>
-Wrap a command (e.g. zsh) to expose to Butterfish.
+  wrap <cmd>
+    Wrap a command (e.g. zsh) to expose to Butterfish.
 
-console
-Start a Butterfish console and server.
+  console
+    Start a Butterfish console and server.
 
-prompt [<prompt> ...]
-Run an LLM prompt without wrapping, stream results back. Accepts piped
-input. This is a straight-through call to the LLM from the command line with
-a given prompt. It is recommended that you wrap the prompt with quotes.
-This defaults to the text-davinci-003.
+  prompt [<prompt> ...]
+    Run an LLM prompt without wrapping, stream results back. Accepts piped
+    input. This is a straight-through call to the LLM from the command line with
+    a given prompt. It is recommended that you wrap the prompt with quotes.
+    This defaults to the text-davinci-003.
 
-summarize [<files> ...]
-Semantically summarize a list of files (or piped input). We read in the
-file, if it is short then we hand it directly to the LLM and ask for a
-summary. If it is longer then we break it into chunks and ask for a list of
-facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for
-an overall summary.
+  summarize [<files> ...]
+    Semantically summarize a list of files (or piped input). We read in the
+    file, if it is short then we hand it directly to the LLM and ask for a
+    summary. If it is longer then we break it into chunks and ask for a list of
+    facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for
+    an overall summary.
 
-gencmd <prompt> ...
-Generate a shell command from a prompt, i.e. pass in what you want, a shell
-command will be generated. Accepts piped input. You can use the -f command
-to execute it sight-unseen.
+  gencmd <prompt> ...
+    Generate a shell command from a prompt, i.e. pass in what you want, a shell
+    command will be generated. Accepts piped input. You can use the -f command
+    to execute it sight-unseen.
 
-rewrite <prompt>
-Rewrite a file using a prompt, must specify either a file path or provide
-piped input, and can output to stdout, output to a given file, or edit the
-input file in-place.
+  rewrite <prompt>
+    Rewrite a file using a prompt, must specify either a file path or provide
+    piped input, and can output to stdout, output to a given file, or edit the
+    input file in-place.
 
-index [<paths> ...]
-Recursively index the current directory using embeddings. This will
-read each file, split it into chunks, embed the chunks, and write a
-.butterfish_index file to each directory caching the embeddings. If you
-re-run this it will skip over previously embedded files unless you force a
-re-index. This implements an exponential backoff if you hit OpenAI API rate
-limits.
+  index [<paths> ...]
+    Recursively index the current directory using embeddings. This will
+    read each file, split it into chunks, embed the chunks, and write a
+    .butterfish_index file to each directory caching the embeddings. If you
+    re-run this it will skip over previously embedded files unless you force a
+    re-index. This implements an exponential backoff if you hit OpenAI API rate
+    limits.
 
-exec [<command> ...]
-Execute a command, either passed in or in command register. This is
-specifically for Console after you have run gencmd.
+  exec [<command> ...]
+    Execute a command and try to debug problems. The command can either passed
+    in or in the command register (if you have run gencmd in Console Mode).
 
-execremote [<command> ...]
-Execute a command in a wrapped shell, either passed in or in command
-register. This is specifically for Console mode after you have run gencmd
-when you have a wrapped terminal open.
+  execremote [<command> ...]
+    Execute a command in a wrapped shell, either passed in or in command
+    register. This is specifically for Console Mode after you have run gencmd
+    when you have a wrapped terminal open.
 
-clearindex [<paths> ...]
-Clear paths from the index, both from the in-memory index (if in Console
-mode) and to delete .butterfish_index files.
+  clearindex [<paths> ...]
+    Clear paths from the index, both from the in-memory index (if in Console
+    Mode) and to delete .butterfish_index files.
 
-loadindex [<paths> ...]
-Load paths into the index. This is specifically for Console mode when you
-want to load a set of cached indexes into memory.
+  loadindex [<paths> ...]
+    Load paths into the index. This is specifically for Console Mode when you
+    want to load a set of cached indexes into memory.
 
-showindex [<paths> ...]
-Show which files are present in the loaded index. You can pass in a path but
-it defaults to the current directory.
+  showindex [<paths> ...]
+    Show which files are present in the loaded index. You can pass in a path but
+    it defaults to the current directory.
 
-indexsearch <query>
-Search embedding index and return relevant file snippets.
+  indexsearch <query>
+    Search embedding index and return relevant file snippets.
 
-indexquestion <question>
-Ask a question using the embeddings index. This fetches text snippets from
-the index and passes them to the LLM to generate an answer, thus you need to
-run the index command first.
+  indexquestion <question>
+    Ask a question using the embeddings index. This fetches text snippets from
+    the index and passes them to the LLM to generate an answer, thus you need to
+    run the index command first.
 
 Run "butterfish <command> --help" for more information on a command.
 
@@ -184,7 +183,13 @@ A goal of Butterfish is to make prompts transparent and easily editable. Butterf
 
 ```
 > head -n 6 ~/.config/butterfish/prompts.yaml
-...
+- name: watch_shell_output
+  prompt: The following is output from a user inside a "{shell_name}" shell, the user
+    ran the command "{command}", if the output contains an error then print the specific
+    segment that is an error and explain briefly how to solve the error, otherwise
+    respond with only "NOOP". "{output}"
+  oktoreplace: true
+
 ```
 
 If you want to see the exact communication between Butterfish and the OpenAI API then set the verbose flag (`-v`) when you run Butterfish, this will print the full prompt and response. For example:
