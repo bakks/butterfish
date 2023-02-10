@@ -6,7 +6,7 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 
 ## What is this thing?
 
-- I to call GPT from the command line, pipe input/output, index and manipulate local files, etc.
+- I want to call GPT from the command line, pipe input/output, index and manipulate local files, etc.
 - I want to see the actual prompts.
 - I want to accelerate how I write and run code.
 - Not into Python, prefer Go.
