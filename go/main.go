@@ -141,91 +141,6 @@ func sanitizeTTYData(data []byte) []byte {
 	return []byte(filterNonPrintable(stripANSI(string(data))))
 }
 
-// An implementation of io.Writer that renders output with a lipgloss style
-// and filters out the special token "NOOP". This is specially handled -
-// we seem to get "NO" as a separate token from GPT.
-type StyledWriter struct {
-	Writer io.Writer
-	Style  lipgloss.Style
-	cache  []byte
-}
-
-// Lipgloss is a little tricky - if you render a string with newlines it
-// turns it into a "block", i.e. each line will be padding to be the same
-// length. This is not what we want, so we split on newlines and render
-// each line separately.
-func multilineLipglossRender(style lipgloss.Style, str string) string {
-	strBuilder := strings.Builder{}
-	for i, line := range strings.Split(str, "\n") {
-		if i > 0 {
-			strBuilder.WriteString("\n")
-		}
-
-		if len(line) > 0 {
-			rendered := style.Render(line)
-			strBuilder.WriteString(rendered)
-		}
-	}
-
-	return strBuilder.String()
-}
-
-// Writer for StyledWriter
-// This is a bit insane but it's a dumb way to filter out NOOP split into
-// two tokens, should probably be rewritten
-func (this *StyledWriter) Write(input []byte) (int, error) {
-	if string(input) == "NOOP" {
-		// This doesn't seem to actually happen since it gets split into two
-		// tokens? but let's code defensively
-		return len(input), nil
-	}
-
-	if string(input) == "NO" {
-		this.cache = input
-		return len(input), nil
-	}
-	if string(input) == "OP" && this.cache != nil {
-		// We have a NOOP, discard it
-		this.cache = nil
-		return len(input), nil
-	}
-
-	if this.cache != nil {
-		input = append(this.cache, input...)
-		this.cache = nil
-	}
-
-	str := string(input)
-	rendered := multilineLipglossRender(this.Style, str)
-	renderedBytes := []byte(rendered)
-
-	_, err := this.Writer.Write(renderedBytes)
-	if err != nil {
-		return 0, err
-	}
-	// use len(input) rather than len(renderedBytes) because it would be unexpected to get
-	// a different number of bytes written than were passed in, (lipgloss
-	// render adds ANSI codes)
-	return len(input), nil
-}
-
-func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
-	adjustedStyle := style.
-		UnsetPadding().
-		UnsetMargins().
-		UnsetWidth().
-		UnsetHeight().
-		UnsetMaxWidth().
-		UnsetMaxHeight().
-		UnsetBorderStyle().
-		UnsetWidth()
-
-	return &StyledWriter{
-		Writer: writer,
-		Style:  adjustedStyle,
-	}
-}
-
 // We're multiplexing here between the stdin/stdout of this
 // process, stdin/stdout of the wrapped process, and
 // input/output of the connection to the butterfish server.
@@ -371,7 +286,7 @@ func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []st
 
 // A local printf that writes to the butterfishctx out using a lipgloss style
 func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
-	str := multilineLipglossRender(style, fmt.Sprintf(format, a...))
+	str := util.MultilineLipglossRender(style, fmt.Sprintf(format, a...))
 	fmt.Fprintf(this.out, str)
 }
 
@@ -379,8 +294,12 @@ func (this *ButterfishCtx) Printf(format string, a ...any) {
 	this.StylePrintf(this.config.Styles.Foreground, format, a...)
 }
 
+func (this *ButterfishCtx) ErrorPrintf(format string, a ...any) {
+	this.StylePrintf(this.config.Styles.Error, format, a...)
+}
+
 func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
-	writer := NewStyledWriter(this.out, this.config.Styles.Foreground)
+	writer := util.NewStyledWriter(this.out, this.config.Styles.Foreground)
 
 	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
@@ -515,7 +434,7 @@ func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
 		return nil
 	}
 
-	out := NewStyledWriter(this.out, this.config.Styles.Foreground)
+	out := util.NewStyledWriter(this.out, this.config.Styles.Foreground)
 	index := embedding.NewDiskCachedEmbeddingIndex(out)
 	index.SetEmbedder(this)
 
@@ -569,7 +488,7 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 		this.printError(err)
 	}
 
-	writer := NewStyledWriter(this.out, this.config.Styles.Error)
+	writer := util.NewStyledWriter(this.out, this.config.Styles.Error)
 	err = this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 	if err != nil {
 		this.printError(err)
@@ -826,7 +745,7 @@ func main() {
 	config := makeButterfishConfig(cli)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	errorWriter := NewStyledWriter(os.Stderr, config.Styles.Error)
+	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
 
 	// There are special commands (console and wrap) which are interpreted here,
 	// the rest are intepreted in commands.go
@@ -862,7 +781,7 @@ func main() {
 		}
 		cons := console.NewConsoleProgram(configCallback, cmdCallback, exitCallback)
 
-		verboseWriter := NewStyledWriter(cons, config.Styles.Grey)
+		verboseWriter := util.NewStyledWriter(cons, config.Styles.Grey)
 		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
 		promptLibrary, err := initializePrompts(config, verboseWriter)
@@ -889,7 +808,7 @@ func main() {
 		butterfishCtx.serverMultiplexer()
 
 	default:
-		verboseWriter := NewStyledWriter(os.Stdout, config.Styles.Grey)
+		verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
 		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
 		promptLibrary, err := initializePrompts(config, verboseWriter)

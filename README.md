@@ -148,10 +148,11 @@ echo "Explain unix pipes to me:" | butterfish prompt
 butterfish summarize [files...]
 ```
 
-Example:
+Examples:
 
 ```bash
 butterfish summarize ./README.md
+cat go/main.go | butterfish summarize
 ```
 
 Semantically summarize a set of paths.
@@ -211,3 +212,6 @@ make
 - [ ] Rewrite a specific file given a prompt (e.g. Add comments to a code file, Refactor code)
 - [ ] Generate and run a shell command using a prompt
 - [ ] Generate tests for a specific code file
+
+- [ ] Read local man files for context
+- [ ] Can you retrieve previous tty output?

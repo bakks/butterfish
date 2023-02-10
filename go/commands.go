@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/alecthomas/kong"
 	"github.com/bakks/butterfish/go/prompt"
@@ -72,19 +73,19 @@ type cliConsole struct {
 
 	Exec struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command, either passed in or in command register. This is specifically for Console after you have run gencmd."`
+	} `cmd:"" help:"Execute a command and try to debug problems. The command can either passed in or in the command register (if you have run gencmd in Console Mode)."`
 
 	Execremote struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console mode after you have run gencmd when you have a wrapped terminal open."`
+	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console Mode after you have run gencmd when you have a wrapped terminal open."`
 
 	Clearindex struct {
 		Paths []string `arg:"" help:"Paths to clear from the index." optional:""`
-	} `cmd:"" help:"Clear paths from the index, both from the in-memory index (if in Console mode) and to delete .butterfish_index files."`
+	} `cmd:"" help:"Clear paths from the index, both from the in-memory index (if in Console Mode) and to delete .butterfish_index files."`
 
 	Loadindex struct {
 		Paths []string `arg:"" help:"Paths to load into the index." optional:""`
-	} `cmd:"" help:"Load paths into the index. This is specifically for Console mode when you want to load a set of cached indexes into memory."`
+	} `cmd:"" help:"Load paths into the index. This is specifically for Console Mode when you want to load a set of cached indexes into memory."`
 
 	Showindex struct {
 		Paths []string `arg:"" help:"Paths to show from the index." optional:""`
@@ -153,7 +154,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			return errors.New("Please provide a prompt")
 		}
 
-		writer := NewStyledWriter(this.out, this.config.Styles.Answer)
+		writer := util.NewStyledWriter(this.out, this.config.Styles.Answer)
 		model := options.Prompt.Model
 		return this.gptClient.CompletionStream(this.ctx, input, model, writer)
 
@@ -250,7 +251,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		if !options.Gencmd.Force {
 			this.StylePrintf(this.config.Styles.Highlight, "%s\n", cmd)
 		} else {
-			err := this.execCommand(cmd)
+			_, err := this.execCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -269,7 +270,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 		return this.execremoteCommand(input)
 
-	case "exec <command>":
+	case "exec", "exec <command>":
 		input := this.cleanInput(options.Exec.Command)
 		if input == "" {
 			input = this.commandRegister
@@ -279,7 +280,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			return errors.New("No command to execute")
 		}
 
-		return this.execCommand(input)
+		return this.execAndCheck(this.ctx, input)
 
 	case "clearindex", "clearindex <paths>":
 		this.initVectorIndex(nil)
@@ -414,21 +415,96 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 	return resp, nil
 }
 
+// Execute a command in a loop, if the exit status is non-zero then we call
+// GPT to give us a fixed command and ask the user if they want to run it
+func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
+	for {
+		result, err := this.execCommand(cmd)
+		// If the command succeeded, we're done
+		if err == nil {
+			return nil
+		}
+
+		this.ErrorPrintf("Command failed with status %d, requesting fix...\n", result.Status)
+
+		prompt, err := this.promptLibrary.GetPrompt("fix_command",
+			"command", cmd,
+			"status", fmt.Sprintf("%d", result.Status),
+			"output", string(result.LastOutput))
+		if err != nil {
+			return err
+		}
+
+		styleWriter := util.NewStyledWriter(this.out, this.config.Styles.Highlight)
+		cacheWriter := util.NewCacheWriter(styleWriter)
+
+		err = this.gptClient.CompletionStream(this.ctx, prompt, "", cacheWriter)
+		if err != nil {
+			return err
+		}
+
+		//this.StylePrintf(this.config.Styles.Highlight, "%s\n", resp)
+		resp := string(cacheWriter.GetCache())
+
+		lines := strings.Split(resp, "\n")
+		lastLine := lines[len(lines)-1]
+		// In the prompt we tell it to begin the last line with > if there is
+		// a fixed command, so we check for that
+		if !strings.HasPrefix(lastLine, ">") {
+			return nil
+		}
+		cmd = strings.TrimSpace(lastLine[1:])
+
+		this.StylePrintf(this.config.Styles.Question, "Run this command? [y/N]: ")
+
+		var input string
+		_, err = fmt.Scanln(&input)
+		if err != nil {
+			return err
+		}
+
+		if strings.ToLower(input) != "y" {
+			return nil
+		}
+	}
+}
+
+type executeResult struct {
+	LastOutput []byte
+	Status     int
+}
+
 // Function that executes a command on the local host as a child and streams
 // the stdout/stderr to a writer. If the context is cancelled then the child
 // process is killed.
-func executeCommand(ctx context.Context, cmd string, out io.Writer) error {
+// Returns an executeResult with status and last output if status != 0
+func executeCommand(ctx context.Context, cmd string, out io.Writer) (*executeResult, error) {
 	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-	c.Stdout = out
-	c.Stderr = out
-	return c.Run()
+	cacheWriter := util.NewCacheWriter(out)
+	c.Stdout = cacheWriter
+	c.Stderr = cacheWriter
+
+	err := c.Run()
+
+	// check for a non-zero exit code
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+				status := status.ExitStatus()
+				result := &executeResult{LastOutput: cacheWriter.GetLastN(512), Status: status}
+				return result, err
+			}
+		}
+	}
+
+	return nil, err
 }
 
 // Execute the command as a child of this process (rather than a remote
 // process), either from the command register or from a command string
-func (this *ButterfishCtx) execCommand(cmd string) error {
+func (this *ButterfishCtx) execCommand(cmd string) (*executeResult, error) {
 	if cmd == "" && this.commandRegister == "" {
-		return errors.New("No command to execute")
+		return nil, errors.New("No command to execute")
 	}
 	if cmd == "" {
 		cmd = this.commandRegister
