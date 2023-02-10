@@ -190,7 +190,7 @@ Run "butterfish <command> --help" for more information on a command.
 A goal of Butterfish is to make prompts transparent and easily editable. Butterfish will write a prompt library to `~/.config/butterfish/prompts.yaml` and load this every time it runs. You can edit prompts in that file to tweak them. If you edit a prompt then set `OkToReplace: false`, which prevents overwriting.
 
 ```
-> head -n 6 ~/.config/butterfish/prompts.yaml
+> head -n 8 ~/.config/butterfish/prompts.yaml
 - name: watch_shell_output
   prompt: The following is output from a user inside a "{shell_name}" shell, the user
     ran the command "{command}", if the output contains an error then print the specific
