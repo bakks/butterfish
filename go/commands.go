@@ -446,14 +446,14 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 		//this.StylePrintf(this.config.Styles.Highlight, "%s\n", resp)
 		resp := string(cacheWriter.GetCache())
 
-		lines := strings.Split(resp, "\n")
-		lastLine := lines[len(lines)-1]
-		// In the prompt we tell it to begin the last line with > if there is
-		// a fixed command, so we check for that
-		if !strings.HasPrefix(lastLine, ">") {
+		// Find the last occurrence of '>' in the response and get the string
+		// from there to the end
+		lastGt := strings.LastIndex(resp, ">")
+		if lastGt == -1 {
 			return nil
 		}
-		cmd = strings.TrimSpace(lastLine[1:])
+
+		cmd = strings.TrimSpace(resp[lastGt:])
 
 		this.StylePrintf(this.config.Styles.Question, "Run this command? [y/N]: ")
 

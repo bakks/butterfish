@@ -128,7 +128,8 @@ Run "butterfish <command> --help" for more information on a command.
 ### `prompt`
 
 ```bash
-butterfish prompt "[prompt]"
+> butterfish prompt --help
+...
 ```
 
 This is a straight-through call to the LLM from the command line with a given prompt.
