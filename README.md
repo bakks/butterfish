@@ -13,8 +13,7 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 Solution:
 
 - This is a MacOS command line tool for using GPT-3, a testbed for LLM strategies. You give it your OpenAI key and it runs queries.
-- Currently this supports raw prompting, generating shell commands, embedding and caching embeddings for a directory tree,
-  searching embeddings, watching output.
+- Currently this supports raw prompting, generating shell commands, rewriting files, embedding and caching embeddings for a directory tree, searching embeddings, watching output.
 - Experimenting with several modes of LLM invocation:
   - Mode 1: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
   - Mode 2: The butterfish console, a persistent window that allows you to execute the CLI functionality but with persistent context.
@@ -202,7 +201,45 @@ Implementation is dumb: we grab stdout from the wrapped shell and if it's long
 enough we put it in a prompt and ask GPT if there is a problem, and to offer
 advice if so.
 
+### Prompt Library
+
+A goal of Butterfish is to make prompts transparent and easily editable. Butterfish will write a prompt library to `~/.config/butterfish/prompts.yaml` and load this every time it runs. You can edit prompts in that file to tweak them. If you edit a prompt then set `OkToReplace: false`, which prevents overwriting.
+
+```
+> head -n 6 ~/.config/butterfish/prompts.yaml
+...
+```
+
+If you want to see the exact communication between Butterfish and the OpenAI API then set the verbose flag (`-v`) when you run Butterfish, this will print the full prompt and response. For example:
+
+```
+butterfish -v gencmd "find all go files"
+Loaded 7 prompts from /Users/bakks/.config/butterfish/prompts.yaml
+↑ ---
+Write a shell command that accomplishes the following goal. Respond with only the shell command.
+'''
+find all go files
+'''
+...
+```
+
 ### Embeddings
+
+Example:
+
+```
+butterfish index .
+butterfish indexsearch 'Lorem ipsem dolor sit amet'
+butterfish indexquestion 'Lorem ipsem dolor sit amet?'
+```
+
+Managing embeddings for later search is supported by Butterfish. This is the strategy many projects have been using to add external context into LLM prompts.
+
+You can build an index by running `butterfish index` in a specific directory. This will recursively find all non-binary files, split files into chunks, use the OpenAI embedding API to embed each chunk, and cache the embeddings in a file called `.butterfish_index` in each directory. You can then run `butterfish indexsearch '[search text]'`, which will embed the search text and then search cached embeddings for the most similar chunk. You can also run `butterfish indexquestion '[question]'`, which injects related snippets into a prompt.
+
+You can run `butterfish index` again later to update the index, this will skip over files that haven't been recently changed. Running `butterfish clearindex` will recursively remove `.butterfish_index` files.
+
+The `.butterfish_index` cache files are binary files written using the protobuf schema in `proto/butterfish.proto`. If you check out this repo you can then inspect specific index files with a command like:
 
 ```
 protoc --decode DirectoryIndex butterfish/proto/butterfish.proto < .butterfish_index
@@ -217,16 +254,3 @@ cd butterfish
 make
 ./bin/butterfish prompt "Is this thing working?"
 ```
-
-## Potential Features
-
-- [x] Automatically explain a shell error
-- [x] Summarize a specific file
-- [ ] Summarize a directory of files
-- [ ] Create and output embeddings for a specific file
-- [ ] Rewrite a specific file given a prompt (e.g. Add comments to a code file, Refactor code)
-- [ ] Generate and run a shell command using a prompt
-- [ ] Generate tests for a specific code file
-
-- [ ] Read local man files for context
-- [ ] Can you retrieve previous tty output?
