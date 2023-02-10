@@ -6,19 +6,48 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 
 ## What is this thing?
 
-- There's voluminous LLM (GPT-3, etc) experimentation happening now, but I want something that enables Unix-like command line use of LLMs with transparency into the actual prompts. I write code in tmux/neovim, I want to be able to use LLMs without switching a browser.
-- Let's use LLM concepts on the Unix command line - shell, files, dotfiles, etc. Let's use pipes!
-- Not a Python guy, prefer Go.
+- I to call GPT from the command line, pipe input/output, index and manipulate local files, etc.
+- I want to see the actual prompts.
+- I want to accelerate how I write and run code.
+- Not into Python, prefer Go.
 
 Solution:
 
-- This is a MacOS command line tool for using GPT-3, a testbed for LLM strategies. You give it your OpenAI key and it runs queries.
-- Currently this supports raw prompting, generating shell commands, rewriting files, embedding and caching embeddings for a directory tree, searching embeddings, watching output.
+- This is an experimental MacOS command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
+- What can you do with it?
+  - Run raw GPT prompts.
+  - Semantically summarize local content.
+  - Generate and run shell commands.
+  - Detect when a command fails and offer a fix.
+  - Edit your prompts in a YAML file.
+  - Generate and cache embeddings for text files.
+  - Search and ask GPT questions based on those embeddings.
 - Experimenting with several modes of LLM invocation:
-  - Mode 1: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
-  - Mode 2: The butterfish console, a persistent window for talking to LLMs.
-  - Mode 3: Wrap a local command and control it from the console, e.g. run a shell, another shell solves the error you just saw.
+  - Command Line: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
+  - Persistent Console: The butterfish console, a persistent window for talking to LLMs.
+  - Wrapped Shell: Wrap a local command and control it from the console, e.g. run a shell, another shell solves the error you just saw.
 - External contribution and feedback highly encouraged. Submit a PR!
+
+## Installation / Authentication
+
+Butterfish works on MacOS and is installed via Homebrew:
+
+```
+
+brew install bakks/bakks/butterfish
+butterfish prompt "Is this thing working?"
+
+```
+
+This should prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
+
+The key will be written to `~/.config/butterfish/butterfish.env`, which looks like:
+
+```
+
+OPENAI_TOKEN=sk-foobar
+
+```
 
 ## Examples
 
@@ -68,27 +97,6 @@ butterfish exec 'find -nam foobar'
 ```
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/exec.gif" alt="Butterfish" width="500px" height="250px" />
-
-## Installation / Authentication
-
-Butterfish works on MacOS and is installed via Homebrew:
-
-```
-
-brew install bakks/bakks/butterfish
-butterfish prompt "Is this thing working?"
-
-```
-
-This should prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
-
-The key will be written to `~/.config/butterfish/butterfish.env`, which looks like:
-
-```
-
-OPENAI_TOKEN=sk-foobar
-
-```
 
 ## Commands
 
