@@ -70,7 +70,7 @@ Use the `-f` flag to execute sight unseen.
 butterfish gencmd -f "Find all of the go files in the current directory, recursively"
 ```
 
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/prompt.gif" alt="Butterfish" width="500px" height="250px" />
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/gencmd.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `rewrite` - Rewrite a file with LLM instructions
 
