@@ -287,7 +287,7 @@ func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []st
 // A local printf that writes to the butterfishctx out using a lipgloss style
 func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
 	str := util.MultilineLipglossRender(style, fmt.Sprintf(format, a...))
-	fmt.Fprintf(this.out, str)
+	this.out.Write([]byte(str))
 }
 
 func (this *ButterfishCtx) Printf(format string, a ...any) {

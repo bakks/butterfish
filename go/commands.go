@@ -64,6 +64,7 @@ type cliConsole struct {
 		Inputfile  string `short:"i" help:"File to rewrite."`
 		Outputfile string `short:"o" help:"File to write the rewritten output to."`
 		Inplace    bool   `short:"I" help:"Rewrite the input file in place, cannot be set at the same time as the Output file flag."`
+		Model      string `short:"m" default:"code-davinci-edit-001" help:"GPT model to use for editing. At compile time this should be either 'code-davinci-edit-001' or 'text-davinci-edit-001'."`
 	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input, and can output to stdout, output to a given file, or edit the input file in-place."`
 
 	Index struct {
@@ -185,9 +186,14 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 	case "rewrite <prompt>":
 		prompt := options.Rewrite.Prompt
+		model := options.Rewrite.Model
 		if prompt == "" {
 			return errors.New("Please provide a prompt")
 		}
+		if model == "" {
+			return errors.New("Please provide a model")
+		}
+
 		// cannot set Outputfile and Inplace at the same time
 		if options.Rewrite.Outputfile != "" && options.Rewrite.Inplace {
 			return errors.New("Cannot set both outputfile and inplace flags")
@@ -210,7 +216,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 			input = string(content)
 		}
 
-		edited, err := this.gptClient.Edits(this.ctx, input, prompt, "code-davinci-edit-001")
+		edited, err := this.gptClient.Edits(this.ctx, input, prompt, model)
 		if err != nil {
 			return err
 		}
