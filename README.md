@@ -16,9 +16,9 @@ Solution:
 - Currently this supports raw prompting, generating shell commands, rewriting files, embedding and caching embeddings for a directory tree, searching embeddings, watching output.
 - Experimenting with several modes of LLM invocation:
   - Mode 1: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
-  - Mode 2: The butterfish console, a persistent window that allows you to execute the CLI functionality but with persistent context.
+  - Mode 2: The butterfish console, a persistent window for talking to LLMs.
   - Mode 3: Wrap a local command and control it from the console, e.g. run a shell, another shell solves the error you just saw.
-- External contribution and feedback highly encouraged. Submit a PR! This is something of a playground for my LLM ideas, and others are welcome to make it their playground as well.
+- External contribution and feedback highly encouraged. Submit a PR!
 
 ## Examples
 

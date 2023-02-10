@@ -11,7 +11,7 @@ Set Padding 10
 
 Hide Sleep 2s Show
 
-Type "butterfish summarize ../README.md"
+Type "head -n 100 ../README.md | butterfish summarize"
 Sleep 1s
 Enter
 
