@@ -11,7 +11,7 @@ Set Padding 10
 
 Hide Sleep 2s Show
 
-Type "butterfish gencmd -f 'Recursively find all go and proto files in the current directory'"
+Type "butterfish gencmd 'Recursively find all go and proto files in the current directory'"
 Sleep 1s
 Enter
 
