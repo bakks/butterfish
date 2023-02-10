@@ -459,7 +459,7 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 			return nil
 		}
 
-		cmd = strings.TrimSpace(resp[lastGt:])
+		cmd = strings.TrimSpace(resp[lastGt+1:])
 
 		this.StylePrintf(this.config.Styles.Question, "Run this command? [y/N]: ")
 
