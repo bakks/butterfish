@@ -67,11 +67,6 @@ type cliConsole struct {
 		Model      string `short:"m" default:"code-davinci-edit-001" help:"GPT model to use for editing. At compile time this should be either 'code-davinci-edit-001' or 'text-davinci-edit-001'."`
 	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input, and can output to stdout, output to a given file, or edit the input file in-place."`
 
-	Index struct {
-		Paths []string `arg:"" help:"Paths to index." optional:""`
-		Force bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
-	} `cmd:"" help:"Recursively index the current directory using embeddings. This will read each file, split it into chunks, embed the chunks, and write a .butterfish_index file to each directory caching the embeddings. If you re-run this it will skip over previously embedded files unless you force a re-index. This implements an exponential backoff if you hit OpenAI API rate limits."`
-
 	Exec struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
 	} `cmd:"" help:"Execute a command and try to debug problems. The command can either passed in or in the command register (if you have run gencmd in Console Mode)."`
@@ -80,13 +75,18 @@ type cliConsole struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
 	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console Mode after you have run gencmd when you have a wrapped terminal open."`
 
+	Index struct {
+		Paths []string `arg:"" help:"Paths to index." optional:""`
+		Force bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
+	} `cmd:"" help:"Recursively index the current directory using embeddings. This will read each file, split it into chunks, embed the chunks, and write a .butterfish_index file to each directory caching the embeddings. If you re-run this it will skip over previously embedded files unless you force a re-index. This implements an exponential backoff if you hit OpenAI API rate limits."`
+
 	Clearindex struct {
 		Paths []string `arg:"" help:"Paths to clear from the index." optional:""`
-	} `cmd:"" help:"Clear paths from the index, both from the in-memory index (if in Console Mode) and to delete .butterfish_index files."`
+	} `cmd:"" help:"Clear paths from the index, both from the in-memory index (if in Console Mode) and to delete .butterfish_index files. Defaults to loading from the current directory but allows you to pass in paths to load."`
 
 	Loadindex struct {
 		Paths []string `arg:"" help:"Paths to load into the index." optional:""`
-	} `cmd:"" help:"Load paths into the index. This is specifically for Console Mode when you want to load a set of cached indexes into memory."`
+	} `cmd:"" help:"Load paths into the index. This is specifically for Console Mode when you want to load a set of cached indexes into memory. Defaults to loading from the current directory but allows you to pass in paths to load."`
 
 	Showindex struct {
 		Paths []string `arg:"" help:"Paths to show from the index." optional:""`
@@ -95,7 +95,7 @@ type cliConsole struct {
 	Indexsearch struct {
 		Query   string `arg:"" help:"Query to search for."`
 		Results int    `short:"r" default:"5" help:"Number of results to return."`
-	} `cmd:"" help:"Search embedding index and return relevant file snippets."`
+	} `cmd:"" help:"Search embedding index and return relevant file snippets. This uses the embedding API to embed the search string, then does a brute-force cosine similarity against every indexed chunk of text, returning those chunks and their scores."`
 
 	Indexquestion struct {
 		Question string `arg:"" help:"Question to ask."`
