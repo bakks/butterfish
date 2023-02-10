@@ -24,14 +24,14 @@ Solution:
 
 ### `prompt` - Straightforward LLM prompt
 
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/prompt.gif" alt="Butterfish" width="500px" height="250px" />
-
 Examples:
 
 ```bash
 butterfish prompt "Write me a poem about placeholder text"
 echo "Explain unix pipes to me:" | butterfish prompt
 ```
+
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/prompt.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `gencmd` - Generate a shell command
 
@@ -178,29 +178,6 @@ Run "butterfish <command> --help" for more information on a command.
 
 ```
 
-### Watch console output, make suggestions
-
-Add gif here
-
-First start the Butterfish console:
-
-```
-butterfish console
-```
-
-In another terminal start a wrapped shell:
-
-```
-butterfish wrap zsh
-```
-
-Now when you run commands in the wrapped shell, the console will automatically
-attempt detection of problems/errors and offer suggestions.
-
-Implementation is dumb: we grab stdout from the wrapped shell and if it's long
-enough we put it in a prompt and ask GPT if there is a problem, and to offer
-advice if so.
-
 ### Prompt Library
 
 A goal of Butterfish is to make prompts transparent and easily editable. Butterfish will write a prompt library to `~/.config/butterfish/prompts.yaml` and load this every time it runs. You can edit prompts in that file to tweak them. If you edit a prompt then set `OkToReplace: false`, which prevents overwriting.
@@ -245,7 +222,22 @@ The `.butterfish_index` cache files are binary files written using the protobuf 
 protoc --decode DirectoryIndex butterfish/proto/butterfish.proto < .butterfish_index
 ```
 
+### Console Mode
+
+I'm experimenting with having a persistent console window open that has context from other shells that you run. You open a console with `butterfish console`, and can then run Butterfish commands in a persistent window, e.g. `prompt '[prompt text]'`.
+
+If you have a console open, you can then plug other shells into the console with `butterfish wrap [shellname]`. The console will watch the output of the shell and attempt to offer advice if it detects an error.
+
+You can also generate commands in the console and run them on the other shell. For example:
+
+```
+gencmd "Pull down recent remote changes to the git repo and rebase my own commits on top of them"
+execremote
+```
+
 ## Dev Setup
+
+I've been developing Butterfish on an Intel Mac, but it should work fine on ARM Macs and probably work on Linux (untested). Here is how to get set up for development on MacOS:
 
 ```
 brew install git go protoc protoc-gen-go protoc-gen-go-grpc
