@@ -96,7 +96,15 @@ cat go/main.go | butterfish summarize
 butterfish exec 'find -nam foobar'
 ```
 
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/exec.gif" alt="Butterfish" width="500px" height="250px" />
+### `index` - Index local files with embeddings
+
+```
+butterfish index .
+butterfish indexsearch "compare indexed embeddings against this string"
+butterfish indexquestion "inject similar indexed embeddings into a prompt"
+```
+
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/index.gif" alt="Butterfish" width="500px" height="250px" />
 
 ## Commands
 
