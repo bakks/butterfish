@@ -17,7 +17,7 @@ clean:
 	rm -f bin/butterfish proto/*.go
 
 watch: Makefile
-	find . -name "*.go" -o -name "*.proto" | entr -c make
+	find . -name "*.go" -o -name "*.proto" -o -name "*.h" -o -name "*.c" | grep -v flan | entr -c make
 
 test: proto/butterfish.pb.go
 	cd go && go test ./...

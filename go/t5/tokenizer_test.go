@@ -18,3 +18,13 @@ func TestTokenizer(t *testing.T) {
 
 	assert.Equal(t, input, decoded)
 }
+
+// Test inference on a T5 model
+func TestInference(t *testing.T) {
+	path := "./tokenizer.json"
+	config := LoadTokenizerConfig(path)
+	tokenizer := NewTokenizer(config)
+	input := "a quick brown fox jumped over the lazy dog"
+	encoded := tokenizer.Encode(input)
+	InferT5(encoded)
+}
