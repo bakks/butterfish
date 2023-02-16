@@ -11,17 +11,19 @@ package onnx
 */
 import "C"
 import (
+	"fmt"
 	"math"
 	"reflect"
 	"unsafe"
 )
 
 type Model struct {
-	env *C.OnnxEnv
+	env        *C.OnnxEnv
+	inputNames []string
 }
 
 type Tensor struct {
-	t *C.OrtValue
+	ortValue *C.OrtValue
 }
 
 type EP int
@@ -36,7 +38,6 @@ const (
 
 func NewModel(
 	model_path string,
-	shape []int64,
 	inputNames []string,
 	outputNames []string,
 	mode EP) *Model {
@@ -45,11 +46,6 @@ func NewModel(
 	defer C.free(unsafe.Pointer(ptr))
 
 	session := C.OnnxNewOrtSession(ptr, C.int(mode))
-
-	session.input_shape_len = C.size_t(len(shape))
-	for i, s := range shape {
-		session.input_shape[i] = C.int64_t(s)
-	}
 
 	session.input_names_len = C.size_t(len(inputNames))
 	for i, s := range inputNames {
@@ -61,31 +57,59 @@ func NewModel(
 		session.output_names[i] = C.CString(s)
 	}
 
-	return &Model{env: session}
+	return &Model{
+		env:        session,
+		inputNames: inputNames,
+	}
 }
 
-func (this *Model) NewInt64Tensor(values []int64) *Tensor {
-	dims := []int{1, int(len(values))}
+func (this *Model) NewInt64Tensor(dims []int64, values []int64) *Tensor {
 	ortValue := C.OnnxCreateTensorInt64(
 		this.env,
 		(*C.int64_t)(unsafe.Pointer(&values[0])),
 		C.size_t(len(values)*8),
 		(*C.int64_t)(unsafe.Pointer(&dims[0])),
 		C.size_t(len(dims)))
-	return &Tensor{t: ortValue}
+	return &Tensor{ortValue: ortValue}
+}
+
+func (this *Model) NewFloat32Tensor(dims []int64, values []float32) *Tensor {
+	ortValue := C.OnnxCreateTensorFloat32(
+		this.env,
+		(*C.float)(unsafe.Pointer(&values[0])),
+		C.size_t(len(values)*8),
+		(*C.int64_t)(unsafe.Pointer(&dims[0])),
+		C.size_t(len(dims)))
+	return &Tensor{ortValue: ortValue}
 }
 
 // Invoke the task.
-func (m *Model) RunInference(data map[string]*Tensor) *Tensor {
-	var inputs []*C.OrtValue
-	for _, v := range data {
-		inputs = append(inputs, v.t)
+func (m *Model) RunInference(data map[string]*Tensor) []*Tensor {
+	inputs := make([]*C.OrtValue, len(m.inputNames))
+	for i, name := range m.inputNames {
+		tensor, ok := data[name]
+		if !ok {
+			panic(fmt.Sprintf("input %s not found", name))
+		}
+
+		inputs[i] = tensor.ortValue
+		fmt.Printf("input %s: %p\n", name, tensor.ortValue)
 	}
-	t := C.OnnxRunInference2(m.env,
-		(**C.OrtValue)(unsafe.Pointer(&inputs[0])),
-		C.size_t(len(inputs)*8),
-	)
-	return &Tensor{t: t}
+	fmt.Printf("env: %p\n", m.env)
+	fmt.Printf("ort env: %p\n", m.env.env)
+	fmt.Printf("session: %p\n", m.env.session)
+	fmt.Printf("inputs: %p\n", &inputs[0])
+
+	outputs := make([]*C.OrtValue, m.env.output_names_len)
+
+	C.OnnxRunInference(m.env, (**C.OrtValue)(unsafe.Pointer(&inputs[0])), (**C.OrtValue)(unsafe.Pointer(&outputs[0])))
+
+	outputTensors := make([]*Tensor, m.env.output_names_len)
+	for i := 0; i < int(m.env.output_names_len); i++ {
+		outputTensors[i] = &Tensor{ortValue: outputs[i]}
+	}
+
+	return outputTensors
 }
 
 func (m *Model) Delete() {
@@ -95,12 +119,12 @@ func (m *Model) Delete() {
 }
 
 func (t *Tensor) NumDims() int {
-	return int(C.OnnxTensorNumDims(t.t))
+	return int(C.OnnxTensorNumDims(t.ortValue))
 }
 
 // Dim return dimension of the element specified by index.
 func (t *Tensor) Dim(index int) int64 {
-	return int64(C.OnnxTensorDim(t.t, C.int32_t(index)))
+	return int64(C.OnnxTensorDim(t.ortValue, C.int32_t(index)))
 }
 
 // Shape return shape of the tensor.
@@ -114,12 +138,12 @@ func (t *Tensor) Shape() []int64 {
 
 func (t *Tensor) Delete() {
 	if t != nil {
-		C.OnnxReleaseTensor(t.t)
+		C.OnnxReleaseTensor(t.ortValue)
 	}
 }
 
 func (t *Tensor) CopyToBuffer(b interface{}, size int) {
-	C.OnnxTensorCopyToBuffer(t.t, unsafe.Pointer(reflect.ValueOf(b).Pointer()), C.size_t(size))
+	C.OnnxTensorCopyToBuffer(t.ortValue, unsafe.Pointer(reflect.ValueOf(b).Pointer()), C.size_t(size))
 }
 
 var EuclideanDistance512 = func(d [][]float32, ai, bi, end int) []float32 {

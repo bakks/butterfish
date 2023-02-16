@@ -27,8 +27,6 @@ ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_Tensorrt, _In_ OrtSessio
 
 const OrtApi* g_ort = NULL;
 
-void VerifyInputOutputCount(OrtSession* session);
-
 void SetupExecutionProvider(OrtSessionOptions* session_options, int mode);
 
 
@@ -43,10 +41,9 @@ OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode){
 		}
 	}
 
-	OnnxEnv* onnx_env=(OnnxEnv*)malloc(sizeof(OnnxEnv));
+	OnnxEnv* onnx_env = (OnnxEnv*)malloc(sizeof(OnnxEnv));
 
 	ORT_ABORT_ON_ERROR(g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "infer", &onnx_env->env));
-
 	
 	ORT_ABORT_ON_ERROR(g_ort->CreateSessionOptions(&onnx_env->session_options));
 
@@ -54,17 +51,11 @@ OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode){
 
 	ORT_ABORT_ON_ERROR(g_ort->CreateSession(onnx_env->env, model_path, onnx_env->session_options, &onnx_env->session));
 
-	//VerifyInputOutputCount(onnx_env->session);
+	OrtMemoryInfo* memory_info;
+	ORT_ABORT_ON_ERROR(g_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info));
+  onnx_env->memory_info = memory_info;
 
 	return onnx_env;
-}
-
-void VerifyInputOutputCount(OrtSession* session) {
-  size_t count;
-  ORT_ABORT_ON_ERROR(g_ort->SessionGetInputCount(session, &count));
-  assert(count == 1);
-  ORT_ABORT_ON_ERROR(g_ort->SessionGetOutputCount(session, &count));
-  assert(count == 1);
 }
 
 void SetupExecutionProvider(OrtSessionOptions* session_options, int mode){
@@ -106,26 +97,38 @@ void OnnxDeleteOrtSession(OnnxEnv* env){
 
 OrtValue* OnnxCreateTensorInt64(OnnxEnv* env, int64_t* data, size_t data_len, int64_t* dims, size_t dims_len) {
 
-	OrtMemoryInfo* memory_info;
-	ORT_ABORT_ON_ERROR(g_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info));
-
   OrtValue* input_tensor = NULL;
-  ORT_ABORT_ON_ERROR(g_ort->CreateTensorWithDataAsOrtValue(memory_info, data, data_len, dims, dims_len, ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &input_tensor));
+  ORT_ABORT_ON_ERROR(g_ort->CreateTensorWithDataAsOrtValue(
+        env->memory_info, data, data_len, dims, dims_len,
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &input_tensor));
 
 	int is_tensor;
 	ORT_ABORT_ON_ERROR(g_ort->IsTensor(input_tensor, &is_tensor));
 	assert(is_tensor);
 
-	g_ort->ReleaseMemoryInfo(memory_info);
   return input_tensor;
 }
 
-OrtValue* OnnxRunInference2(
-    OnnxEnv* env, OrtValue** input_tensors, size_t input_tensors_len) {
+OrtValue* OnnxCreateTensorFloat32(OnnxEnv* env, float* data, size_t data_len, int64_t* dims, size_t dims_len) {
+
+  OrtValue* input_tensor = NULL;
+  ORT_ABORT_ON_ERROR(g_ort->CreateTensorWithDataAsOrtValue(
+        env->memory_info, data, data_len, dims, dims_len,
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor));
 
 	int is_tensor;
+	ORT_ABORT_ON_ERROR(g_ort->IsTensor(input_tensor, &is_tensor));
+	assert(is_tensor);
 
-	OrtValue* output_tensor = NULL;
+  return input_tensor;
+}
+
+OrtValue** OnnxRunInference(
+    OnnxEnv* env,
+    OrtValue** input_tensors,
+    OrtValue** output_tensors) {
+	//OrtValue** output_tensors = malloc(sizeof(OrtValue*) * env->output_names_len);
+
 	ORT_ABORT_ON_ERROR(g_ort->Run(
         env->session,
         NULL,
@@ -134,45 +137,15 @@ OrtValue* OnnxRunInference2(
         env->input_names_len, 
 				(const char *const *)env->output_names,
         env->output_names_len,
-        &output_tensor));
+        output_tensors));
 
-	assert(output_tensor != NULL);
+  // Check output tensor
+//	assert(output_tensor != NULL);
+//	int is_tensor;
+//	ORT_ABORT_ON_ERROR(g_ort->IsTensor(output_tensor, &is_tensor));
+//	assert(is_tensor);
 
-	ORT_ABORT_ON_ERROR(g_ort->IsTensor(output_tensor, &is_tensor));
-	assert(is_tensor);
-
-	return output_tensor;
-}
-
-OrtValue* OnnxRunInference(
-    OnnxEnv* env, float * model_input, size_t model_input_len) {
-
-	OrtMemoryInfo* memory_info;
-	ORT_ABORT_ON_ERROR(g_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info));
-	
-	OrtValue* input_tensor = NULL;
-	ORT_ABORT_ON_ERROR(g_ort->CreateTensorWithDataAsOrtValue(
-        memory_info, model_input, model_input_len, env->input_shape,
-				env->input_shape_len, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-				&input_tensor));
-	assert(input_tensor != NULL);
-
-	int is_tensor;
-	ORT_ABORT_ON_ERROR(g_ort->IsTensor(input_tensor, &is_tensor));
-	assert(is_tensor);
-
-	g_ort->ReleaseMemoryInfo(memory_info);
-
-	OrtValue* output_tensor = NULL;
-	ORT_ABORT_ON_ERROR(g_ort->Run(env->session, NULL, (const char *const *)env->input_names, (const OrtValue* const*)&input_tensor, env->input_names_len, 
-									(const char *const *)env->output_names, env->output_names_len, &output_tensor));
-	assert(output_tensor != NULL);
-
-	ORT_ABORT_ON_ERROR(g_ort->IsTensor(output_tensor, &is_tensor));
-	assert(is_tensor);
-
-  	OnnxReleaseTensor(input_tensor);
-	return output_tensor;
+	return output_tensors;
 }
 
 void OnnxReleaseTensor(OrtValue* tensor){

@@ -9,9 +9,8 @@
 
 #include <onnxruntime/core/session/onnxruntime_c_api.h>
 
-#define MAX_IN 10
-#define MAX_OUT 10
-#define MAX_SHAEP 10
+#define MAX_IN 16
+#define MAX_OUT 64
 
 #define MODE_CUDA 1
 #define MODE_ROCM 2
@@ -22,9 +21,9 @@ typedef struct {
 	OrtEnv* env;
 	OrtSessionOptions* session_options;
 	OrtSession* session;
+  OrtMemoryInfo *memory_info;
 	char* input_names[MAX_IN];
 	char* output_names[MAX_OUT];
-	int64_t input_shape[MAX_SHAEP];
 	size_t input_names_len;
 	size_t output_names_len;
 	size_t input_shape_len;
@@ -34,10 +33,10 @@ OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode);
 
 void OnnxDeleteOrtSession(OnnxEnv* env);
 
-OrtValue* OnnxRunInference(OnnxEnv* env, float* model_input, size_t model_input_len);
-OrtValue* OnnxRunInference2(OnnxEnv* env, OrtValue** input_tensors, size_t input_tensors_len);
+OrtValue** OnnxRunInference(OnnxEnv* env, OrtValue** input_tensors, OrtValue** output_tensors);
 
 OrtValue* OnnxCreateTensorInt64(OnnxEnv* env, int64_t* data, size_t data_len, int64_t* dims, size_t dims_len);
+OrtValue* OnnxCreateTensorFloat32(OnnxEnv* env, float* data, size_t data_len, int64_t* dims, size_t dims_len);
 
 void OnnxReleaseTensor(OrtValue* tensor);
 
