@@ -93,16 +93,13 @@ func (m *Model) RunInference(data map[string]*Tensor) []*Tensor {
 		}
 
 		inputs[i] = tensor.ortValue
-		fmt.Printf("input %s: %p\n", name, tensor.ortValue)
 	}
-	fmt.Printf("env: %p\n", m.env)
-	fmt.Printf("ort env: %p\n", m.env.env)
-	fmt.Printf("session: %p\n", m.env.session)
-	fmt.Printf("inputs: %p\n", &inputs[0])
 
 	outputs := make([]*C.OrtValue, m.env.output_names_len)
 
-	C.OnnxRunInference(m.env, (**C.OrtValue)(unsafe.Pointer(&inputs[0])), (**C.OrtValue)(unsafe.Pointer(&outputs[0])))
+	C.OnnxRunInference(m.env,
+		(**C.OrtValue)(unsafe.Pointer(&inputs[0])),
+		(**C.OrtValue)(unsafe.Pointer(&outputs[0])))
 
 	outputTensors := make([]*Tensor, m.env.output_names_len)
 	for i := 0; i < int(m.env.output_names_len); i++ {

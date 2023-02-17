@@ -127,7 +127,6 @@ OrtValue** OnnxRunInference(
     OnnxEnv* env,
     OrtValue** input_tensors,
     OrtValue** output_tensors) {
-	//OrtValue** output_tensors = malloc(sizeof(OrtValue*) * env->output_names_len);
 
 	ORT_ABORT_ON_ERROR(g_ort->Run(
         env->session,
@@ -139,11 +138,12 @@ OrtValue** OnnxRunInference(
         env->output_names_len,
         output_tensors));
 
-  // Check output tensor
-//	assert(output_tensor != NULL);
-//	int is_tensor;
-//	ORT_ABORT_ON_ERROR(g_ort->IsTensor(output_tensor, &is_tensor));
-//	assert(is_tensor);
+  // iterate through output_tensors to check them
+  for (size_t i = 0; i < env->output_names_len; i++) {
+    int is_tensor;
+    ORT_ABORT_ON_ERROR(g_ort->IsTensor(output_tensors[i], &is_tensor));
+    assert(is_tensor);
+  }
 
 	return output_tensors;
 }
