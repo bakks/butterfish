@@ -1,7 +1,10 @@
 builds:
   - id: darwin-amd64
     main: ./
-    binary: poptop
+    binary: butterfish
+    hooks:
+      pre:
+        - sudo apt-get install -y libonnx1 libonnx-dev
     goos:
       - darwin
     goarch:
@@ -17,7 +20,10 @@ builds:
 
   - id: darwin-arm64
     main: ./
-    binary: poptop
+    binary: butterfish
+    hooks:
+      pre:
+        - sudo apt-get install -y libonnx1 libonnx-dev
     goos:
       - darwin
     goarch:
@@ -28,19 +34,6 @@ builds:
       - CXX=o64-clang++
     flags:
       - -mod=readonly
-    ldflags:
-      - -s -w -X main.BuildVersion={{.Tag}} -X main.BuildArch={{.Arch}} -X main.BuildCommit={{.ShortCommit}} -X main.BuildTimestamp={{.Date}} -X main.BuildOs={{.Os}}
-
-
-  - main: ./go
-    binary: butterfish
-    goos:
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    env:
-      - CGO_ENABLED=0
     ldflags:
       - -s -w -X main.BuildVersion={{.Tag}} -X main.BuildArch={{.Arch}} -X main.BuildCommit={{.ShortCommit}} -X main.BuildTimestamp={{.Date}} -X main.BuildOs={{.Os}}
 
