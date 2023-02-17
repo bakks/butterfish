@@ -84,9 +84,9 @@ func (this *Model) NewFloat32Tensor(dims []int64, values []float32) *Tensor {
 }
 
 // Invoke the task.
-func (m *Model) RunInference(data map[string]*Tensor) []*Tensor {
-	inputs := make([]*C.OrtValue, len(m.inputNames))
-	for i, name := range m.inputNames {
+func (this *Model) RunInference(data map[string]*Tensor) []*Tensor {
+	inputs := make([]*C.OrtValue, len(this.inputNames))
+	for i, name := range this.inputNames {
 		tensor, ok := data[name]
 		if !ok {
 			panic(fmt.Sprintf("input %s not found", name))
@@ -95,52 +95,61 @@ func (m *Model) RunInference(data map[string]*Tensor) []*Tensor {
 		inputs[i] = tensor.ortValue
 	}
 
-	outputs := make([]*C.OrtValue, m.env.output_names_len)
+	outputs := make([]*C.OrtValue, this.env.output_names_len)
 
-	C.OnnxRunInference(m.env,
+	C.OnnxRunInference(this.env,
 		(**C.OrtValue)(unsafe.Pointer(&inputs[0])),
 		(**C.OrtValue)(unsafe.Pointer(&outputs[0])))
 
-	outputTensors := make([]*Tensor, m.env.output_names_len)
-	for i := 0; i < int(m.env.output_names_len); i++ {
+	outputTensors := make([]*Tensor, this.env.output_names_len)
+	for i := 0; i < int(this.env.output_names_len); i++ {
 		outputTensors[i] = &Tensor{ortValue: outputs[i]}
 	}
 
 	return outputTensors
 }
 
-func (m *Model) Delete() {
-	if m != nil {
-		C.OnnxDeleteOrtSession(m.env)
+func (this *Model) Delete() {
+	if this != nil {
+		C.OnnxDeleteOrtSession(this.env)
 	}
 }
 
-func (t *Tensor) NumDims() int {
-	return int(C.OnnxTensorNumDims(t.ortValue))
+func (this *Tensor) NumDims() int {
+	return int(C.OnnxTensorNumDims(this.ortValue))
 }
 
 // Dim return dimension of the element specified by index.
-func (t *Tensor) Dim(index int) int64 {
-	return int64(C.OnnxTensorDim(t.ortValue, C.int32_t(index)))
+func (this *Tensor) Dim(index int) int64 {
+	return int64(C.OnnxTensorDim(this.ortValue, C.int32_t(index)))
 }
 
 // Shape return shape of the tensor.
-func (t *Tensor) Shape() []int64 {
-	shape := make([]int64, t.NumDims())
-	for i := 0; i < t.NumDims(); i++ {
-		shape[i] = t.Dim(i)
+func (this *Tensor) Shape() []int64 {
+	shape := make([]int64, this.NumDims())
+	for i := 0; i < this.NumDims(); i++ {
+		shape[i] = this.Dim(i)
 	}
 	return shape
 }
 
-func (t *Tensor) Delete() {
-	if t != nil {
-		C.OnnxReleaseTensor(t.ortValue)
+func (this *Tensor) Size() int64 {
+	shape := this.Shape()
+	x := int64(1)
+	for _, s := range shape {
+		x *= s
+	}
+	return x
+}
+
+func (this *Tensor) Delete() {
+	if this != nil {
+		C.OnnxReleaseTensor(this.ortValue)
 	}
 }
 
-func (t *Tensor) CopyToBuffer(b interface{}, size int) {
-	C.OnnxTensorCopyToBuffer(t.ortValue, unsafe.Pointer(reflect.ValueOf(b).Pointer()), C.size_t(size))
+func (this *Tensor) CopyToBuffer(b interface{}, size int) {
+	C.OnnxTensorCopyToBuffer(this.ortValue, unsafe.Pointer(reflect.ValueOf(b).Pointer()), C.size_t(size))
 }
 
 var EuclideanDistance512 = func(d [][]float32, ai, bi, end int) []float32 {

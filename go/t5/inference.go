@@ -6,17 +6,40 @@ import (
 	"github.com/bakks/butterfish/go/onnx"
 )
 
-func InferT5(tokens []int) {
-	input := make([]int64, len(tokens))
+func InferT5(tokens []int, progressCallback func(int)) []int64 {
+	inputTokens := make([]int64, len(tokens))
 	for i, t := range tokens {
-		input[i] = int64(t)
+		inputTokens[i] = int64(t)
 	}
-	//
-	//	hiddenState := EncoderInference(input)
-	EncoderInference(input)
 
-	blankState := make([]float32, 16*512)
-	DecoderInference(input, blankState)
+	maxLength := 512
+	//topK := 0
+	startOfDecoderTokenId := 0
+	endOfDecoderTokenId := 0
+	outputTokenIds := []int64{int64(startOfDecoderTokenId)}
+	numOutputTokens := 1
+	maxOutputTokens := numOutputTokens + maxLength
+
+	// call encoder
+	hiddenState := EncoderInference(inputTokens)
+
+	for numOutputTokens < maxOutputTokens {
+		// call decoder in loop
+		logits, logitsShape := DecoderInference(outputTokenIds, len(outputTokenIds), hiddenState)
+		//fmt.Printf("logit shape: %v\n", logitsShape)
+
+		newTokenId := SampleLogitsGreedily(logits, logitsShape)
+		outputTokenIds = append(outputTokenIds, int64(newTokenId))
+		numOutputTokens++
+
+		progressCallback(newTokenId)
+
+		if newTokenId == endOfDecoderTokenId {
+			break
+		}
+	}
+
+	return outputTokenIds
 }
 
 func EncoderInference(tokens []int64) []float32 {
@@ -24,17 +47,12 @@ func EncoderInference(tokens []int64) []float32 {
 
 	numTokens := len(tokens)
 
-	input := make([]int64, numTokens)
-	for i, t := range tokens {
-		input[i] = int64(t)
-	}
-
 	encoderInputNames := []string{"input_ids", "attention_mask"}
 	encoderOutputNames := []string{"last_hidden_state"}
 	encoderModel := onnx.NewModel(encoderPath, encoderInputNames, encoderOutputNames, onnx.CPU)
 
 	inputDims := []int64{1, int64(numTokens)}
-	inputIdsTensor := encoderModel.NewInt64Tensor(inputDims, input)
+	inputIdsTensor := encoderModel.NewInt64Tensor(inputDims, tokens)
 
 	// create a slice of 1s that is the same langth as the tokens slice
 	attentionMask := make([]int64, numTokens)
@@ -50,12 +68,13 @@ func EncoderInference(tokens []int64) []float32 {
 	}
 
 	outputs := encoderModel.RunInference(encoderInputs)
-	fmt.Printf("encoder output shape: %v\n", outputs[0].Shape())
 
+	fmt.Printf("output shape: %v\n", outputs[0].Shape())
 	// 1 batch, numTokens sequence length, 512 hidden size
-	numValues := 1 * numTokens * 512
+	numValues := outputs[0].Size()
+	fmt.Printf("output size: %v\n", numValues)
 	data := make([]float32, numValues)
-	outputs[0].CopyToBuffer(data, numValues*4) // 4 bytes per float32
+	outputs[0].CopyToBuffer(data, int(numValues)*4) // 4 bytes per float32
 	//fmt.Printf("data: %v\n", data)
 
 	encoderModel.Delete()
@@ -63,7 +82,7 @@ func EncoderInference(tokens []int64) []float32 {
 	return data
 }
 
-func DecoderInference(tokens []int64, hiddenState []float32) {
+func DecoderInference(tokens []int64, maskLen int, hiddenState []float32) ([]float32, []int64) {
 	decoderPath := "/Users/bakks/butterfish/flan/onnx/decoder_model.onnx"
 
 	decoderInputNames := []string{
@@ -95,15 +114,15 @@ func DecoderInference(tokens []int64, hiddenState []float32) {
 	numTokens := len(tokens)
 	hiddenStatesDims := []int64{1, int64(numTokens), 512}
 	inputDims := []int64{1, int64(numTokens)}
+	maskDims := []int64{1, int64(maskLen)}
 
-	// create a slice of 1s that is the same langth as the tokens slice
-	attentionMask := make([]int64, numTokens)
+	attentionMask := make([]int64, maskLen)
 	for i := range attentionMask {
 		attentionMask[i] = 1
 	}
 
 	inputIdsTensor := model.NewInt64Tensor(inputDims, tokens)
-	attentionMaskTensor := model.NewInt64Tensor(inputDims, attentionMask)
+	attentionMaskTensor := model.NewInt64Tensor(maskDims, attentionMask)
 	hiddenStatesTensor := model.NewFloat32Tensor(hiddenStatesDims, hiddenState)
 
 	decoderInputs := map[string]*onnx.Tensor{
@@ -111,6 +130,39 @@ func DecoderInference(tokens []int64, hiddenState []float32) {
 		"input_ids":              inputIdsTensor,
 		"encoder_hidden_states":  hiddenStatesTensor,
 	}
+
 	decoderOutputs := model.RunInference(decoderInputs)
-	fmt.Printf("decoder output shape: %v\n", decoderOutputs[0].Shape())
+
+	// Pull logits out of the output tensors and return it
+	logitsTensor := decoderOutputs[0]
+	numValues := logitsTensor.Size()
+	logits := make([]float32, numValues)
+	logitsTensor.CopyToBuffer(logits, int(numValues)*4) // 4 bytes per float32
+	return logits, logitsTensor.Shape()
+}
+
+// Shape is like []int{1 (not batched), 10 (sequence length), 32368 (vocab size)}
+func SampleLogitsGreedily(logits []float32, shape []int64) int {
+	if len(shape) != 3 {
+		panic("shape must be []int{batchSize, seqLength, vocabSize}")
+	}
+
+	batchSize := int(shape[0])
+	seqLength := int(shape[1])
+	vocabSize := int(shape[2])
+	n := batchSize * seqLength * vocabSize
+	startIndex := n - vocabSize
+
+	argmaxi := 0
+	argmax := logits[startIndex+argmaxi]
+
+	for i := 1; i < vocabSize; i++ {
+		l := logits[startIndex+i]
+		if l > argmax {
+			argmaxi = i
+			argmax = l
+		}
+	}
+
+	return argmaxi
 }

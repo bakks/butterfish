@@ -24,7 +24,12 @@ func TestInference(t *testing.T) {
 	path := "./tokenizer.json"
 	config := LoadTokenizerConfig(path)
 	tokenizer := NewTokenizer(config)
-	input := "a quick brown fox jumped over the lazy dog"
+	input := "Translate English to German: How are you?"
+
 	encoded := tokenizer.Encode(input)
-	InferT5(encoded)
+
+	InferT5(encoded, func(tokenId int) {
+		decoded := tokenizer.Decode([]int{tokenId}, true)
+		println(decoded)
+	})
 }
