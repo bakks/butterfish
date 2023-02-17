@@ -1,4 +1,37 @@
 builds:
+  - id: darwin-amd64
+    main: ./
+    binary: poptop
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=o64-clang
+      - CXX=o64-clang++
+    flags:
+      - -mod=readonly
+    ldflags:
+      - -s -w -X main.BuildVersion={{.Tag}} -X main.BuildArch={{.Arch}} -X main.BuildCommit={{.ShortCommit}} -X main.BuildTimestamp={{.Date}} -X main.BuildOs={{.Os}}
+
+  - id: darwin-arm64
+    main: ./
+    binary: poptop
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=o64-clang
+      - CXX=o64-clang++
+    flags:
+      - -mod=readonly
+    ldflags:
+      - -s -w -X main.BuildVersion={{.Tag}} -X main.BuildArch={{.Arch}} -X main.BuildCommit={{.ShortCommit}} -X main.BuildTimestamp={{.Date}} -X main.BuildOs={{.Os}}
+
+
   - main: ./go
     binary: butterfish
     goos:
