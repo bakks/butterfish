@@ -1,6 +1,6 @@
-#before:
-#hooks:
-#- sudo apt-get install -y libonnx1 libonnx-dev
+before:
+  hooks:
+    - sudo apt-get install -y libonnx1 libonnx-dev
 
 builds:
   - id: darwin-amd64
