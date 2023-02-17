@@ -12,10 +12,16 @@
 #define MAX_IN 16
 #define MAX_OUT 64
 
+#define MODE_CPU 0
 #define MODE_CUDA 1
-#define MODE_ROCM 2
-#define MODE_ARMNN 3
-#define MODE_TENSOR_RT 4
+#define MODE_TENSOR_RT 2
+#define MODE_COREML 3
+
+// Declare execution provider symbols, depending on the onnxruntime build
+// these may or may not be available in the dynamic library.
+ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_CUDA, _In_ OrtSessionOptions* options, int device_id);
+ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_Tensorrt, _In_ OrtSessionOptions* options, int device_id);
+ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_CoreML, _In_ OrtSessionOptions* options, uint32_t coreml_flags);
 
 typedef struct {
 	OrtEnv* env;
@@ -32,6 +38,8 @@ typedef struct {
 OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode);
 
 void OnnxDeleteOrtSession(OnnxEnv* env);
+
+void SetupExecutionProvider(OrtSessionOptions* session_options, int mode);
 
 OrtValue** OnnxRunInference(OnnxEnv* env, OrtValue** input_tensors, OrtValue** output_tensors);
 

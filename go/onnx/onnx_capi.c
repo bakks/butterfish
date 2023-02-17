@@ -18,19 +18,11 @@
     }                                                        \
   } while (0);
 
-// ORT spec
-ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_ArmNN, _In_ OrtSessionOptions* options, int use_arena)
-ORT_ALL_ARGS_NONNULL;
-
-ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_CUDA, _In_ OrtSessionOptions* options, int device_id);
-ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_Tensorrt, _In_ OrtSessionOptions* options, int device_id);
 
 const OrtApi* g_ort = NULL;
 
-void SetupExecutionProvider(OrtSessionOptions* session_options, int mode);
 
-
-OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode){
+OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode) {
 	int ret = 0;
 
 	if(g_ort == NULL){
@@ -44,7 +36,7 @@ OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode){
 	OnnxEnv* onnx_env = (OnnxEnv*)malloc(sizeof(OnnxEnv));
 
 	ORT_ABORT_ON_ERROR(g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "infer", &onnx_env->env));
-	
+
 	ORT_ABORT_ON_ERROR(g_ort->CreateSessionOptions(&onnx_env->session_options));
 
 	SetupExecutionProvider(onnx_env->session_options, mode);
@@ -58,30 +50,33 @@ OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode){
 	return onnx_env;
 }
 
-void SetupExecutionProvider(OrtSessionOptions* session_options, int mode){
-#ifdef ARMNN 
-	if(mode == MODE_ARMNN){
-		ORT_ABORT_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_ArmNN(session_options, 0));
-	}
-#endif
-#ifdef CUDA
+void SetupExecutionProvider(OrtSessionOptions* session_options, int mode) {
 	if(mode == MODE_CUDA){
+#ifdef CUDA
 		int device_id = 0;
 		ORT_ABORT_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_CUDA(session_options, device_id));
-	} 
+#else
+    printf("CUDA is not supported in this build.\n");
 #endif
-#ifdef TENSOR_RT
+	}
+
 	 if (mode == MODE_TENSOR_RT) {
+#ifdef TENSOR_RT
 		int device_id = 0;
 		ORT_ABORT_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Tensorrt(session_options, device_id));
-	} 
+#else
+    printf("TensorRT is not supported in this build.\n");
 #endif
-#ifdef ROCM
-	 if (mode == MODE_ROCM) {
-		int device_id = 0;
-		ORT_ABORT_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Rocm(session_options, device_id));
 	}
+
+  if (mode == MODE_COREML) {
+#ifdef COREML
+    uint32_t coreml_flags = 0;
+    ORT_ABORT_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_CoreML(session_options, coreml_flags));
+#else
+    printf("CoreML is not supported in this build.\n");
 #endif
+  }
 }
 
 void OnnxDeleteOrtSession(OnnxEnv* env){
@@ -133,7 +128,7 @@ OrtValue** OnnxRunInference(
         NULL,
         (const char *const *)env->input_names,
         (const OrtValue *const *)input_tensors,
-        env->input_names_len, 
+        env->input_names_len,
 				(const char *const *)env->output_names,
         env->output_names_len,
         output_tensors));
@@ -155,7 +150,7 @@ void OnnxReleaseTensor(OrtValue* tensor){
 size_t OnnxTensorNumDims(OrtValue* tensor){
 	struct OrtTensorTypeAndShapeInfo* shape_info;
 	ORT_ABORT_ON_ERROR(g_ort->GetTensorTypeAndShape(tensor, &shape_info));
-  	
+
 	size_t dim_count;
   	ORT_ABORT_ON_ERROR(g_ort->GetDimensionsCount(shape_info, &dim_count));
 	return dim_count;
@@ -164,7 +159,7 @@ size_t OnnxTensorNumDims(OrtValue* tensor){
 int64_t OnnxTensorDim(OrtValue* tensor, int index){
 	struct OrtTensorTypeAndShapeInfo* shape_info;
   	ORT_ABORT_ON_ERROR(g_ort->GetTensorTypeAndShape(tensor, &shape_info));
-  	
+
 	size_t dim_count;
   	ORT_ABORT_ON_ERROR(g_ort->GetDimensionsCount(shape_info, &dim_count));
 
@@ -189,15 +184,15 @@ static void FreeCharArray(char **a, size_t size) {
 }
 
 float** MakeFloatArray(int size) {
-        return calloc(sizeof(float*), size);
+  return calloc(sizeof(float*), size);
 }
 
 void SetFloatArray(float **a, float *s, int n) {
-        a[n] = s;
+  a[n] = s;
 }
 
 void FreeFloatArray(float **a) {
-        free(a);
+  free(a);
 }
 
 void EuclideanDistance512(float **d, float *res, int ai, int bi, int end) {

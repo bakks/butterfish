@@ -4,7 +4,7 @@ import (
 	"github.com/bakks/butterfish/go/onnx"
 )
 
-func InferT5(tokens []int, progressCallback func(int)) []int64 {
+func InferT5(tokens []int, progressCallback func(int), encoderModelPath, decoderModelPath string, execMode onnx.ExecutionProvider) []int64 {
 	inputTokens := make([]int64, len(tokens))
 	for i, t := range tokens {
 		inputTokens[i] = int64(t)
@@ -19,11 +19,11 @@ func InferT5(tokens []int, progressCallback func(int)) []int64 {
 	maxOutputTokens := numOutputTokens + maxLength
 
 	// call encoder
-	hiddenState, hiddenStateShape := EncoderInference(inputTokens)
+	hiddenState, hiddenStateShape := EncoderInference(encoderModelPath, execMode, inputTokens)
 
 	for numOutputTokens < maxOutputTokens {
 		// call decoder in loop
-		logits, logitsShape := DecoderInference(outputTokenIds, len(tokens), hiddenState, hiddenStateShape)
+		logits, logitsShape := DecoderInference(decoderModelPath, execMode, outputTokenIds, len(tokens), hiddenState, hiddenStateShape)
 		//fmt.Printf("logit shape: %v\n", logitsShape)
 
 		newTokenId := SampleLogitsGreedily(logits, logitsShape)
@@ -40,14 +40,13 @@ func InferT5(tokens []int, progressCallback func(int)) []int64 {
 	return outputTokenIds
 }
 
-func EncoderInference(tokens []int64) ([]float32, []int64) {
-	encoderPath := "/Users/bakks/butterfish/flan/onnx/encoder_model.onnx"
+func EncoderInference(modelPath string, execPro onnx.ExecutionProvider, tokens []int64) ([]float32, []int64) {
 
 	numTokens := len(tokens)
 
 	encoderInputNames := []string{"input_ids", "attention_mask"}
 	encoderOutputNames := []string{"last_hidden_state"}
-	encoderModel := onnx.NewModel(encoderPath, encoderInputNames, encoderOutputNames, onnx.CPU)
+	encoderModel := onnx.NewModel(modelPath, encoderInputNames, encoderOutputNames, execPro)
 
 	inputDims := []int64{1, int64(numTokens)}
 	inputIdsTensor := encoderModel.NewInt64Tensor(inputDims, tokens)
@@ -79,9 +78,7 @@ func EncoderInference(tokens []int64) ([]float32, []int64) {
 	return data, outputs[0].Shape()
 }
 
-func DecoderInference(tokens []int64, maskLen int, hiddenState []float32, hiddenStateDims []int64) ([]float32, []int64) {
-	decoderPath := "/Users/bakks/butterfish/flan/onnx/decoder_model.onnx"
-
+func DecoderInference(modelPath string, execPro onnx.ExecutionProvider, tokens []int64, maskLen int, hiddenState []float32, hiddenStateDims []int64) ([]float32, []int64) {
 	decoderInputNames := []string{
 		"encoder_attention_mask",
 		"input_ids",
@@ -107,7 +104,7 @@ func DecoderInference(tokens []int64, maskLen int, hiddenState []float32, hidden
 		"encoder_last_hidden_state",
 	}
 
-	model := onnx.NewModel(decoderPath, decoderInputNames, decoderOutputNames, onnx.CPU)
+	model := onnx.NewModel(modelPath, decoderInputNames, decoderOutputNames, execPro)
 	numTokens := len(tokens)
 	inputDims := []int64{1, int64(numTokens)}
 	maskDims := []int64{1, int64(maskLen)}

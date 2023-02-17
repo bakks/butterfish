@@ -26,21 +26,20 @@ type Tensor struct {
 	ortValue *C.OrtValue
 }
 
-type EP int
+type ExecutionProvider int
 
 const (
-	CPU EP = iota
-	CUDA
-	ROCM
-	ARMNN
-	TENSORRT
+	ModeCPU      ExecutionProvider = iota // 0
+	ModeCUDA                              // 1
+	ModeTENSORRT                          // 2
+	ModeCOREML                            // 3
 )
 
 func NewModel(
 	model_path string,
 	inputNames []string,
 	outputNames []string,
-	mode EP) *Model {
+	mode ExecutionProvider) *Model {
 
 	ptr := C.CString(model_path)
 	defer C.free(unsafe.Pointer(ptr))

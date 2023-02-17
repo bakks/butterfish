@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/bakks/butterfish/go/onnx"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,19 +29,23 @@ func int64ToInt(a []int64) []int {
 	return b
 }
 
+const encoderPath = "/Users/bakks/butterfish/flan/onnx/encoder_model.onnx"
+const decoderPath = "/Users/bakks/butterfish/flan/onnx/decoder_model.onnx"
+
 // Test inference on a T5 model
 func TestInference(t *testing.T) {
 	path := "./tokenizer.json"
 	config := LoadTokenizerConfig(path)
 	tokenizer := NewTokenizer(config)
 	input := "Translate English to German: How are you?"
+	fmt.Printf("input: %s\n", input)
 
 	encoded := tokenizer.Encode(input)
 
 	output := InferT5(encoded, func(tokenId int) {
 		decoded := tokenizer.Decode([]int{tokenId}, true)
 		fmt.Println(decoded)
-	})
+	}, encoderPath, decoderPath, onnx.ModeCPU)
 
 	decoded := tokenizer.Decode(int64ToInt(output), true)
 	fmt.Println(decoded)
