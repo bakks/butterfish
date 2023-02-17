@@ -14,25 +14,20 @@ func int64ToInt(a []int64) []int {
 	return b
 }
 
-func T5(prompt string, maxLength int, coreml bool, modelPath string, execPro onnx.ExecutionProvider, callback func(string)) string {
+func T5(prompt string, maxLength int, modelPath string, execPro onnx.ExecutionProvider, callback func(string)) string {
 	tokenizerPath := filepath.Join(modelPath, "tokenizer.json")
 	encoderPath := filepath.Join(modelPath, "encoder_model.onnx")
-	decoderPath := filepath.Join(modelPath, "encoder_model.onnx")
+	decoderPath := filepath.Join(modelPath, "decoder_model.onnx")
 
 	config := LoadTokenizerConfig(tokenizerPath)
 	tokenizer := NewTokenizer(config)
 
 	encoded := tokenizer.Encode(prompt)
 
-	mode := onnx.ModeCPU
-	if coreml {
-		mode = onnx.ModeCoreML
-	}
-
 	output := T5TokensToTokensInference(encoded, maxLength, func(tokenId int) {
 		decoded := tokenizer.Decode([]int{tokenId}, true)
 		callback(decoded)
-	}, encoderPath, decoderPath, mode)
+	}, encoderPath, decoderPath, execPro)
 
 	decoded := tokenizer.Decode(int64ToInt(output), true)
 	return decoded

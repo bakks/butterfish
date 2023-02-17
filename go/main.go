@@ -278,7 +278,7 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 	return nil
 }
 
-const GPTMaxTokens = 1024
+var GPTMaxTokens = 1024
 
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
 	return this.gptClient.Embeddings(ctx, content)

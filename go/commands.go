@@ -12,8 +12,11 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
+	"github.com/bakks/butterfish/go/onnx"
 	"github.com/bakks/butterfish/go/prompt"
+	"github.com/bakks/butterfish/go/t5"
 	"github.com/bakks/butterfish/go/util"
+	"github.com/mitchellh/go-homedir"
 )
 
 // Parse and execute a command in a butterfish context
@@ -46,9 +49,11 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliConsole,
 // Kong CLI parser option configuration
 type cliConsole struct {
 	Prompt struct {
-		Prompt []string `arg:"" help:"Prompt to use." optional:""`
-		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given prompt. It is recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003."`
+		Prompt    []string `arg:"" help:"Prompt to use." optional:""`
+		Model     string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		MaxTokens int      `short:"n" default:"256" help:"Maximum number of tokens to generate."`
+		Coreml    bool     `short:"c" help:"Use CoreML backend for ONNX, only relevant for arm64 architecture on T5 models."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given prompt. It is recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003. For T5 models use flan-t5-[small|base|large|xl|xxl]."`
 
 	Summarize struct {
 		Files []string `arg:"" help:"File paths to summarize." optional:""`
@@ -157,6 +162,14 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 
 		writer := util.NewStyledWriter(this.out, this.config.Styles.Answer)
 		model := options.Prompt.Model
+		maxTokens := options.Prompt.MaxTokens
+
+		if strings.HasPrefix(model, "flan-t5") {
+			coreml := options.Prompt.Coreml
+			return this.t5Prompt(this.ctx, input, model, maxTokens, coreml, writer)
+		}
+
+		GPTMaxTokens = maxTokens
 		return this.gptClient.CompletionStream(this.ctx, input, model, writer)
 
 	case "summarize":
@@ -400,6 +413,29 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole
 		return errors.New("Unrecognized command: " + parsed.Command())
 
 	}
+
+	return nil
+}
+
+func (this *ButterfishCtx) t5Prompt(ctx context.Context, prompt string, model string, maxTokens int, coreml bool, writer io.Writer) error {
+
+	path := "~/Library/butterfish/" + model
+	path, err := homedir.Expand(path)
+	if err != nil {
+		return err
+	}
+
+	callback := func(s string) {
+		fmt.Fprintf(writer, " %s", s)
+	}
+
+	mode := onnx.ModeCPU
+	if coreml {
+		mode = onnx.ModeCoreML
+	}
+
+	t5.T5(prompt, maxTokens, path, mode, callback)
+	fmt.Fprintf(writer, "\n")
 
 	return nil
 }
