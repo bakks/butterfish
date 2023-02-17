@@ -4,7 +4,7 @@
 
 builds:
   - id: darwin-amd64
-    main: ./
+    main: ./go
     binary: butterfish
     goos:
       - darwin
@@ -20,7 +20,7 @@ builds:
       - -s -w -X main.BuildVersion={{.Tag}} -X main.BuildArch={{.Arch}} -X main.BuildCommit={{.ShortCommit}} -X main.BuildTimestamp={{.Date}} -X main.BuildOs={{.Os}}
 
   - id: darwin-arm64
-    main: ./
+    main: ./go
     binary: butterfish
     goos:
       - darwin
