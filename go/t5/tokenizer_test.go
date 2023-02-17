@@ -1,6 +1,7 @@
 package t5
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,14 @@ func TestTokenizer(t *testing.T) {
 	assert.Equal(t, input, decoded)
 }
 
+func int64ToInt(a []int64) []int {
+	b := make([]int, len(a))
+	for i, v := range a {
+		b[i] = int(v)
+	}
+	return b
+}
+
 // Test inference on a T5 model
 func TestInference(t *testing.T) {
 	path := "./tokenizer.json"
@@ -28,8 +37,11 @@ func TestInference(t *testing.T) {
 
 	encoded := tokenizer.Encode(input)
 
-	InferT5(encoded, func(tokenId int) {
+	output := InferT5(encoded, func(tokenId int) {
 		decoded := tokenizer.Decode([]int{tokenId}, true)
-		println(decoded)
+		fmt.Println(decoded)
 	})
+
+	decoded := tokenizer.Decode(int64ToInt(output), true)
+	fmt.Println(decoded)
 }

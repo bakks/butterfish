@@ -1,8 +1,6 @@
 package t5
 
 import (
-	"fmt"
-
 	"github.com/bakks/butterfish/go/onnx"
 )
 
@@ -12,7 +10,7 @@ func InferT5(tokens []int, progressCallback func(int)) []int64 {
 		inputTokens[i] = int64(t)
 	}
 
-	maxLength := 512
+	maxLength := 32
 	//topK := 0
 	startOfDecoderTokenId := 0
 	endOfDecoderTokenId := 0
@@ -21,11 +19,11 @@ func InferT5(tokens []int, progressCallback func(int)) []int64 {
 	maxOutputTokens := numOutputTokens + maxLength
 
 	// call encoder
-	hiddenState := EncoderInference(inputTokens)
+	hiddenState, hiddenStateShape := EncoderInference(inputTokens)
 
 	for numOutputTokens < maxOutputTokens {
 		// call decoder in loop
-		logits, logitsShape := DecoderInference(outputTokenIds, len(outputTokenIds), hiddenState)
+		logits, logitsShape := DecoderInference(outputTokenIds, len(tokens), hiddenState, hiddenStateShape)
 		//fmt.Printf("logit shape: %v\n", logitsShape)
 
 		newTokenId := SampleLogitsGreedily(logits, logitsShape)
@@ -42,7 +40,7 @@ func InferT5(tokens []int, progressCallback func(int)) []int64 {
 	return outputTokenIds
 }
 
-func EncoderInference(tokens []int64) []float32 {
+func EncoderInference(tokens []int64) ([]float32, []int64) {
 	encoderPath := "/Users/bakks/butterfish/flan/onnx/encoder_model.onnx"
 
 	numTokens := len(tokens)
@@ -69,20 +67,19 @@ func EncoderInference(tokens []int64) []float32 {
 
 	outputs := encoderModel.RunInference(encoderInputs)
 
-	fmt.Printf("output shape: %v\n", outputs[0].Shape())
+	//fmt.Printf("output shape: %v\n", outputs[0].Shape())
 	// 1 batch, numTokens sequence length, 512 hidden size
 	numValues := outputs[0].Size()
-	fmt.Printf("output size: %v\n", numValues)
 	data := make([]float32, numValues)
 	outputs[0].CopyToBuffer(data, int(numValues)*4) // 4 bytes per float32
 	//fmt.Printf("data: %v\n", data)
 
 	encoderModel.Delete()
 
-	return data
+	return data, outputs[0].Shape()
 }
 
-func DecoderInference(tokens []int64, maskLen int, hiddenState []float32) ([]float32, []int64) {
+func DecoderInference(tokens []int64, maskLen int, hiddenState []float32, hiddenStateDims []int64) ([]float32, []int64) {
 	decoderPath := "/Users/bakks/butterfish/flan/onnx/decoder_model.onnx"
 
 	decoderInputNames := []string{
@@ -112,7 +109,6 @@ func DecoderInference(tokens []int64, maskLen int, hiddenState []float32) ([]flo
 
 	model := onnx.NewModel(decoderPath, decoderInputNames, decoderOutputNames, onnx.CPU)
 	numTokens := len(tokens)
-	hiddenStatesDims := []int64{1, int64(numTokens), 512}
 	inputDims := []int64{1, int64(numTokens)}
 	maskDims := []int64{1, int64(maskLen)}
 
@@ -123,7 +119,7 @@ func DecoderInference(tokens []int64, maskLen int, hiddenState []float32) ([]flo
 
 	inputIdsTensor := model.NewInt64Tensor(inputDims, tokens)
 	attentionMaskTensor := model.NewInt64Tensor(maskDims, attentionMask)
-	hiddenStatesTensor := model.NewFloat32Tensor(hiddenStatesDims, hiddenState)
+	hiddenStatesTensor := model.NewFloat32Tensor(hiddenStateDims, hiddenState)
 
 	decoderInputs := map[string]*onnx.Tensor{
 		"encoder_attention_mask": attentionMaskTensor,
