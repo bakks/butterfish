@@ -13,7 +13,7 @@ func InferT5(tokens []int, progressCallback func(int)) []int64 {
 	maxLength := 32
 	//topK := 0
 	startOfDecoderTokenId := 0
-	endOfDecoderTokenId := 0
+	endOfDecoderTokenId := 1
 	outputTokenIds := []int64{int64(startOfDecoderTokenId)}
 	numOutputTokens := 1
 	maxOutputTokens := numOutputTokens + maxLength
