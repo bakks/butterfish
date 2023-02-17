@@ -24,15 +24,15 @@ ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_Tensorrt, _In_ OrtSessio
 ORT_API_STATUS(OrtSessionOptionsAppendExecutionProvider_CoreML, _In_ OrtSessionOptions* options, uint32_t coreml_flags);
 
 typedef struct {
-	OrtEnv* env;
-	OrtSessionOptions* session_options;
-	OrtSession* session;
+  OrtEnv* env;
+  OrtSessionOptions* session_options;
+  OrtSession* session;
   OrtMemoryInfo *memory_info;
-	char* input_names[MAX_IN];
-	char* output_names[MAX_OUT];
-	size_t input_names_len;
-	size_t output_names_len;
-	size_t input_shape_len;
+  char* input_names[MAX_IN];
+  char* output_names[MAX_OUT];
+  size_t input_names_len;
+  size_t output_names_len;
+  size_t input_shape_len;
 } OnnxEnv;
 
 OnnxEnv* OnnxNewOrtSession(const char* model_path, int mode);
