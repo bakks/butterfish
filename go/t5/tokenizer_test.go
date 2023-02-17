@@ -21,14 +21,6 @@ func TestTokenizer(t *testing.T) {
 	assert.Equal(t, input, decoded)
 }
 
-func int64ToInt(a []int64) []int {
-	b := make([]int, len(a))
-	for i, v := range a {
-		b[i] = int(v)
-	}
-	return b
-}
-
 const encoderPath = "/Users/bakks/butterfish/flan/onnx/encoder_model.onnx"
 const decoderPath = "/Users/bakks/butterfish/flan/onnx/decoder_model.onnx"
 
@@ -42,7 +34,7 @@ func TestInference(t *testing.T) {
 
 	encoded := tokenizer.Encode(input)
 
-	output := InferT5(encoded, func(tokenId int) {
+	output := T5TokensToTokensInference(encoded, 32, func(tokenId int) {
 		decoded := tokenizer.Decode([]int{tokenId}, true)
 		fmt.Println(decoded)
 	}, encoderPath, decoderPath, onnx.ModeCPU)

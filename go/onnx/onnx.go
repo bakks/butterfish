@@ -31,8 +31,8 @@ type ExecutionProvider int
 const (
 	ModeCPU      ExecutionProvider = iota // 0
 	ModeCUDA                              // 1
-	ModeTENSORRT                          // 2
-	ModeCOREML                            // 3
+	ModeTensorRT                          // 2
+	ModeCoreML                            // 3
 )
 
 func NewModel(

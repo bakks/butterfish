@@ -1,16 +1,49 @@
 package t5
 
 import (
+	"path/filepath"
+
 	"github.com/bakks/butterfish/go/onnx"
 )
 
-func InferT5(tokens []int, progressCallback func(int), encoderModelPath, decoderModelPath string, execMode onnx.ExecutionProvider) []int64 {
+func int64ToInt(a []int64) []int {
+	b := make([]int, len(a))
+	for i, v := range a {
+		b[i] = int(v)
+	}
+	return b
+}
+
+func T5(prompt string, maxLength int, coreml bool, modelPath string, execPro onnx.ExecutionProvider, callback func(string)) string {
+	tokenizerPath := filepath.Join(modelPath, "tokenizer.json")
+	encoderPath := filepath.Join(modelPath, "encoder_model.onnx")
+	decoderPath := filepath.Join(modelPath, "encoder_model.onnx")
+
+	config := LoadTokenizerConfig(tokenizerPath)
+	tokenizer := NewTokenizer(config)
+
+	encoded := tokenizer.Encode(prompt)
+
+	mode := onnx.ModeCPU
+	if coreml {
+		mode = onnx.ModeCoreML
+	}
+
+	output := T5TokensToTokensInference(encoded, maxLength, func(tokenId int) {
+		decoded := tokenizer.Decode([]int{tokenId}, true)
+		callback(decoded)
+	}, encoderPath, decoderPath, mode)
+
+	decoded := tokenizer.Decode(int64ToInt(output), true)
+	return decoded
+}
+
+func T5TokensToTokensInference(tokens []int, maxLength int, progressCallback func(int), encoderModelPath, decoderModelPath string, execMode onnx.ExecutionProvider) []int64 {
 	inputTokens := make([]int64, len(tokens))
 	for i, t := range tokens {
 		inputTokens[i] = int64(t)
 	}
 
-	maxLength := 32
 	//topK := 0
 	startOfDecoderTokenId := 0
 	endOfDecoderTokenId := 1
