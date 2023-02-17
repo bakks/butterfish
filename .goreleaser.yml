@@ -1,10 +1,11 @@
+#before:
+#hooks:
+#- sudo apt-get install -y libonnx1 libonnx-dev
+
 builds:
   - id: darwin-amd64
     main: ./
     binary: butterfish
-    hooks:
-      pre:
-        - sudo apt-get install -y libonnx1 libonnx-dev
     goos:
       - darwin
     goarch:
@@ -21,9 +22,6 @@ builds:
   - id: darwin-arm64
     main: ./
     binary: butterfish
-    hooks:
-      pre:
-        - sudo apt-get install -y libonnx1 libonnx-dev
     goos:
       - darwin
     goarch:
