@@ -1,0 +1,13 @@
+prefix=@@HOMEBREW_CELLAR@@/onnxruntime/1.14.0
+bindir=${prefix}/bin
+mandir=${prefix}/
+docdir=${prefix}/
+libdir=${prefix}/lib
+includedir=${prefix}/include/onnxruntime
+
+Name: onnxruntime
+Description: ONNX runtime
+URL: https://github.com/microsoft/onnxruntime
+Version: 1.14.0
+Libs: -L${libdir} -lonnxruntime
+Cflags: -I${includedir}

@@ -1,7 +1,3 @@
-before:
-  hooks:
-    - sudo apt-get install -y libonnx1 libonnx-dev
-
 builds:
   - id: darwin-amd64
     main: ./go
@@ -14,6 +10,8 @@ builds:
       - CGO_ENABLED=1
       - CC=o64-clang
       - CXX=o64-clang++
+      - LIBRARY_PATH=./lib/amd64
+      - DYLD_LIBRARY_PATH=./lib/amd64
     flags:
       - -mod=readonly
     ldflags:
@@ -30,6 +28,8 @@ builds:
       - CGO_ENABLED=1
       - CC=o64-clang
       - CXX=o64-clang++
+      - LIBRARY_PATH=./lib/arm64
+      - DYLD_LIBRARY_PATH=./lib/arm64
     flags:
       - -mod=readonly
     ldflags:
