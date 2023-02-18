@@ -6,7 +6,9 @@ package onnx
 /*
 #cgo LDFLAGS: -lonnxruntime -lm
 #cgo CFLAGS: -O3
-#cgo arm64 CFLAGS: -DCOREML=1
+#cgo arm64 CFLAGS: -I../../lib/arm64/onnxruntime/1.14.0/include -DCOREML=1
+#cgo amd64 CFLAGS: -I../../lib/amd64/onnxruntime/1.14.0/include
+#cgo amd64 LDFLAGS: -L../../lib/amd64/onnxruntime/1.14.0/lib
 #include "onnx_capi.h"
 */
 import "C"
