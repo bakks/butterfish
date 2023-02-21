@@ -6,7 +6,7 @@
 
   - The idea of training models specifically for local use and knowledge of the local computer. What if every Mac shipped with an LLM that was trained on commands for that MacOS version? What would be the most useful LLM to have on a computer with no internet access? What would you want it to do?
   - ONNX is actually a good model platform but requires wrapping / glue code.
-  - It does seem within reach to have a well-trained and minified model running locally but the current-gen T5 stuff is not that.
+  - It does seem possible to have a well-trained and minified model running locally and doing useful things but the current-gen T5 stuff is not that.
 
 - T5
 
@@ -16,7 +16,8 @@
 
 - T5 Testing
 
-  - From what I gather and based on testing, it has been trained mostly for language translation and summarization. It's not really useful for code generation like GPT.
+  - Based on testing, T5 is most usef for language translation and summarization. It's not really useful for code generation like GPT.
+  - I got this working locally, tried it in the Hugging Face python library, a tried it with a [Replicate implementation](https://replicate.com/devxpy/flan-t5).
   - Quality ranges based on which size model you use. The small ones are pretty brain dead but the bigger ones are not great either relative to GPT.
 
 - ONNX
@@ -46,4 +47,5 @@ make
 
 
 ./bin/butterfish -m 'flan-t5-base' prompt 'Translate english to german: Is this thing working?'
+./bin/butterfish -m 'flan-t5-base' --coreml prompt 'Translate english to german: Is this any faster?'
 ```
