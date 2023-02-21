@@ -18,8 +18,12 @@ type GPT struct {
 	verboseWriter io.Writer
 }
 
+const gptClientTimeout = 300 * time.Second
+
 func NewGPT(token string, verbose bool, verboseWriter io.Writer) *GPT {
-	client := gpt3.NewClient(token, gpt3.WithDefaultEngine(gpt3.TextDavinci003Engine))
+	client := gpt3.NewClient(token,
+		gpt3.WithDefaultEngine(gpt3.TextDavinci003Engine),
+		gpt3.WithTimeout(gptClientTimeout))
 
 	return &GPT{
 		client:        client,
