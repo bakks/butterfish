@@ -1,6 +1,7 @@
 # Notes on T5 branch
 
-- I did some experimentation with running t5 models in Butterfish. Summary: I got it basically working (on CPU), it was interesting exercise but probably not worth more effort. I haven't tried to fine-tune or anything, just using existing t5 parameters at face value.
+- I did some experimentation with running t5 models in Butterfish. Summary: I got it basically working (on CPU), it was interesting exercise but probably not worth more effort. I haven't tried to fine-tune or anything, just using existing t5 parameters at face value. I'm still on a 2016 macbook so I haven't verified CoreML execution but in theory it works provided you build ONNX yourself.
+- This isn't really packaged together nicely because it's experimental.
 
 - Big takeaways:
 
