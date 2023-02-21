@@ -1,12 +1,13 @@
 # Notes on T5 branch
 
-- I did some experimentation with running t5 models in Butterfish. Summary: I got it basically working (on CPU), it was interesting exercise but probably not worth more effort.
+- I did some experimentation with running t5 models in Butterfish. Summary: I got it basically working (on CPU), it was interesting exercise but probably not worth more effort. I haven't tried to fine-tune or anything, just using existing t5 parameters at face value.
 
 - Big takeaways:
 
-  - The idea of training models specifically for local use and knowledge of the local computer. What if every Mac shipped with an LLM that was trained on commands for that MacOS version? What would be the most useful LLM to have on a computer with no internet access? What would you want it to do?
-  - ONNX is actually a good model platform but requires wrapping / glue code.
-  - It does seem possible to have a well-trained and minified model running locally and doing useful things but the current-gen T5 stuff is not that.
+  - Now that we have ChatGPT less powerful models feel pretty underwhelming.
+  - ONNX is actually a good model platform but requires wrapping / glue code. It doesn't seem as up to date with the latest stuff as you would want (e.g. maybe it should have tokenization functionality built in, it doesn't seem to do inference loops), but is in the neighborhood.
+  - It does seem theoretically possible to have a well-trained and minified model running locally and doing useful things but the current-gen T5 stuff is not that.
+  - Desert island - The idea of training models specifically for local use and knowledge of the local computer. What if every Mac shipped with an LLM that was trained on commands for that MacOS version? What would be the most useful LLM to have on a computer with no internet access? What would you want it to do?
 
 - T5
 
@@ -34,7 +35,7 @@
   - I implemented T5 tokenization and inference (using the `.onnx` model files) in Go based on https://github.com/praeclarum/transformers-js, which was the most succinct implementation I could find. It actually mostly works.
   - Current implementation is pretty inefficient.
 
-Running the t5 code.
+Running the t5 code, this will require some experimentation.
 
 ```
 brew install bakks/bakks/onnxruntime
@@ -44,7 +45,8 @@ cd butterfish
 git checkout t5
 make
 
-# Get onnx exports and put in ~/Library/butterfish
+# Get onnx exports from https://huggingface.co/datasets/bakks/flan-t5-onnx and put in ~/Library/butterfish
+# Check - you should thus have a file like ~/Library/butterfish/flan-t5-small/encoder_model.onnx
 
 
 ./bin/butterfish -m 'flan-t5-base' prompt 'Translate english to german: Is this thing working?'
