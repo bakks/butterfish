@@ -26,7 +26,7 @@
   - I chose to try using ONNX for inference because it appears to be a good platform for managing models and running inference, it theoretically supports CoreML for M1/M2 machines, there's good support for exporting models to ONNX, and because I wanted to learn more about it for other projects.
   - Exporting was actually pretty painless! The script is in `./exportt5.py`. This will produce `.onnx` model files and some tokenizer information. Caveats below.
   - Important learning: the state of the ONNX export world is that generally in Pytorch/TF/JAX there is a bunch of Python glue code around the real computation, which gets put into an operator DAG. It's that operator DAG that's exported, so to make a `.onnx` model work you have to add a bunch of wrapping.
-  - I've uploaded these to...
+  - I've uploaded these to [Hugging Face](https://huggingface.co/datasets/bakks/flan-t5-onnx).
   - The default homebrew package doesn't compile in CoreML support. I've created [this custom package](https://github.com/bakks/homebrew-bakks/blob/main/onnxruntime.rb) to workaround. You can install with `brew install bakks/bakks/onnxruntime`.
   - This works in theory but I haven't actually tested/confirmed coreML activation, I've been mucking around on CPU.
   - I wrote some golang/onnx glue code in `./onnx`.
