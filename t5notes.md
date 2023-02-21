@@ -1,0 +1,49 @@
+# Notes on T5 branch
+
+- I did some experimentation with running t5 models in Butterfish. Summary: I got it basically working (on CPU), it was interesting exercise but probably not worth more effort.
+
+- Big takeaways:
+
+  - The idea of training models specifically for local use and knowledge of the local computer. What if every Mac shipped with an LLM that was trained on commands for that MacOS version? What would be the most useful LLM to have on a computer with no internet access? What would you want it to do?
+  - ONNX is actually a good model platform but requires wrapping / glue code.
+  - It does seem within reach to have a well-trained and minified model running locally but the current-gen T5 stuff is not that.
+
+- T5
+
+  - The output of public Google research that has been fully open-sourced (unlike the top of the line PaLM models).
+  - Comes in a variety of sizes small, base, large, xl, xxl.
+  - The Hugging Face transformers library is pretty robust, i.e. they provide decent Python tools for working with it.
+
+- T5 Testing
+
+  - From what I gather and based on testing, it has been trained mostly for language translation and summarization. It's not really useful for code generation like GPT.
+  - Quality ranges based on which size model you use. The small ones are pretty brain dead but the bigger ones are not great either relative to GPT.
+
+- ONNX
+
+  - I chose to try using ONNX for inference because it appears to be a good platform for managing models and running inference, it theoretically supports CoreML for M1/M2 machines, there's good support for exporting models to ONNX, and because I wanted to learn more about it for other projects.
+  - Exporting was actually pretty painless! The script is in `./exportt5.py`. This will produce `.onnx` model files and some tokenizer information. Caveats below.
+  - Important learning: the state of the ONNX export world is that generally in Pytorch/TF/JAX there is a bunch of Python glue code around the real computation, which gets put into an operator DAG. It's that operator DAG that's exported, so to make a `.onnx` model work you have to add a bunch of wrapping.
+  - I've uploaded these to...
+  - The default homebrew package doesn't compile in CoreML support. I've created [this custom package](https://github.com/bakks/homebrew-bakks/blob/main/onnxruntime.rb) to workaround. You can install with `brew install bakks/bakks/onnxruntime`. Haven't tested much.
+  - I wrote some golang/onnx glue code in `./onnx`.
+
+- Implementation
+  - I implemented T5 tokenization and inference (using the `.onnx` model files) in Go based on https://github.com/praeclarum/transformers-js, which was the most succinct implementation I could find. It actually mostly works.
+  - Current implementation is pretty inefficient.
+
+Running the t5 code
+
+```
+brew install bakks/bakks/onnxruntime
+
+git clone github.com/bakks/butterfish
+cd butterfish
+git checkout t5
+make
+
+# Get onnx exports and put in ~/Library/butterfish
+
+
+./bin/butterfish -m 'flan-t5-base' prompt 'Translate english to german: Is this thing working?'
+```
