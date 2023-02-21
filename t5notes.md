@@ -26,14 +26,15 @@
   - Exporting was actually pretty painless! The script is in `./exportt5.py`. This will produce `.onnx` model files and some tokenizer information. Caveats below.
   - Important learning: the state of the ONNX export world is that generally in Pytorch/TF/JAX there is a bunch of Python glue code around the real computation, which gets put into an operator DAG. It's that operator DAG that's exported, so to make a `.onnx` model work you have to add a bunch of wrapping.
   - I've uploaded these to...
-  - The default homebrew package doesn't compile in CoreML support. I've created [this custom package](https://github.com/bakks/homebrew-bakks/blob/main/onnxruntime.rb) to workaround. You can install with `brew install bakks/bakks/onnxruntime`. Haven't tested much.
+  - The default homebrew package doesn't compile in CoreML support. I've created [this custom package](https://github.com/bakks/homebrew-bakks/blob/main/onnxruntime.rb) to workaround. You can install with `brew install bakks/bakks/onnxruntime`.
+  - This works in theory but I haven't actually tested/confirmed coreML activation, I've been mucking around on CPU.
   - I wrote some golang/onnx glue code in `./onnx`.
 
 - Implementation
   - I implemented T5 tokenization and inference (using the `.onnx` model files) in Go based on https://github.com/praeclarum/transformers-js, which was the most succinct implementation I could find. It actually mostly works.
   - Current implementation is pretty inefficient.
 
-Running the t5 code
+Running the t5 code.
 
 ```
 brew install bakks/bakks/onnxruntime
