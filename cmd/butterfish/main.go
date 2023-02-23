@@ -12,6 +12,7 @@ import (
 	bf "github.com/bakks/butterfish/butterfish"
 	"github.com/bakks/butterfish/util"
 	"github.com/joho/godotenv"
+	"github.com/mitchellh/go-homedir"
 )
 
 var ( // these are filled in at build time
@@ -24,7 +25,8 @@ var ( // these are filled in at build time
 
 const description = `Do useful things with LLMs from the command line, with a bent towards software engineering.`
 const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
-const expectedEnvPath = ".config/butterfish/butterfish.env"
+const defaultEnvPath = "~/.config/butterfish/butterfish.env"
+const defaultPromptPath = "~/.config/butterfish/prompts.yaml"
 
 // Kong configuration for shell arguments (shell meaning when butterfish is
 // invoked, rather than when we're inside a butterfish console).
@@ -57,16 +59,11 @@ func initLogging(ctx context.Context) {
 	}()
 }
 
-func envPath() string {
-	dirname, err := os.UserHomeDir()
+func getOpenAIToken() string {
+	path, err := homedir.Expand(defaultEnvPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	return filepath.Join(dirname, expectedEnvPath)
-}
-
-func getOpenAIToken() string {
-	path := envPath()
 
 	// We attempt to get a token from env vars plus an env file
 	godotenv.Load(path)
@@ -91,7 +88,7 @@ func getOpenAIToken() string {
 
 	// attempt to write a .env file
 	fmt.Printf("\nSaving token to %s\n", path)
-	err := os.MkdirAll(filepath.Dir(path), 0755)
+	err = os.MkdirAll(filepath.Dir(path), 0755)
 	if err != nil {
 		fmt.Printf("Error creating directory: %s\n", err.Error())
 		return token
@@ -119,6 +116,8 @@ func makeButterfishConfig(options *cliShell) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.Verbose = options.Verbose
 	config.OpenAIToken = getOpenAIToken()
+	config.PromptLibraryPath = defaultPromptPath
+
 	return config
 }
 

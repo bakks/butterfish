@@ -381,13 +381,10 @@ func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
 func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
 
-	promptPath := "~/.config/butterfish/prompts.yaml"
-
 	return &ButterfishConfig{
 		Verbose:            false,
 		ColorScheme:        colorScheme,
 		Styles:             ColorSchemeToStyles(colorScheme),
-		PromptLibraryPath:  promptPath,
 		SummarizeChunkSize: 3600, // This generally fits into 4096 token limits
 		SummarizeMaxChunks: 8,    // Summarize 8 chunks before bailing
 	}
@@ -457,7 +454,7 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 	if library == nil {
 		promptPath, err := homedir.Expand(config.PromptLibraryPath)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		library, err = NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
@@ -498,7 +495,7 @@ func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCt
 	if library == nil {
 		promptPath, err := homedir.Expand(config.PromptLibraryPath)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 
 		library, err = NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
