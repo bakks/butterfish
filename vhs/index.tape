@@ -21,7 +21,7 @@ Sleep 3s
 Enter
 Sleep 20s
 
-Type "butterfish indexsearch -n 2 'Executing a command and checking the results'"
+Type "butterfish indexsearch -r 2 'Executing a command and checking the results'"
 Sleep 3s
 Enter
 Sleep 30s
