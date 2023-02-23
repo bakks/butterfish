@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -28,6 +27,39 @@ import (
 
 // Main driver for the Butterfish set of command line tools. These are tools
 // for using AI capabilities on the command line.
+
+type ButterfishConfig struct {
+	Verbose     bool
+	OpenAIToken string
+	ColorScheme *ColorScheme
+	Styles      *styles
+
+	PromptLibraryPath string
+	PromptLibrary     PromptLibrary
+
+	// How many bytes should we read at a time when summarizing
+	SummarizeChunkSize int
+	// How many chunks into the input should we summarize
+	SummarizeMaxChunks int
+}
+
+type PromptLibrary interface {
+	GetPrompt(name string, args ...string) (string, error)
+}
+
+type ButterfishCtx struct {
+	ctx              context.Context              // global context, should be passed through to other calls
+	cancel           context.CancelFunc           // cancel function for the global context
+	PromptLibrary    PromptLibrary                // library of prompts
+	inConsoleMode    bool                         // true if we're running in console mode
+	config           *ButterfishConfig            // configuration
+	gptClient        *GPT                         // GPT client
+	out              io.Writer                    // output writer
+	commandRegister  string                       // landing space for generated commands
+	consoleCmdChan   <-chan string                // channel for console commands
+	clientController ClientController             // client controller
+	vectorIndex      embedding.FileEmbeddingIndex // embedding index for searching local files
+}
 
 type ColorScheme struct {
 	Foreground string
@@ -254,24 +286,6 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 }
 
-type PromptLibrary interface {
-	GetPrompt(name string, args ...string) (string, error)
-}
-
-type ButterfishCtx struct {
-	ctx              context.Context              // global context, should be passed through to other calls
-	cancel           context.CancelFunc           // cancel function for the global context
-	PromptLibrary    PromptLibrary                // library of prompts
-	inConsoleMode    bool                         // true if we're running in console mode
-	config           *ButterfishConfig            // configuration
-	gptClient        *GPT                         // GPT client
-	out              io.Writer                    // output writer
-	commandRegister  string                       // landing space for generated commands
-	consoleCmdChan   <-chan string                // channel for console commands
-	clientController ClientController             // client controller
-	vectorIndex      embedding.FileEmbeddingIndex // embedding index for searching local files
-}
-
 // Ensure we have a vector index object, idempotent
 func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
 	if this.vectorIndex != nil {
@@ -362,31 +376,6 @@ func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
 		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
 		Grey:       lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Grey)),
 	}
-}
-
-const expectedEnvPath = ".config/butterfish/butterfish.env"
-
-func envPath() string {
-	dirname, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatal(err)
-	}
-	return filepath.Join(dirname, expectedEnvPath)
-}
-
-type ButterfishConfig struct {
-	Verbose     bool
-	OpenAIToken string
-	ColorScheme *ColorScheme
-	Styles      *styles
-
-	PromptLibraryPath string
-	PromptLibrary     PromptLibrary
-
-	// How many bytes should we read at a time when summarizing
-	SummarizeChunkSize int
-	// How many chunks into the input should we summarize
-	SummarizeMaxChunks int
 }
 
 func MakeButterfishConfig() *ButterfishConfig {
