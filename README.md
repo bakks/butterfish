@@ -60,6 +60,33 @@ Examples:
 ```bash
 butterfish prompt "Write me a poem about placeholder text"
 echo "Explain unix pipes to me:" | butterfish prompt
+cat go.mod | butterfish prompt "Explain what this go project file contains:"
+```
+
+```bash
+> butterfish prompt --help
+Usage: butterfish prompt [<prompt> ...]
+
+Run an LLM prompt without wrapping, stream results back. This is a
+straight-through call to the LLM from the command line with a given prompt.
+This accepts piped input, if there is both piped input and a prompt then they
+will be concatenated together (prompt first). It is recommended that you wrap
+the prompt with quotes. The default GPT model is text-davinci-003.
+
+Arguments:
+  [<prompt> ...]    Prompt to use.
+
+Flags:
+  -h, --help               Show context-sensitive help.
+  -v, --verbose            Verbose mode, prints full LLM prompts.
+
+  -m, --model="text-davinci-003"
+                           GPT model to use for the prompt.
+  -n, --num-tokens=1024    Maximum number of tokens to generate.
+  -T, --temperature=0.7    Temperature to use for the prompt, higher temperature
+                           indicates more freedom/randomness when generating
+                           each token.
+
 ```
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/prompt.gif" alt="Butterfish" width="500px" height="250px" />
@@ -72,6 +99,25 @@ Use the `-f` flag to execute sight unseen.
 butterfish gencmd -f "Find all of the go files in the current directory, recursively"
 ```
 
+```bash
+> butterfish gencmd --help
+Usage: butterfish gencmd <prompt> ...
+
+Generate a shell command from a prompt, i.e. pass in what you want, a shell
+command will be generated. Accepts piped input. You can use the -f command to
+execute it sight-unseen.
+
+Arguments:
+  <prompt> ...    Prompt describing the desired shell command.
+
+Flags:
+  -h, --help       Show context-sensitive help.
+  -v, --verbose    Verbose mode, prints full LLM prompts.
+
+  -f, --force      Execute the command without prompting.
+
+```
+
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/gencmd.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `rewrite` - Rewrite a file with LLM instructions
@@ -81,13 +127,64 @@ butterfish rewrite -I "Add comments to all functions" < main.go
 butterfish rewrite -i ./Makefile "Add a command for updating go modules"
 ```
 
+```bash
+> butterfish rewrite --help
+Usage: butterfish rewrite <prompt>
+
+Rewrite a file using a prompt, must specify either a file path or provide piped
+input, and can output to stdout, output to a given file, or edit the input file
+in-place.
+
+Arguments:
+  <prompt>    Instruction to the model on how to rewrite.
+
+Flags:
+  -h, --help                 Show context-sensitive help.
+  -v, --verbose              Verbose mode, prints full LLM prompts.
+
+  -i, --inputfile=STRING     File to rewrite.
+  -o, --outputfile=STRING    File to write the rewritten output to.
+  -I, --inplace              Rewrite the input file in place, cannot be set at
+                             the same time as the Output file flag.
+  -m, --model="code-davinci-edit-001"
+                             GPT model to use for editing. At compile time
+                             this should be either 'code-davinci-edit-001' or
+                             'text-davinci-edit-001'.
+
+```
+
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/rewrite.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `summarize` - Get a semantic summary of file content
 
+If necessary, this command will split the file into chunks, summarize chunks, then produce a final summary.
+
 ```
 butterfish summarize README.md
 cat go/main.go | butterfish summarize
+```
+
+```bash
+> butterfish summarize --help
+Usage: butterfish summarize [<files> ...]
+
+Semantically summarize a list of files (or piped input). We read in the file,
+if it is short then we hand it directly to the LLM and ask for a summary. If it
+is longer then we break it into chunks and ask for a list of facts from each
+chunk (max 8 chunks), then concatenate facts and ask GPT for an overall summary.
+
+Arguments:
+  [<files> ...]    File paths to summarize.
+
+Flags:
+  -h, --help               Show context-sensitive help.
+  -v, --verbose            Verbose mode, prints full LLM prompts.
+
+  -c, --chunk-size=3600    Number of bytes to summarize at a time if the file
+                           must be split up.
+  -C, --max-chunks=8       Maximum number of chunks to summarize from a specific
+                           file.
+
 ```
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/summarize.gif" alt="Butterfish" width="500px" height="250px" />
@@ -97,6 +194,8 @@ cat go/main.go | butterfish summarize
 ```
 butterfish exec 'find -nam foobar'
 ```
+
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/index.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `index` - Index local files with embeddings
 
@@ -117,8 +216,8 @@ Here's the command help:
 Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. dev dev dev (commit 2aa197e0603e5818b819810c66860da35744f6b9-dirty)
-(built 2023-02-23T22:13:54Z) MIT License - Copyright (c) 2023 Peter Bakkum
+engineering. dev dev dev (commit 102e58bd06e7bdaf578fc0d617955941ceb47c61-dirty)
+(built 2023-02-23T22:41:52Z) MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.

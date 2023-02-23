@@ -37,11 +37,6 @@ type ButterfishConfig struct {
 
 	PromptLibraryPath string
 	PromptLibrary     PromptLibrary
-
-	// How many bytes should we read at a time when summarizing
-	SummarizeChunkSize int
-	// How many chunks into the input should we summarize
-	SummarizeMaxChunks int
 }
 
 type PromptLibrary interface {
@@ -317,11 +312,9 @@ func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
 
 	return &ButterfishConfig{
-		Verbose:            false,
-		ColorScheme:        colorScheme,
-		Styles:             ColorSchemeToStyles(colorScheme),
-		SummarizeChunkSize: 3600, // This generally fits into 4096 token limits
-		SummarizeMaxChunks: 8,    // Summarize 8 chunks before bailing
+		Verbose:     false,
+		ColorScheme: colorScheme,
+		Styles:      ColorSchemeToStyles(colorScheme),
 	}
 }
 

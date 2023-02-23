@@ -116,7 +116,7 @@ func TestFileCaching(t *testing.T) {
 	ctx := context.Background()
 
 	// index files in /a/b/c, this should only find "four"
-	err := index.IndexPath(ctx, "/a/b/c", false)
+	err := index.IndexPath(ctx, "/a/b/c", false, 512, 8)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, embedder.Calls)
 
@@ -141,12 +141,12 @@ func TestFileCaching(t *testing.T) {
 
 	// Index the same path, we should not have to re-embed
 	assert.Equal(t, 1, embedder.Calls) // this is 1 because search calls embedder
-	err = index.IndexPath(ctx, "/a/b/c", false)
+	err = index.IndexPath(ctx, "/a/b/c", false, 512, 8)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, embedder.Calls)
 
 	// Index everything, we should end up with more dotfiles written
-	err = index.IndexPath(ctx, "/a", false)
+	err = index.IndexPath(ctx, "/a", false, 512, 8)
 	assert.NoError(t, err)
 	exists, err := afero.Exists(fs, "/a/.butterfish_index")
 	assert.NoError(t, err)

@@ -32,9 +32,11 @@ func main() {
     panic(err)
   }
 
-  // index the current directory (recursively), but skip over cached embeddings
-  force := false
-  err = index.IndexPaths(ctx, paths, force)
+  // index the current directory (recursively)
+  force := false      // skip over cached embeddings
+  chunkSize := 512    // size in bytes to split file into
+  maxChunks := 128    // maximum number of chunks to embed per file
+  err = index.IndexPaths(ctx, paths, force, chunkSize, maxChunks)
   if err != nil {
     panic(err)
   }

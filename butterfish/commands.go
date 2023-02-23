@@ -54,7 +54,9 @@ type CliCommandConfig struct {
 	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is text-davinci-003."`
 
 	Summarize struct {
-		Files []string `arg:"" help:"File paths to summarize." optional:""`
+		Files     []string `arg:"" help:"File paths to summarize." optional:""`
+		ChunkSize int      `short:"c" default:"3600" help:"Number of bytes to summarize at a time if the file must be split up."`
+		MaxChunks int      `short:"C" default:"8" help:"Maximum number of chunks to summarize from a specific file."`
 	} `cmd:"" help:"Semantically summarize a list of files (or piped input). We read in the file, if it is short then we hand it directly to the LLM and ask for a summary. If it is longer then we break it into chunks and ask for a list of facts from each chunk (max 8 chunks), then concatenate facts and ask GPT for an overall summary."`
 
 	Gencmd struct {
@@ -79,8 +81,10 @@ type CliCommandConfig struct {
 	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console Mode after you have run gencmd when you have a wrapped terminal open."`
 
 	Index struct {
-		Paths []string `arg:"" help:"Paths to index." optional:""`
-		Force bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
+		Paths     []string `arg:"" help:"Paths to index." optional:""`
+		Force     bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
+		ChunkSize int      `short:"c" default:"512" help:"Number of bytes to embed at a time when the file is split up."`
+		MaxChunks int      `short:"C" default:"256" help:"Maximum number of chunks to embed from a specific file."`
 	} `cmd:"" help:"Recursively index the current directory using embeddings. This will read each file, split it into chunks, embed the chunks, and write a .butterfish_index file to each directory caching the embeddings. If you re-run this it will skip over previously embedded files unless you force a re-index. This implements an exponential backoff if you hit OpenAI API rate limits."`
 
 	Clearindex struct {
@@ -186,8 +190,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	case "summarize":
 		chunks, err := util.GetChunks(
 			os.Stdin,
-			uint64(this.Config.SummarizeChunkSize),
-			this.Config.SummarizeMaxChunks)
+			uint64(options.Summarize.ChunkSize),
+			options.Summarize.MaxChunks)
 
 		if err != nil {
 			return err
@@ -205,7 +209,9 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			return errors.New("Please provide file paths or piped data to summarize")
 		}
 
-		err := this.SummarizePaths(files)
+		err := this.SummarizePaths(files,
+			options.Summarize.ChunkSize,
+			options.Summarize.MaxChunks)
 		return err
 
 	case "rewrite <prompt>":
@@ -364,7 +370,12 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 		force := options.Index.Force
 
-		err = this.VectorIndex.IndexPaths(this.Ctx, paths, force)
+		err = this.VectorIndex.IndexPaths(
+			this.Ctx,
+			paths,
+			force,
+			options.Index.ChunkSize,
+			options.Index.MaxChunks)
 		if err != nil {
 			return err
 		}
@@ -583,9 +594,9 @@ func (this *ButterfishCtx) execCommand(cmd string) (*executeResult, error) {
 }
 
 // Iterate through a list of file paths and summarize each
-func (this *ButterfishCtx) SummarizePaths(paths []string) error {
+func (this *ButterfishCtx) SummarizePaths(paths []string, chunkSize, maxChunks int) error {
 	for _, path := range paths {
-		err := this.SummarizePath(path)
+		err := this.SummarizePath(path, chunkSize, maxChunks)
 		if err != nil {
 			return err
 		}
@@ -606,14 +617,11 @@ func (this *ButterfishCtx) SummarizePaths(paths []string) error {
 // The number of tokens processed in a given API request depends on the length
 // of both your inputs and outputs. As a rough rule of thumb, 1 token is
 // approximately 4 characters or 0.75 words for English text.
-func (this *ButterfishCtx) SummarizePath(path string) error {
-	bytesPerChunk := this.Config.SummarizeChunkSize
-	maxChunks := this.Config.SummarizeMaxChunks
-
+func (this *ButterfishCtx) SummarizePath(path string, chunkSize, maxChunks int) error {
 	this.StylePrintf(this.Config.Styles.Question, "Summarizing %s\n", path)
 
 	fs := afero.NewOsFs()
-	chunks, err := util.GetFileChunks(this.Ctx, fs, path, uint64(bytesPerChunk), maxChunks)
+	chunks, err := util.GetFileChunks(this.Ctx, fs, path, uint64(chunkSize), maxChunks)
 	if err != nil {
 		return err
 	}

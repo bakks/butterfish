@@ -37,8 +37,8 @@ type FileEmbeddingIndex interface {
 	ClearPath(ctx context.Context, path string) error
 	LoadPaths(ctx context.Context, paths []string) error
 	LoadPath(ctx context.Context, path string) error
-	IndexPaths(ctx context.Context, paths []string, forceUpdate bool) error
-	IndexPath(ctx context.Context, path string, forceUpdate bool) error
+	IndexPaths(ctx context.Context, paths []string, forceUpdate bool, chunkSize, maxChunks int) error
+	IndexPath(ctx context.Context, path string, forceUpdate bool, chunkSize, maxChunks int) error
 	IndexedFiles() []string
 }
 
@@ -74,16 +74,9 @@ type DiskCachedEmbeddingIndex struct {
 	// The name of the file to cache the index on disk
 	DotfileName string
 
-	// When we split a file into chunks, this is the size of each chunk
-	ChunkSize uint64
-
 	// When we call the embedder we batch chunks together into a single call,
 	// this is the number of chunks to batch together
 	ChunksPerCall int
-
-	// For huge files we probably don't want to embed everything, so this is
-	// the maximum number of chunks to embed from a specific file
-	MaxChunks int
 
 	// When we embed a path we skip these directories
 	IgnoreDirs []string
@@ -108,9 +101,7 @@ func NewDiskCachedEmbeddingIndex(embedder Embedder, writer io.Writer) *DiskCache
 
 func (this *DiskCachedEmbeddingIndex) SetDefaultConfig() {
 	this.DotfileName = ".butterfish_index"
-	this.ChunkSize = 512
 	this.ChunksPerCall = 32
-	this.MaxChunks = 8 * 128
 }
 
 func (this *DiskCachedEmbeddingIndex) SetEmbedder(embedder Embedder) {
@@ -395,9 +386,9 @@ func (this *DiskCachedEmbeddingIndex) LoadPaths(ctx context.Context, paths []str
 	return nil
 }
 
-func (this *DiskCachedEmbeddingIndex) IndexPaths(ctx context.Context, paths []string, forceUpdate bool) error {
+func (this *DiskCachedEmbeddingIndex) IndexPaths(ctx context.Context, paths []string, forceUpdate bool, chunkSize, maxChunks int) error {
 	for _, path := range paths {
-		err := this.IndexPath(ctx, path, forceUpdate)
+		err := this.IndexPath(ctx, path, forceUpdate, chunkSize, maxChunks)
 		if err != nil {
 			return err
 		}
@@ -577,7 +568,7 @@ func NewDirectoryIndex() *pb.DirectoryIndex {
 
 // Force means that we will re-index the file even if the target file hasn't
 // changed since the last index
-func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string, forceUpdate bool) error {
+func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string, forceUpdate bool, chunkSize, maxChunks int) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -610,7 +601,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		// call UpdatePath recursively for each subdirectory
 		err = util.ForEachSubdir(this.Fs, path, func(path string) error {
 			if this.IndexableDirectory(path) {
-				return this.IndexPath(ctx, path, forceUpdate)
+				return this.IndexPath(ctx, path, forceUpdate, chunkSize, maxChunks)
 			}
 
 			fmt.Fprintf(this.Out, "Ignored %s\n", path)
@@ -637,7 +628,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 	for _, file := range files {
 		name := file.Name()
 		path := filepath.Join(dirPath, file.Name())
-		fileEmbeddings, err := this.EmbedFile(ctx, path)
+		fileEmbeddings, err := this.EmbedFile(ctx, path, chunkSize, maxChunks)
 		if err != nil {
 			return err
 		}
@@ -657,7 +648,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 
 // EmbedFile takes a path to a file, splits the file into chunks, and calls
 // the embedding API for each chunk
-func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string) (*pb.FileEmbeddings, error) {
+func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string, chunkSize, maxChunks int) (*pb.FileEmbeddings, error) {
 	if this.Embedder == nil {
 		return nil, fmt.Errorf("No embedder set")
 	}
@@ -673,12 +664,12 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 	}
 	timestamp := time.Now()
 
-	if this.ChunkSize == 0 {
-		panic("Chunk size must be set")
+	if chunkSize == 0 {
+		return nil, fmt.Errorf("Chunk size must be greater than 0")
 	}
 
 	// first we chunk the file
-	chunks, err := util.GetFileChunks(ctx, this.Fs, absPath, this.ChunkSize, this.MaxChunks)
+	chunks, err := util.GetFileChunks(ctx, this.Fs, absPath, uint64(chunkSize), maxChunks)
 	if err != nil {
 		return nil, err
 	}
@@ -699,7 +690,7 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 
 		// iterate through response, create an annotation, and create an annotated vector
 		for j, embedding := range newEmbeddings {
-			rangeStart := uint64(i+j) * this.ChunkSize
+			rangeStart := uint64(i+j) * uint64(chunkSize)
 			rangeEnd := rangeStart + uint64(len(callChunks[j]))
 
 			av := &pb.AnnotatedEmbedding{
