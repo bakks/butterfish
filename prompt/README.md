@@ -20,7 +20,7 @@ A prompt consists of a string name, the prompt itself, and a field indicating wh
 
 To fetch and interpolate that prompt at runtime (after initializing the prompt library) you would make a call like:
 
-```Go
+```go
 prompt, err := this.PromptLibrary.GetPrompt("watch_shell_output",
   "shell_name", openCmd,
   "command", lastCmd,
@@ -31,7 +31,7 @@ The `GetPrompt()` method will throw an error if the expected fields are missing.
 
 Here's a more full lifecycle example that demonstrates creating/initializing the prompt library.
 
-```
+```go
 import "fmt"
 import "os"
 import "github.com/bakks/butterfish/prompt"
