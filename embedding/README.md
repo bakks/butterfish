@@ -4,6 +4,8 @@ A goal of Butterfish is to make it easy to create and manage embeddings. Embeddi
 
 How are embeddings cached? When you index a file or a directory, a `.butterfish_index` cache file will be written to that directory. The cache files are binary files written using the protobuf schema in `../proto/butterfish.proto`.
 
+The vector search algorithm is currently very naive, it's just a brute-force cosine similarity between the search vector and cached vectors.
+
 ### Example
 
 See the Butterfish help for how to use this module through the CLI. If you'd like to use it directly in Go, an example is below:
@@ -37,14 +39,17 @@ func main() {
     panic(err)
   }
 
+  // embed the search string and compare against cached embeddings, get 5 results
   numResults := 5
   results, err := index.Search(ctx, "This is the search string", numResults)
   if err != nil {
     panic(err)
   }
 
+  // print the filenames, comparison scores (1 == exact match, 0 == orthogonal),
+  // and the results themselves
   for _, result := range results {
-    fmt.Printf(, "%s : %0.4f\n", result.FilePath, result.Score)
+    fmt.Printf("%s : %0.4f\n", result.FilePath, result.Score)
     fmt.Printf("%s\n", result.Content)
   }
 }
