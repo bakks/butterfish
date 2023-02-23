@@ -7,7 +7,7 @@ const (
 	PromptSummarizeFacts       = "summarize_facts"
 	PromptSummarizeListOfFacts = "summarize_list_of_facts"
 	PromptGenerateCommand      = "generate_command"
-	PromptQuestion             = "rewrite"
+	PromptQuestion             = "question"
 )
 
 var DefaultPrompts []Prompt = []Prompt{
