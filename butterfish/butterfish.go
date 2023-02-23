@@ -31,6 +31,7 @@ import (
 type ButterfishConfig struct {
 	Verbose     bool
 	OpenAIToken string
+	LLMClient   LLM
 	ColorScheme *ColorScheme
 	Styles      *styles
 
@@ -377,34 +378,25 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 	}
 	cons := console.NewConsoleProgram(configCallback, cmdCallback, exitCallback)
 
-	verboseWriter := util.NewStyledWriter(cons, config.Styles.Grey)
-	gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
-
-	library := config.PromptLibrary
-	if config.PromptLibrary == nil && config.PromptLibraryPath == "" {
-		return errors.New("Must set either a PromptLibraryPath or a PromptLibrary")
-	}
-	if library == nil {
-		promptPath, err := homedir.Expand(config.PromptLibraryPath)
-		if err != nil {
-			return err
-		}
-
-		library, err = NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
-		if err != nil {
-			return err
-		}
+	llmClient, err := initLLM(config)
+	if err != nil {
+		return err
 	}
 
 	clientController := RunIPCServer(ctx, cons)
 
+	promptLibrary, err := initPromptLibrary(config)
+	if err != nil {
+		return err
+	}
+
 	butterfishCtx := ButterfishCtx{
 		ctx:              ctx,
 		cancel:           cancel,
-		PromptLibrary:    library,
+		PromptLibrary:    promptLibrary,
 		inConsoleMode:    true,
 		config:           config,
-		LLMClient:        gpt,
+		LLMClient:        llmClient,
 		out:              cons,
 		consoleCmdChan:   consoleCommand,
 		clientController: clientController,
@@ -416,25 +408,43 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 	return nil
 }
 
-func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCtx, error) {
-	verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
-	gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
+func initLLM(config *ButterfishConfig) (LLM, error) {
+	if config.OpenAIToken == "" && config.LLMClient != nil {
+		return nil, errors.New("Must provide either an OpenAI Token or an LLM client.")
+	} else if config.OpenAIToken != "" && config.LLMClient != nil {
+		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
+	} else if config.OpenAIToken != "" {
+		verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
+		return NewGPT(config.OpenAIToken, config.Verbose, verboseWriter), nil
+	} else {
+		return config.LLMClient, nil
+	}
+}
 
-	if config.PromptLibrary == nil && config.PromptLibraryPath == "" {
-		return nil, errors.New("Must set either a PromptLibraryPath or a PromptLibrary")
+func initPromptLibrary(config *ButterfishConfig) (PromptLibrary, error) {
+	verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
+
+	if config.PromptLibrary != nil {
+		return config.PromptLibrary, nil
 	}
 
-	library := config.PromptLibrary
-	if library == nil {
-		promptPath, err := homedir.Expand(config.PromptLibraryPath)
-		if err != nil {
-			return nil, err
-		}
+	promptPath, err := homedir.Expand(config.PromptLibraryPath)
+	if err != nil {
+		return nil, err
+	}
 
-		library, err = NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
-		if err != nil {
-			return nil, err
-		}
+	return NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
+}
+
+func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCtx, error) {
+	llmClient, err := initLLM(config)
+	if err != nil {
+		return nil, err
+	}
+
+	promptLibrary, err := initPromptLibrary(config)
+	if err != nil {
+		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -442,10 +452,10 @@ func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCt
 	butterfishCtx := &ButterfishCtx{
 		ctx:           ctx,
 		cancel:        cancel,
-		PromptLibrary: config.PromptLibrary,
+		PromptLibrary: promptLibrary,
 		inConsoleMode: false,
 		config:        config,
-		LLMClient:     gpt,
+		LLMClient:     llmClient,
 		out:           os.Stdout,
 	}
 

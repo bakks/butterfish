@@ -31,7 +31,7 @@ const defaultPromptPath = "~/.config/butterfish/prompts.yaml"
 // Kong configuration for shell arguments (shell meaning when butterfish is
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
-type cliShell struct {
+type CliConfig struct {
 	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
 
 	Wrap struct {
@@ -112,7 +112,7 @@ func getOpenAIToken() string {
 	return token
 }
 
-func makeButterfishConfig(options *cliShell) *bf.ButterfishConfig {
+func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.Verbose = options.Verbose
 	config.OpenAIToken = getOpenAIToken()
@@ -127,7 +127,7 @@ func getBuildInfo() string {
 
 func main() {
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
-	cli := &cliShell{}
+	cli := &CliConfig{}
 
 	cliParser, err := kong.New(cli,
 		kong.Name("butterfish"),
