@@ -365,9 +365,12 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		force := options.Index.Force
 
 		err = this.VectorIndex.IndexPaths(this.Ctx, paths, force)
+		if err != nil {
+			return err
+		}
 
 		this.Printf("Done, %d files now loaded in the index\n", len(this.VectorIndex.IndexedFiles()))
-		return err
+		return nil
 
 	case "indexsearch <query>":
 		this.initVectorIndex(nil)

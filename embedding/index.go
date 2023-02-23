@@ -52,18 +52,18 @@ type VectorSearchResult struct {
 }
 
 type DiskCachedEmbeddingIndex struct {
-	// maps absolute path of directory to a directory index
-	index map[string]*pb.DirectoryIndex
+	// maps absolute path of directory to a directory Index
+	Index map[string]*pb.DirectoryIndex
 
-	// Interface to an embedder used to embed chunks of documents
-	embedder Embedder
+	// Interface to an Embedder used to embed chunks of documents
+	Embedder Embedder
 
 	// A filesystem interface, used when reading and writing files.
 	// We use an interface here so that we can mock the filesystem during testing.
-	fs afero.Fs
+	Fs afero.Fs
 
 	// The output stream to use for logging
-	out io.Writer
+	Out io.Writer
 
 	// The Verbosity level of the output stream
 	// 0 - no output
@@ -92,11 +92,12 @@ type DiskCachedEmbeddingIndex struct {
 	IgnoreFiles []string
 }
 
-func NewDiskCachedEmbeddingIndex(writer io.Writer) *DiskCachedEmbeddingIndex {
+func NewDiskCachedEmbeddingIndex(embedder Embedder, writer io.Writer) *DiskCachedEmbeddingIndex {
 	index := &DiskCachedEmbeddingIndex{
-		index:       make(map[string]*pb.DirectoryIndex),
-		out:         writer,
-		fs:          afero.NewOsFs(),
+		Embedder:    embedder,
+		Index:       make(map[string]*pb.DirectoryIndex),
+		Out:         writer,
+		Fs:          afero.NewOsFs(),
 		IgnoreDirs:  []string{".git"},
 		IgnoreFiles: []string{".gitignore", ".gitmodules", "go.sum", "LICENSE", "LICENSE.md"},
 	}
@@ -113,11 +114,11 @@ func (this *DiskCachedEmbeddingIndex) SetDefaultConfig() {
 }
 
 func (this *DiskCachedEmbeddingIndex) SetEmbedder(embedder Embedder) {
-	this.embedder = embedder
+	this.Embedder = embedder
 }
 
 func (this *DiskCachedEmbeddingIndex) SetOutput(out io.Writer) {
-	this.out = out
+	this.Out = out
 	this.Verbosity = 2
 }
 
@@ -152,11 +153,11 @@ func (this *DiskCachedEmbeddingIndex) Search(ctx context.Context, query string, 
 
 // Vectorize the given string by embedding it with the current embedder.
 func (this *DiskCachedEmbeddingIndex) Vectorize(ctx context.Context, content string) ([]float64, error) {
-	if this.embedder == nil {
+	if this.Embedder == nil {
 		return nil, fmt.Errorf("no embedder set")
 	}
 
-	embeddings, err := this.embedder.CalculateEmbeddings(ctx, []string{content})
+	embeddings, err := this.Embedder.CalculateEmbeddings(ctx, []string{content})
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +179,7 @@ func (this *DiskCachedEmbeddingIndex) SearchWithVector(ctx context.Context,
 
 	results := []*VectorSearchResult{}
 
-	for dirIndexAbsPath, dirIndex := range this.index {
+	for dirIndexAbsPath, dirIndex := range this.Index {
 		for filename, fileIndex := range dirIndex.Files {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -226,7 +227,7 @@ func (this *DiskCachedEmbeddingIndex) PopulateSearchResults(ctx context.Context,
 		}
 
 		// read the file
-		f, err := this.fs.Open(result.FilePath)
+		f, err := this.Fs.Open(result.FilePath)
 		if err != nil {
 			return err
 		}
@@ -259,11 +260,11 @@ func (this *DiskCachedEmbeddingIndex) LoadDotfile(dotfile string) error {
 	dotfile = filepath.Clean(dotfile)
 
 	if this.Verbosity >= 2 {
-		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.LoadDotfile(%s)\n", dotfile)
+		fmt.Fprintf(this.Out, "DiskCachedEmbeddingIndex.LoadDotfile(%s)\n", dotfile)
 	}
 
 	// Read the entire dotfile into a bytes buffer
-	file, err := this.fs.Open(dotfile)
+	file, err := this.Fs.Open(dotfile)
 	if err != nil {
 		return nil
 	}
@@ -289,10 +290,10 @@ func (this *DiskCachedEmbeddingIndex) LoadDotfile(dotfile string) error {
 	indexName := filepath.Dir(absPath)
 
 	// put the loaded info in the memory index
-	this.index[indexName] = &dirIndex
+	this.Index[indexName] = &dirIndex
 
 	if this.Verbosity >= 1 {
-		fmt.Fprintf(this.out, "Loaded index cache at %s\n", dotfile)
+		fmt.Fprintf(this.Out, "Loaded index cache at %s\n", dotfile)
 	}
 	return nil
 }
@@ -309,14 +310,14 @@ func (this *DiskCachedEmbeddingIndex) SavePaths(paths []string) error {
 
 func (this *DiskCachedEmbeddingIndex) SavePath(path string) error {
 	if this.Verbosity >= 2 {
-		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.SavePath(%s)\n", path)
+		fmt.Fprintf(this.Out, "DiskCachedEmbeddingIndex.SavePath(%s)\n", path)
 	}
 
 	path = filepath.Clean(path)
 
 	// Marshal the index into a buffer, i.e. serialize in-memory protobuf
 	// to the byte representation
-	dirIndex, ok := this.index[path]
+	dirIndex, ok := this.Index[path]
 	if !ok {
 		return fmt.Errorf("No index found for %s", path)
 	}
@@ -332,17 +333,17 @@ func (this *DiskCachedEmbeddingIndex) SavePath(path string) error {
 
 	dotfilePath := filepath.Join(path, this.DotfileName)
 	if this.Verbosity >= 2 {
-		fmt.Fprintf(this.out, "Writing index cache to %s\n", dotfilePath)
+		fmt.Fprintf(this.Out, "Writing index cache to %s\n", dotfilePath)
 	}
 
 	// Write the buffer to the dotfile
-	err = afero.WriteFile(this.fs, dotfilePath, buf, 0644)
+	err = afero.WriteFile(this.Fs, dotfilePath, buf, 0644)
 	if err != nil {
 		return err
 	}
 
 	if this.Verbosity >= 1 {
-		fmt.Fprintf(this.out, "Saved index cache to %s\n", dotfilePath)
+		fmt.Fprintf(this.Out, "Saved index cache to %s\n", dotfilePath)
 	}
 	return nil
 }
@@ -353,12 +354,12 @@ func (this *DiskCachedEmbeddingIndex) LoadPath(ctx context.Context, path string)
 	}
 
 	if this.Verbosity >= 2 {
-		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.Load(%s)\n", path)
+		fmt.Fprintf(this.Out, "DiskCachedEmbeddingIndex.Load(%s)\n", path)
 	}
 
 	// Check the path exists, bail out if not
 	path = filepath.Clean(path)
-	fileInfo, err := this.fs.Stat(path)
+	fileInfo, err := this.Fs.Stat(path)
 	if err != nil {
 		return err
 	}
@@ -440,7 +441,7 @@ func (this *DiskCachedEmbeddingIndex) IndexableFile(path string, file os.FileInf
 	}
 
 	// Ignore files that are not text based on a content check
-	opener := &vfsOpener{this.fs}
+	opener := &vfsOpener{this.Fs}
 	if !fsutil.IsTextFile(opener, filepath.Join(path, name)) {
 		return false
 	}
@@ -485,7 +486,7 @@ func (this *DiskCachedEmbeddingIndex) FilterUnindexablefiles(path string, files 
 		if this.IndexableFile(path, file, forceUpdate, previousEmbeddings) {
 			filteredFiles = append(filteredFiles, file)
 		} else {
-			fmt.Fprintf(this.out, "Ignored %s\n", filepath.Join(path, file.Name()))
+			fmt.Fprintf(this.Out, "Ignored %s\n", filepath.Join(path, file.Name()))
 		}
 	}
 	return filteredFiles
@@ -499,7 +500,7 @@ func (this *DiskCachedEmbeddingIndex) dotfilesInPath(ctx context.Context, path s
 	dotfiles := []string{}
 
 	// Use Walk to search recursively for dotfiles
-	err := afero.Walk(this.fs, path, func(path string, info os.FileInfo, err error) error {
+	err := afero.Walk(this.Fs, path, func(path string, info os.FileInfo, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -542,17 +543,17 @@ func (this *DiskCachedEmbeddingIndex) ClearPath(ctx context.Context, path string
 
 	for _, dotfile := range dotfiles {
 		if this.Verbosity >= 2 {
-			fmt.Fprintf(this.out, "Removing dotfile %s\n", dotfile)
+			fmt.Fprintf(this.Out, "Removing dotfile %s\n", dotfile)
 		}
 
-		err = this.fs.Remove(dotfile)
+		err = this.Fs.Remove(dotfile)
 		if err != nil {
 			return err
 		}
 
 		// Remove the in-memory copy
 		dirPath := filepath.Dir(dotfile)
-		delete(this.index, dirPath)
+		delete(this.Index, dirPath)
 	}
 
 	return nil
@@ -560,7 +561,7 @@ func (this *DiskCachedEmbeddingIndex) ClearPath(ctx context.Context, path string
 
 func (this *DiskCachedEmbeddingIndex) IndexedFiles() []string {
 	var paths []string
-	for path, dirIndex := range this.index {
+	for path, dirIndex := range this.Index {
 		for name := range dirIndex.Files {
 			paths = append(paths, filepath.Join(path, name))
 		}
@@ -582,7 +583,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 	}
 
 	if this.Verbosity >= 2 {
-		fmt.Fprintf(this.out, "DiskCachedEmbeddingIndex.IndexPath(%s)\n", path)
+		fmt.Fprintf(this.Out, "DiskCachedEmbeddingIndex.IndexPath(%s)\n", path)
 	}
 
 	path, err := filepath.Abs(path)
@@ -590,7 +591,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		return err
 	}
 
-	fileInfo, err := this.fs.Stat(path)
+	fileInfo, err := this.Fs.Stat(path)
 	if err != nil {
 		return err
 	}
@@ -607,27 +608,27 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		dirPath = path
 
 		// call UpdatePath recursively for each subdirectory
-		err = util.ForEachSubdir(this.fs, path, func(path string) error {
+		err = util.ForEachSubdir(this.Fs, path, func(path string) error {
 			if this.IndexableDirectory(path) {
 				return this.IndexPath(ctx, path, forceUpdate)
 			}
 
-			fmt.Fprintf(this.out, "Ignored %s\n", path)
+			fmt.Fprintf(this.Out, "Ignored %s\n", path)
 			return nil
 		})
 
 		// get each non-directory file and stat in the path
-		files, err = afero.ReadDir(this.fs, path)
+		files, err = afero.ReadDir(this.Fs, path)
 		if err != nil {
 			return nil
 		}
 	}
 
 	// Fetch directory index, create a new one if none found
-	dirIndex, ok := this.index[dirPath]
+	dirIndex, ok := this.Index[dirPath]
 	if !ok {
 		dirIndex = NewDirectoryIndex()
-		this.index[dirPath] = dirIndex
+		this.Index[dirPath] = dirIndex
 	}
 
 	files = this.FilterUnindexablefiles(dirPath, files, forceUpdate, dirIndex)
@@ -642,7 +643,7 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 		}
 
 		dirIndex.Files[name] = fileEmbeddings
-		fmt.Fprintf(this.out, "Indexed %s\n", path)
+		fmt.Fprintf(this.Out, "Indexed %s\n", path)
 	}
 
 	// TODO remove indexes for files that have been deleted
@@ -657,11 +658,11 @@ func (this *DiskCachedEmbeddingIndex) IndexPath(ctx context.Context, path string
 // EmbedFile takes a path to a file, splits the file into chunks, and calls
 // the embedding API for each chunk
 func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string) (*pb.FileEmbeddings, error) {
-	if this.embedder == nil {
+	if this.Embedder == nil {
 		return nil, fmt.Errorf("No embedder set")
 	}
 	if this.Verbosity >= 1 {
-		fmt.Fprintf(this.out, "Embedding %s\n", path)
+		fmt.Fprintf(this.Out, "Embedding %s\n", path)
 	}
 
 	annotatedVectors := []*pb.AnnotatedEmbedding{}
@@ -677,7 +678,7 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 	}
 
 	// first we chunk the file
-	chunks, err := util.GetFileChunks(ctx, this.fs, absPath, this.ChunkSize, this.MaxChunks)
+	chunks, err := util.GetFileChunks(ctx, this.Fs, absPath, this.ChunkSize, this.MaxChunks)
 	if err != nil {
 		return nil, err
 	}
@@ -691,7 +692,7 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 		}
 
 		callChunks := stringChunks[i:util.Min(i+this.ChunksPerCall, len(chunks))]
-		newEmbeddings, err := this.embedder.CalculateEmbeddings(ctx, callChunks)
+		newEmbeddings, err := this.Embedder.CalculateEmbeddings(ctx, callChunks)
 		if err != nil {
 			return nil, err
 		}

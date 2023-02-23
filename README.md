@@ -233,7 +233,7 @@ butterfish indexsearch 'Lorem ipsem dolor sit amet'
 butterfish indexquestion 'Lorem ipsem dolor sit amet?'
 ```
 
-Managing embeddings for later search is supported by Butterfish. This is the strategy many projects have been using to add external context into LLM prompts.
+Butterfish supports creating embeddings for local files and caching them on disk. This is the strategy many projects have been using to add external context into LLM prompts.
 
 You can build an index by running `butterfish index` in a specific directory. This will recursively find all non-binary files, split files into chunks, use the OpenAI embedding API to embed each chunk, and cache the embeddings in a file called `.butterfish_index` in each directory. You can then run `butterfish indexsearch '[search text]'`, which will embed the search text and then search cached embeddings for the most similar chunk. You can also run `butterfish indexquestion '[question]'`, which injects related snippets into a prompt.
 

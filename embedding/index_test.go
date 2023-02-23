@@ -13,7 +13,7 @@ import (
 // A basic check to make sure vector comparisons are working
 func TestSearch(t *testing.T) {
 	index := &DiskCachedEmbeddingIndex{
-		index: map[string]*pb.DirectoryIndex{
+		Index: map[string]*pb.DirectoryIndex{
 			"/path/foo": {
 				Files: map[string]*pb.FileEmbeddings{
 					"test.txt": {
@@ -97,11 +97,11 @@ func newTestDiskCachedEmbeddingIndex(fs afero.Fs) (*DiskCachedEmbeddingIndex, *m
 	embedder := &mockEmbedder{}
 
 	vectorIndex := &DiskCachedEmbeddingIndex{
-		index:     map[string]*pb.DirectoryIndex{},
-		embedder:  embedder,
-		out:       os.Stdout,
+		Index:     map[string]*pb.DirectoryIndex{},
+		Embedder:  embedder,
+		Out:       os.Stdout,
 		Verbosity: 2,
-		fs:        fs,
+		Fs:        fs,
 	}
 	vectorIndex.SetDefaultConfig()
 
