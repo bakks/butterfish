@@ -56,17 +56,19 @@ type LLM interface {
 }
 
 type ButterfishCtx struct {
-	ctx              context.Context              // global context, should be passed through to other calls
-	cancel           context.CancelFunc           // cancel function for the global context
-	PromptLibrary    PromptLibrary                // library of prompts
-	inConsoleMode    bool                         // true if we're running in console mode
-	config           *ButterfishConfig            // configuration
-	LLMClient        LLM                          // GPT client
-	out              io.Writer                    // output writer
-	commandRegister  string                       // landing space for generated commands
-	consoleCmdChan   <-chan string                // channel for console commands
-	clientController ClientController             // client controller
-	vectorIndex      embedding.FileEmbeddingIndex // embedding index for searching local files
+	Ctx    context.Context    // global context, should be passed through to other calls
+	Cancel context.CancelFunc // cancel function for the global context
+	Out    io.Writer          // output writer
+
+	Config          *ButterfishConfig            // configuration
+	InConsoleMode   bool                         // true if we're running in console mode
+	PromptLibrary   PromptLibrary                // library of prompts
+	LLMClient       LLM                          // GPT client
+	CommandRegister string                       // landing space for generated commands
+	VectorIndex     embedding.FileEmbeddingIndex // embedding index for searching local files
+
+	ConsoleCmdChan   <-chan string    // channel for console commands
+	ClientController ClientController // client controller
 }
 
 type ColorScheme struct {
@@ -237,41 +239,41 @@ func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []st
 // A local printf that writes to the butterfishctx out using a lipgloss style
 func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
 	str := util.MultilineLipglossRender(style, fmt.Sprintf(format, a...))
-	this.out.Write([]byte(str))
+	this.Out.Write([]byte(str))
 }
 
 func (this *ButterfishCtx) Printf(format string, a ...any) {
-	this.StylePrintf(this.config.Styles.Foreground, format, a...)
+	this.StylePrintf(this.Config.Styles.Foreground, format, a...)
 }
 
 func (this *ButterfishCtx) ErrorPrintf(format string, a ...any) {
-	this.StylePrintf(this.config.Styles.Error, format, a...)
+	this.StylePrintf(this.Config.Styles.Error, format, a...)
 }
 
 // Ensure we have a vector index object, idempotent
 func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
-	if this.vectorIndex != nil {
+	if this.VectorIndex != nil {
 		return nil
 	}
 
-	out := util.NewStyledWriter(this.out, this.config.Styles.Foreground)
+	out := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
 	index := embedding.NewDiskCachedEmbeddingIndex(out)
 	index.SetEmbedder(this)
 
-	if this.config.Verbose {
-		index.SetOutput(this.out)
+	if this.Config.Verbose {
+		index.SetOutput(this.Out)
 	}
 
-	this.vectorIndex = index
+	this.VectorIndex = index
 
-	if !this.inConsoleMode {
+	if !this.InConsoleMode {
 		// if we're running from the command line then we first load the curr
 		// dir index
 		if pathsToLoad == nil || len(pathsToLoad) == 0 {
 			pathsToLoad = []string{"."}
 		}
 
-		err := this.vectorIndex.LoadPaths(this.ctx, pathsToLoad)
+		err := this.VectorIndex.LoadPaths(this.Ctx, pathsToLoad)
 		if err != nil {
 			return err
 		}
@@ -282,9 +284,9 @@ func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
 
 func (this *ButterfishCtx) printError(err error, prefix ...string) {
 	if len(prefix) > 0 {
-		fmt.Fprintf(this.out, "%s error: %s\n", prefix[0], err.Error())
+		fmt.Fprintf(this.Out, "%s error: %s\n", prefix[0], err.Error())
 	} else {
-		fmt.Fprintf(this.out, "Error: %s\n", err.Error())
+		fmt.Fprintf(this.Out, "Error: %s\n", err.Error())
 	}
 }
 
@@ -391,15 +393,15 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 	}
 
 	butterfishCtx := ButterfishCtx{
-		ctx:              ctx,
-		cancel:           cancel,
+		Ctx:              ctx,
+		Cancel:           cancel,
 		PromptLibrary:    promptLibrary,
-		inConsoleMode:    true,
-		config:           config,
+		InConsoleMode:    true,
+		Config:           config,
 		LLMClient:        llmClient,
-		out:              cons,
-		consoleCmdChan:   consoleCommand,
-		clientController: clientController,
+		Out:              cons,
+		ConsoleCmdChan:   consoleCommand,
+		ClientController: clientController,
 	}
 
 	// this is blocking
@@ -450,13 +452,13 @@ func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCt
 	ctx, cancel := context.WithCancel(ctx)
 
 	butterfishCtx := &ButterfishCtx{
-		ctx:           ctx,
-		cancel:        cancel,
+		Ctx:           ctx,
+		Cancel:        cancel,
 		PromptLibrary: promptLibrary,
-		inConsoleMode: false,
-		config:        config,
+		InConsoleMode: false,
+		Config:        config,
 		LLMClient:     llmClient,
-		out:           os.Stdout,
+		Out:           os.Stdout,
 	}
 
 	return butterfishCtx, nil

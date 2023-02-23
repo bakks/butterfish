@@ -464,12 +464,12 @@ func wrappingMultiplexer(
 }
 
 func (this *ButterfishCtx) serverMultiplexer() {
-	clientInput := this.clientController.GetReader()
-	fmt.Fprintln(this.out, "Butterfish server active...")
+	clientInput := this.ClientController.GetReader()
+	fmt.Fprintln(this.Out, "Butterfish server active...")
 
 	for {
 		select {
-		case cmd := <-this.consoleCmdChan:
+		case cmd := <-this.ConsoleCmdChan:
 			err := this.Command(cmd)
 			if err != nil {
 				this.printError(err)
@@ -478,7 +478,7 @@ func (this *ButterfishCtx) serverMultiplexer() {
 		case clientData := <-clientInput:
 			// Find the client's open/wrapping command, e.g. "zsh"
 			client := clientData.Client
-			wrappedCommand, err := this.clientController.GetClientOpenCommand(client)
+			wrappedCommand, err := this.ClientController.GetClientOpenCommand(client)
 			if err != nil {
 				this.printError(err, "on client input")
 				continue
@@ -491,7 +491,7 @@ func (this *ButterfishCtx) serverMultiplexer() {
 				this.checkClientOutputForError(client, wrappedCommand, clientData.Data)
 			}
 
-		case <-this.ctx.Done():
+		case <-this.Ctx.Done():
 			return
 		}
 	}

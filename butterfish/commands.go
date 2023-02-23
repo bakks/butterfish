@@ -109,7 +109,7 @@ type CliCommandConfig struct {
 }
 
 func (this *ButterfishCtx) getPipedStdin() string {
-	if !this.inConsoleMode && util.IsPipedStdin() {
+	if !this.InConsoleMode && util.IsPipedStdin() {
 		stdin, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			return ""
@@ -123,7 +123,7 @@ func (this *ButterfishCtx) getPipedStdin() string {
 // and remove any leading/trailing quotes
 func (this *ButterfishCtx) cleanInput(input []string) string {
 	// If we're not in console mode and we have piped data then use that as input
-	if !this.inConsoleMode && util.IsPipedStdin() {
+	if !this.InConsoleMode && util.IsPipedStdin() {
 		stdin, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			return ""
@@ -146,12 +146,12 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 	switch parsed.Command() {
 	case "exit", "quit":
-		fmt.Fprintf(this.out, "Exiting...")
-		this.cancel()
+		fmt.Fprintf(this.Out, "Exiting...")
+		this.Cancel()
 		return nil
 
 	case "help":
-		parsed.Kong.Stdout = this.out
+		parsed.Kong.Stdout = this.Out
 		parsed.PrintUsage(false)
 
 	case "prompt", "prompt <prompt>":
@@ -186,8 +186,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	case "summarize":
 		chunks, err := util.GetChunks(
 			os.Stdin,
-			uint64(this.config.SummarizeChunkSize),
-			this.config.SummarizeMaxChunks)
+			uint64(this.Config.SummarizeChunkSize),
+			this.Config.SummarizeMaxChunks)
 
 		if err != nil {
 			return err
@@ -240,7 +240,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			input = string(content)
 		}
 
-		edited, err := this.LLMClient.Edits(this.ctx, input, prompt, model)
+		edited, err := this.LLMClient.Edits(this.Ctx, input, prompt, model)
 		if err != nil {
 			return err
 		}
@@ -253,7 +253,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 		if outputFile == "" {
 			// If there's no output file specified then print edited text
-			this.StylePrintf(this.config.Styles.Answer, "%s", edited)
+			this.StylePrintf(this.Config.Styles.Answer, "%s", edited)
 		} else {
 			// otherwise we write to the output file
 			err = ioutil.WriteFile(outputFile, []byte(edited), 0644)
@@ -279,7 +279,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		cmd = strings.TrimSpace(cmd)
 
 		if !options.Gencmd.Force {
-			this.StylePrintf(this.config.Styles.Highlight, "%s\n", cmd)
+			this.StylePrintf(this.Config.Styles.Highlight, "%s\n", cmd)
 		} else {
 			_, err := this.execCommand(cmd)
 			if err != nil {
@@ -291,7 +291,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	case "execremote <command>":
 		input := this.cleanInput(options.Execremote.Command)
 		if input == "" {
-			input = this.commandRegister
+			input = this.CommandRegister
 		}
 
 		if input == "" {
@@ -303,14 +303,14 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	case "exec", "exec <command>":
 		input := this.cleanInput(options.Exec.Command)
 		if input == "" {
-			input = this.commandRegister
+			input = this.CommandRegister
 		}
 
 		if input == "" {
 			return errors.New("No command to execute")
 		}
 
-		return this.execAndCheck(this.ctx, input)
+		return this.execAndCheck(this.Ctx, input)
 
 	case "clearindex", "clearindex <paths>":
 		this.initVectorIndex(nil)
@@ -320,14 +320,14 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			paths = []string{"."}
 		}
 
-		this.vectorIndex.ClearPaths(this.ctx, paths)
+		this.VectorIndex.ClearPaths(this.Ctx, paths)
 		return nil
 
 	case "showindex", "showindex <paths>":
 		paths := options.Showindex.Paths
 		this.initVectorIndex(paths)
 
-		indexedPaths := this.vectorIndex.IndexedFiles()
+		indexedPaths := this.VectorIndex.IndexedFiles()
 		for _, path := range indexedPaths {
 			this.Printf("%s\n", path)
 		}
@@ -343,11 +343,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		this.Printf("Loading indexes (not generating new embeddings) for %s\n", strings.Join(paths, ", "))
 		this.initVectorIndex(paths)
 
-		err := this.vectorIndex.LoadPaths(this.ctx, paths)
+		err := this.VectorIndex.LoadPaths(this.Ctx, paths)
 		if err != nil {
 			return err
 		}
-		this.Printf("Loaded %d files\n", len(this.vectorIndex.IndexedFiles()))
+		this.Printf("Loaded %d files\n", len(this.VectorIndex.IndexedFiles()))
 
 	case "index", "index <paths>":
 		paths := options.Index.Paths
@@ -358,15 +358,15 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		this.Printf("Indexing %s\n", strings.Join(paths, ", "))
 		this.initVectorIndex(paths)
 
-		err := this.vectorIndex.LoadPaths(this.ctx, paths)
+		err := this.VectorIndex.LoadPaths(this.Ctx, paths)
 		if err != nil {
 			return err
 		}
 		force := options.Index.Force
 
-		err = this.vectorIndex.IndexPaths(this.ctx, paths, force)
+		err = this.VectorIndex.IndexPaths(this.Ctx, paths, force)
 
-		this.Printf("Done, %d files now loaded in the index\n", len(this.vectorIndex.IndexedFiles()))
+		this.Printf("Done, %d files now loaded in the index\n", len(this.VectorIndex.IndexedFiles()))
 		return err
 
 	case "indexsearch <query>":
@@ -378,13 +378,13 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 		numResults := options.Indexsearch.Results
 
-		results, err := this.vectorIndex.Search(this.ctx, input, numResults)
+		results, err := this.VectorIndex.Search(this.Ctx, input, numResults)
 		if err != nil {
 			return err
 		}
 
 		for _, result := range results {
-			this.StylePrintf(this.config.Styles.Highlight, "%s : %0.4f\n", result.FilePath, result.Score)
+			this.StylePrintf(this.Config.Styles.Highlight, "%s : %0.4f\n", result.FilePath, result.Score)
 			this.Printf("%s\n", result.Content)
 		}
 
@@ -394,11 +394,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		if input == "" {
 			return errors.New("Please provide a question")
 		}
-		if this.vectorIndex == nil {
+		if this.VectorIndex == nil {
 			return errors.New("No vector index loaded")
 		}
 
-		results, err := this.vectorIndex.Search(this.ctx, input, 3)
+		results, err := this.VectorIndex.Search(this.Ctx, input, 3)
 		if err != nil {
 			return err
 		}
@@ -418,14 +418,14 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 
 		req := &util.CompletionRequest{
-			Ctx:         this.ctx,
+			Ctx:         this.Ctx,
 			Prompt:      prompt,
 			Model:       options.Indexquestion.Model,
 			MaxTokens:   options.Indexquestion.NumTokens,
 			Temperature: options.Indexquestion.Temperature,
 		}
 
-		_, err = this.LLMClient.CompletionStream(req, this.out)
+		_, err = this.LLMClient.CompletionStream(req, this.Out)
 		return err
 
 	default:
@@ -437,9 +437,9 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 }
 
 func (this *ButterfishCtx) Prompt(prompt string, model string, maxTokens int, temperature float32) error {
-	writer := util.NewStyledWriter(this.out, this.config.Styles.Answer)
+	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
 	req := &util.CompletionRequest{
-		Ctx:         this.ctx,
+		Ctx:         this.Ctx,
 		Prompt:      prompt,
 		Model:       model,
 		MaxTokens:   maxTokens,
@@ -458,7 +458,7 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 		return "", err
 	}
 	req := &util.CompletionRequest{
-		Ctx:         this.ctx,
+		Ctx:         this.Ctx,
 		Prompt:      prompt,
 		Model:       "code-davinci-003",
 		MaxTokens:   512,
@@ -494,10 +494,10 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 			return err
 		}
 
-		styleWriter := util.NewStyledWriter(this.out, this.config.Styles.Highlight)
+		styleWriter := util.NewStyledWriter(this.Out, this.Config.Styles.Highlight)
 
 		req := &util.CompletionRequest{
-			Ctx:         this.ctx,
+			Ctx:         this.Ctx,
 			Prompt:      prompt,
 			Model:       "code-davinci-003",
 			MaxTokens:   512,
@@ -518,7 +518,7 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 
 		cmd = strings.TrimSpace(response[lastGt+1:])
 
-		this.StylePrintf(this.config.Styles.Question, "Run this command? [y/N]: ")
+		this.StylePrintf(this.Config.Styles.Question, "Run this command? [y/N]: ")
 
 		var input string
 		_, err = fmt.Scanln(&input)
@@ -566,17 +566,17 @@ func executeCommand(ctx context.Context, cmd string, out io.Writer) (*executeRes
 // Execute the command as a child of this process (rather than a remote
 // process), either from the command register or from a command string
 func (this *ButterfishCtx) execCommand(cmd string) (*executeResult, error) {
-	if cmd == "" && this.commandRegister == "" {
+	if cmd == "" && this.CommandRegister == "" {
 		return nil, errors.New("No command to execute")
 	}
 	if cmd == "" {
-		cmd = this.commandRegister
+		cmd = this.CommandRegister
 	}
 
-	if this.config.Verbose {
-		this.StylePrintf(this.config.Styles.Question, "exec> %s\n", cmd)
+	if this.Config.Verbose {
+		this.StylePrintf(this.Config.Styles.Question, "exec> %s\n", cmd)
 	}
-	return executeCommand(this.ctx, cmd, this.out)
+	return executeCommand(this.Ctx, cmd, this.Out)
 }
 
 // Iterate through a list of file paths and summarize each
@@ -604,13 +604,13 @@ func (this *ButterfishCtx) SummarizePaths(paths []string) error {
 // of both your inputs and outputs. As a rough rule of thumb, 1 token is
 // approximately 4 characters or 0.75 words for English text.
 func (this *ButterfishCtx) SummarizePath(path string) error {
-	bytesPerChunk := this.config.SummarizeChunkSize
-	maxChunks := this.config.SummarizeMaxChunks
+	bytesPerChunk := this.Config.SummarizeChunkSize
+	maxChunks := this.Config.SummarizeMaxChunks
 
-	this.StylePrintf(this.config.Styles.Question, "Summarizing %s\n", path)
+	this.StylePrintf(this.Config.Styles.Question, "Summarizing %s\n", path)
 
 	fs := afero.NewOsFs()
-	chunks, err := util.GetFileChunks(this.ctx, fs, path, uint64(bytesPerChunk), maxChunks)
+	chunks, err := util.GetFileChunks(this.Ctx, fs, path, uint64(bytesPerChunk), maxChunks)
 	if err != nil {
 		return err
 	}
@@ -621,40 +621,40 @@ func (this *ButterfishCtx) SummarizePath(path string) error {
 // Execute the command stored in commandRegister on the remote host,
 // either from the command register or from a command string
 func (this *ButterfishCtx) execremoteCommand(cmd string) error {
-	if cmd == "" && this.commandRegister == "" {
+	if cmd == "" && this.CommandRegister == "" {
 		return errors.New("No command to execute")
 	}
 	if cmd == "" {
-		cmd = this.commandRegister
+		cmd = this.CommandRegister
 	}
 	cmd += "\n"
 
-	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
-	client := this.clientController.GetClientWithOpenCmdLike("sh")
+	fmt.Fprintf(this.Out, "Executing: %s\n", cmd)
+	client := this.ClientController.GetClientWithOpenCmdLike("sh")
 	if client == -1 {
 		return errors.New("No wrapped clients with open command like 'sh' found")
 	}
 
-	return this.clientController.Write(client, cmd)
+	return this.ClientController.Write(client, cmd)
 }
 
 func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 	// If we're not in console mode then we don't care about updating the register
-	if !this.inConsoleMode {
+	if !this.InConsoleMode {
 		return
 	}
 
 	cmd = strings.TrimSpace(cmd)
-	this.commandRegister = cmd
+	this.CommandRegister = cmd
 	this.Printf("Command register updated to:\n")
-	this.StylePrintf(this.config.Styles.Answer, "%s\n", cmd)
+	this.StylePrintf(this.Config.Styles.Answer, "%s\n", cmd)
 	this.Printf("Run exec or execremote to execute\n")
 }
 
 func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
-	writer := util.NewStyledWriter(this.out, this.config.Styles.Foreground)
+	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
 	req := &util.CompletionRequest{
-		Ctx:         this.ctx,
+		Ctx:         this.Ctx,
 		Model:       "text-davinci-003",
 		MaxTokens:   1024,
 		Temperature: 0.7,
@@ -711,7 +711,7 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 	// Find the client's last command, i.e. what they entered into the shell
 	// It's normal for this to error if the client has not entered anything yet,
 	// in that case we just return without action
-	lastCmd, err := this.clientController.GetClientLastCommand(client)
+	lastCmd, err := this.ClientController.GetClientLastCommand(client)
 	if err != nil {
 		return
 	}
@@ -727,9 +727,9 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 		this.printError(err)
 	}
 
-	writer := util.NewStyledWriter(this.out, this.config.Styles.Error)
+	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Error)
 	req := &util.CompletionRequest{
-		Ctx:         this.ctx,
+		Ctx:         this.Ctx,
 		Prompt:      prompt,
 		Model:       "text-davinci-003",
 		MaxTokens:   1024,
