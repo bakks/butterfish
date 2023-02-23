@@ -19,7 +19,7 @@ func main() {
   embedder := ...
 
   // create the in-memory index
-	index := embedding.NewDiskCachedEmbeddingIndex(embedder, out)
+  index := embedding.NewDiskCachedEmbeddingIndex(embedder, out)
 
   // lets use the current directory as an index for now
   path := "."
@@ -59,7 +59,7 @@ The embedding module will call into an implementor of the `Embedding` interface,
 
 ```go
 type Embedder interface {
-	CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error)
+  CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error)
 }
 ```
 
