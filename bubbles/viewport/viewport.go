@@ -11,14 +11,17 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 	"github.com/muesli/reflow/wrap"
 
-	"github.com/bakks/butterfish/charmcomponents/util"
+	"github.com/bakks/butterfish/bubbles/util"
 )
 
 // A reimplementation of the Bubbles Viewport to behave more like a console
 // output. This was necessary because the existing Viewport
 // 1. Doesn't seem to handle wrapping
 // 2. Doesn't handle resizing
-// 3. Replaces the entire viewport buffer on every update
+// 3. Replaces the entire viewport buffer on every update (inefficient)
+
+// Original viewport implementation:
+// https://github.com/charmbracelet/bubbles/tree/master/viewport
 
 // KeyMap defines the keybindings for the viewport. Note that you don't
 // necessary need to use keybindings at all; the viewport can be controlled

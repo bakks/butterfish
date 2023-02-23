@@ -13,6 +13,12 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+// This file contains the DiskPromptLibrary struct and methods, which
+// implements the PromptLibrary interface.
+// DiskPromptLibrary can write prompts to a yaml file and and read them later,
+// allowing the user to manage their own custom prompts, replacing the
+// defaults.
+
 // Prompt struct with fields Name, Prompt string, OkToReplace bool
 type Prompt struct {
 	Name        string
@@ -21,6 +27,7 @@ type Prompt struct {
 }
 
 // DiskPromptLibrary struct which includes a Path string and a Prompts instance
+// This implements the PromptLibrary interface.
 type DiskPromptLibrary struct {
 	Path          string
 	Prompts       []Prompt
@@ -109,6 +116,9 @@ func (this *DiskPromptLibrary) Save() error {
 	return nil
 }
 
+// Checks for an exact string match between the of a prompt and the internal
+// prompt array of the DiskPromptLibrary, returns the index of the prompt if
+// found, otherwise returns -1
 func (this *DiskPromptLibrary) ContainsPromptNamed(name string) int {
 	for i, prompt := range this.Prompts {
 		if prompt.Name == name {

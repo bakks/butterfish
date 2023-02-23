@@ -1,9 +1,17 @@
 package altscreenwrapper
 
 import (
-	"github.com/bakks/butterfish/charmcomponents/util"
+	"github.com/bakks/butterfish/bubbles/util"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// This is a simple wrapper for Bubble Tea AltScreen applications (where the
+// entire console is used for the application). There's a small complication
+// with AltScreen apps - when the terminal changes size they receive a
+// WindowSizeMsg, but subcomponents may not know what their own size should be
+// relative to the full terminal size. So I've standardized these components
+// to receive a SetSizeMsg instead, which sets a uniform expectation and allows
+// parent components to easily set child sizes.
 
 type AltScreenWrapper struct {
 	child tea.Model

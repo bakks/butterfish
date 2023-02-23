@@ -10,6 +10,10 @@ const (
 	PromptQuestion             = "question"
 )
 
+// These are the default prompts used for Butterfish, they will be written
+// to the prompts.yaml file every time Butterfish is loaded, unless the
+// OkToReplace field is false.
+
 var DefaultPrompts []Prompt = []Prompt{
 
 	// PromptWatchShellOutput is a prompt for watching shell output

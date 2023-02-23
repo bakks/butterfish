@@ -19,7 +19,7 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/term"
 
-	"github.com/bakks/butterfish/charmcomponents/console"
+	"github.com/bakks/butterfish/bubbles/console"
 	"github.com/bakks/butterfish/embedding"
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
