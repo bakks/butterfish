@@ -117,8 +117,8 @@ Here's the command help:
 Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. v0.0.10 darwin amd64 (commit ecdc5b2) (built 2023-02-10T03:18:11Z)
-MIT License - Copyright (c) 2023 Peter Bakkum
+engineering. dev dev dev (commit 2aa197e0603e5818b819810c66860da35744f6b9-dirty)
+(built 2023-02-23T22:13:54Z) MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.
@@ -132,10 +132,11 @@ Commands:
     Start a Butterfish console and server.
 
   prompt [<prompt> ...]
-    Run an LLM prompt without wrapping, stream results back. Accepts piped
-    input. This is a straight-through call to the LLM from the command line with
-    a given prompt. It is recommended that you wrap the prompt with quotes.
-    This defaults to the text-davinci-003.
+    Run an LLM prompt without wrapping, stream results back. This is a
+    straight-through call to the LLM from the command line with a given prompt.
+    This accepts piped input, if there is both piped input and a prompt then
+    they will be concatenated together (prompt first). It is recommended that
+    you wrap the prompt with quotes. The default GPT model is text-davinci-003.
 
   summarize [<files> ...]
     Semantically summarize a list of files (or piped input). We read in the
@@ -154,14 +155,6 @@ Commands:
     piped input, and can output to stdout, output to a given file, or edit the
     input file in-place.
 
-  index [<paths> ...]
-    Recursively index the current directory using embeddings. This will
-    read each file, split it into chunks, embed the chunks, and write a
-    .butterfish_index file to each directory caching the embeddings. If you
-    re-run this it will skip over previously embedded files unless you force a
-    re-index. This implements an exponential backoff if you hit OpenAI API rate
-    limits.
-
   exec [<command> ...]
     Execute a command and try to debug problems. The command can either passed
     in or in the command register (if you have run gencmd in Console Mode).
@@ -171,20 +164,33 @@ Commands:
     register. This is specifically for Console Mode after you have run gencmd
     when you have a wrapped terminal open.
 
+  index [<paths> ...]
+    Recursively index the current directory using embeddings. This will
+    read each file, split it into chunks, embed the chunks, and write a
+    .butterfish_index file to each directory caching the embeddings. If you
+    re-run this it will skip over previously embedded files unless you force a
+    re-index. This implements an exponential backoff if you hit OpenAI API rate
+    limits.
+
   clearindex [<paths> ...]
     Clear paths from the index, both from the in-memory index (if in Console
-    Mode) and to delete .butterfish_index files.
+    Mode) and to delete .butterfish_index files. Defaults to loading from the
+    current directory but allows you to pass in paths to load.
 
   loadindex [<paths> ...]
     Load paths into the index. This is specifically for Console Mode when you
-    want to load a set of cached indexes into memory.
+    want to load a set of cached indexes into memory. Defaults to loading from
+    the current directory but allows you to pass in paths to load.
 
   showindex [<paths> ...]
     Show which files are present in the loaded index. You can pass in a path but
     it defaults to the current directory.
 
   indexsearch <query>
-    Search embedding index and return relevant file snippets.
+    Search embedding index and return relevant file snippets. This uses the
+    embedding API to embed the search string, then does a brute-force cosine
+    similarity against every indexed chunk of text, returning those chunks and
+    their scores.
 
   indexquestion <question>
     Ask a question using the embeddings index. This fetches text snippets from
@@ -207,6 +213,8 @@ A goal of Butterfish is to make prompts transparent and easily editable. Butterf
     segment that is an error and explain briefly how to solve the error, otherwise
     respond with only "NOOP". "{output}"
   oktoreplace: true
+- name: summarize
+  prompt: |-
 
 ```
 
