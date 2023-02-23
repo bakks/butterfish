@@ -11,6 +11,14 @@ import (
 	"github.com/spf13/afero"
 )
 
+type CompletionRequest struct {
+	Ctx         context.Context
+	Prompt      string
+	Model       string
+	MaxTokens   int
+	Temperature float32
+}
+
 // Read a file, break into chunks of a given number of bytes, up to a maximum
 // number of chunks, and call the callback for each chunk
 func ChunkFile(

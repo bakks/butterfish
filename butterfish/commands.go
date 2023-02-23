@@ -47,9 +47,11 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *CliCommandC
 // Kong CLI parser option configuration
 type CliCommandConfig struct {
 	Prompt struct {
-		Prompt []string `arg:"" help:"Prompt to use." optional:""`
-		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. Accepts piped input. This is a straight-through call to the LLM from the command line with a given prompt. It is recommended that you wrap the prompt with quotes. This defaults to the text-davinci-003."`
+		Prompt      []string `arg:"" help:"Prompt to use." optional:""`
+		Model       string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is text-davinci-003."`
 
 	Summarize struct {
 		Files []string `arg:"" help:"File paths to summarize." optional:""`
@@ -99,8 +101,10 @@ type CliCommandConfig struct {
 	} `cmd:"" help:"Search embedding index and return relevant file snippets. This uses the embedding API to embed the search string, then does a brute-force cosine similarity against every indexed chunk of text, returning those chunks and their scores."`
 
 	Indexquestion struct {
-		Question string `arg:"" help:"Question to ask."`
-		Model    string `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		Question    string  `arg:"" help:"Question to ask."`
+		Model       string  `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt."`
 	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
 }
 
@@ -151,14 +155,33 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		parsed.PrintUsage(false)
 
 	case "prompt", "prompt <prompt>":
-		input := this.cleanInput(options.Prompt.Prompt)
-		if input == "" {
+		// The prompt command accepts both stdin and a prompt string, but needs at
+		// least one of them. If we have both then we concatenate them with prompt
+		// first.
+		promptArr := options.Prompt.Prompt
+		prompt := ""
+		if promptArr != nil && len(promptArr) > 0 {
+			prompt = strings.Join(promptArr, " ")
+		}
+		piped := this.getPipedStdin()
+
+		var input string
+
+		if piped == "" && prompt == "" {
 			return errors.New("Please provide a prompt")
+		} else if piped == "" {
+			input = prompt
+		} else if prompt == "" {
+			input = piped
+		} else {
+			input = fmt.Sprintf("%s\n%s", prompt, piped)
 		}
 
-		writer := util.NewStyledWriter(this.out, this.config.Styles.Answer)
-		model := options.Prompt.Model
-		return this.gptClient.CompletionStream(this.ctx, input, model, writer)
+		return this.Prompt(
+			input,
+			options.Prompt.Model,
+			options.Prompt.NumTokens,
+			options.Prompt.Temperature)
 
 	case "summarize":
 		chunks, err := util.GetChunks(
@@ -217,7 +240,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			input = string(content)
 		}
 
-		edited, err := this.gptClient.Edits(this.ctx, input, prompt, model)
+		edited, err := this.LLMClient.Edits(this.ctx, input, prompt, model)
 		if err != nil {
 			return err
 		}
@@ -367,7 +390,6 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 	case "indexquestion <question>":
 		input := options.Indexquestion.Question
-		model := options.Indexquestion.Model
 
 		if input == "" {
 			return errors.New("Please provide a question")
@@ -394,7 +416,16 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		if err != nil {
 			return err
 		}
-		err = this.gptClient.CompletionStream(this.ctx, prompt, model, this.out)
+
+		req := &util.CompletionRequest{
+			Ctx:         this.ctx,
+			Prompt:      prompt,
+			Model:       options.Indexquestion.Model,
+			MaxTokens:   options.Indexquestion.NumTokens,
+			Temperature: options.Indexquestion.Temperature,
+		}
+
+		_, err = this.LLMClient.CompletionStream(req, this.out)
 		return err
 
 	default:
@@ -405,6 +436,20 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	return nil
 }
 
+func (this *ButterfishCtx) Prompt(prompt string, model string, maxTokens int, temperature float32) error {
+	writer := util.NewStyledWriter(this.out, this.config.Styles.Answer)
+	req := &util.CompletionRequest{
+		Ctx:         this.ctx,
+		Prompt:      prompt,
+		Model:       model,
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
+	}
+
+	_, err := this.LLMClient.CompletionStream(req, writer)
+	return err
+}
+
 // Given a description of functionality, we call GPT to generate a shell
 // command
 func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
@@ -412,8 +457,15 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	req := &util.CompletionRequest{
+		Ctx:         this.ctx,
+		Prompt:      prompt,
+		Model:       "code-davinci-003",
+		MaxTokens:   512,
+		Temperature: 0.6,
+	}
 
-	resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
+	resp, err := this.LLMClient.Completion(req)
 	if err != nil {
 		return "", err
 	}
@@ -443,24 +495,28 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 		}
 
 		styleWriter := util.NewStyledWriter(this.out, this.config.Styles.Highlight)
-		cacheWriter := util.NewCacheWriter(styleWriter)
 
-		err = this.gptClient.CompletionStream(this.ctx, prompt, "", cacheWriter)
+		req := &util.CompletionRequest{
+			Ctx:         this.ctx,
+			Prompt:      prompt,
+			Model:       "code-davinci-003",
+			MaxTokens:   512,
+			Temperature: 0.6,
+		}
+
+		response, err := this.LLMClient.CompletionStream(req, styleWriter)
 		if err != nil {
 			return err
 		}
 
-		//this.StylePrintf(this.config.Styles.Highlight, "%s\n", resp)
-		resp := string(cacheWriter.GetCache())
-
 		// Find the last occurrence of '>' in the response and get the string
 		// from there to the end
-		lastGt := strings.LastIndex(resp, ">")
+		lastGt := strings.LastIndex(response, ">")
 		if lastGt == -1 {
 			return nil
 		}
 
-		cmd = strings.TrimSpace(resp[lastGt+1:])
+		cmd = strings.TrimSpace(response[lastGt+1:])
 
 		this.StylePrintf(this.config.Styles.Question, "Run this command? [y/N]: ")
 
@@ -593,4 +649,95 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 	this.Printf("Command register updated to:\n")
 	this.StylePrintf(this.config.Styles.Answer, "%s\n", cmd)
 	this.Printf("Run exec or execremote to execute\n")
+}
+
+func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
+	writer := util.NewStyledWriter(this.out, this.config.Styles.Foreground)
+	req := &util.CompletionRequest{
+		Ctx:         this.ctx,
+		Model:       "text-davinci-003",
+		MaxTokens:   1024,
+		Temperature: 0.7,
+	}
+
+	if len(chunks) == 1 {
+		// the entire document fits within the token limit, summarize directly
+		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarize,
+			"content", string(chunks[0]))
+		if err != nil {
+			return err
+		}
+		req.Prompt = prompt
+
+		_, err = this.LLMClient.CompletionStream(req, writer)
+	}
+
+	// the document doesn't fit within the token limit, we'll iterate over it
+	// and summarize each chunk as facts, then ask for a summary of facts
+	facts := strings.Builder{}
+
+	for _, chunk := range chunks {
+		if len(chunk) < 16 { // if we have a tiny chunk, skip it
+			break
+		}
+
+		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarizeFacts,
+			"content", string(chunk))
+		if err != nil {
+			return err
+		}
+		req.Prompt = prompt
+		resp, err := this.LLMClient.Completion(req)
+		if err != nil {
+			return err
+		}
+		facts.WriteString(resp)
+		facts.WriteString("\n")
+	}
+
+	mergedFacts := facts.String()
+	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarizeListOfFacts,
+		"content", mergedFacts)
+	if err != nil {
+		return err
+	}
+
+	req.Prompt = prompt
+	_, err = this.LLMClient.CompletionStream(req, writer)
+	return err
+}
+
+func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string, output []byte) {
+	// Find the client's last command, i.e. what they entered into the shell
+	// It's normal for this to error if the client has not entered anything yet,
+	// in that case we just return without action
+	lastCmd, err := this.clientController.GetClientLastCommand(client)
+	if err != nil {
+		return
+	}
+
+	// interpolate the prompt to ask if there's an error in the output and
+	// call GPT, the response will be streamed (but filter the special token
+	// combo "NOOP")
+	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptWatchShellOutput,
+		"shell_name", openCmd,
+		"command", lastCmd,
+		"output", string(output))
+	if err != nil {
+		this.printError(err)
+	}
+
+	writer := util.NewStyledWriter(this.out, this.config.Styles.Error)
+	req := &util.CompletionRequest{
+		Ctx:         this.ctx,
+		Prompt:      prompt,
+		Model:       "text-davinci-003",
+		MaxTokens:   1024,
+		Temperature: 0.7,
+	}
+	_, err = this.LLMClient.CompletionStream(req, writer)
+	if err != nil {
+		this.printError(err)
+		return
+	}
 }

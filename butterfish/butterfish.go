@@ -47,13 +47,20 @@ type PromptLibrary interface {
 	GetPrompt(name string, args ...string) (string, error)
 }
 
+type LLM interface {
+	CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error)
+	Completion(request *util.CompletionRequest) (string, error)
+	Embeddings(ctx context.Context, input []string) ([][]float64, error)
+	Edits(ctx context.Context, content, instruction, model string) (string, error)
+}
+
 type ButterfishCtx struct {
 	ctx              context.Context              // global context, should be passed through to other calls
 	cancel           context.CancelFunc           // cancel function for the global context
 	PromptLibrary    PromptLibrary                // library of prompts
 	inConsoleMode    bool                         // true if we're running in console mode
 	config           *ButterfishConfig            // configuration
-	gptClient        *GPT                         // GPT client
+	LLMClient        LLM                          // GPT client
 	out              io.Writer                    // output writer
 	commandRegister  string                       // landing space for generated commands
 	consoleCmdChan   <-chan string                // channel for console commands
@@ -222,10 +229,8 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 	return nil
 }
 
-const GPTMaxTokens = 1024
-
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
-	return this.gptClient.Embeddings(ctx, content)
+	return this.LLMClient.Embeddings(ctx, content)
 }
 
 // A local printf that writes to the butterfishctx out using a lipgloss style
@@ -240,50 +245,6 @@ func (this *ButterfishCtx) Printf(format string, a ...any) {
 
 func (this *ButterfishCtx) ErrorPrintf(format string, a ...any) {
 	this.StylePrintf(this.config.Styles.Error, format, a...)
-}
-
-func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
-	writer := util.NewStyledWriter(this.out, this.config.Styles.Foreground)
-
-	if len(chunks) == 1 {
-		// the entire document fits within the token limit, summarize directly
-		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarize,
-			"content", string(chunks[0]))
-		if err != nil {
-			return err
-		}
-		return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
-	}
-
-	// the document doesn't fit within the token limit, we'll iterate over it
-	// and summarize each chunk as facts, then ask for a summary of facts
-	facts := strings.Builder{}
-
-	for _, chunk := range chunks {
-		if len(chunk) < 16 { // if we have a tiny chunk, skip it
-			break
-		}
-
-		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarizeFacts,
-			"content", string(chunk))
-		if err != nil {
-			return err
-		}
-		resp, err := this.gptClient.Completion(this.ctx, prompt, this.out)
-		if err != nil {
-			return err
-		}
-		facts.WriteString(resp)
-		facts.WriteString("\n")
-	}
-
-	mergedFacts := facts.String()
-	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarizeListOfFacts,
-		"content", mergedFacts)
-	if err != nil {
-		return err
-	}
-	return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 }
 
 // Ensure we have a vector index object, idempotent
@@ -323,34 +284,6 @@ func (this *ButterfishCtx) printError(err error, prefix ...string) {
 		fmt.Fprintf(this.out, "%s error: %s\n", prefix[0], err.Error())
 	} else {
 		fmt.Fprintf(this.out, "Error: %s\n", err.Error())
-	}
-}
-
-func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string, output []byte) {
-	// Find the client's last command, i.e. what they entered into the shell
-	// It's normal for this to error if the client has not entered anything yet,
-	// in that case we just return without action
-	lastCmd, err := this.clientController.GetClientLastCommand(client)
-	if err != nil {
-		return
-	}
-
-	// interpolate the prompt to ask if there's an error in the output and
-	// call GPT, the response will be streamed (but filter the special token
-	// combo "NOOP")
-	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptWatchShellOutput,
-		"shell_name", openCmd,
-		"command", lastCmd,
-		"output", string(output))
-	if err != nil {
-		this.printError(err)
-	}
-
-	writer := util.NewStyledWriter(this.out, this.config.Styles.Error)
-	err = this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
-	if err != nil {
-		this.printError(err)
-		return
 	}
 }
 
@@ -471,7 +404,7 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 		PromptLibrary:    library,
 		inConsoleMode:    true,
 		config:           config,
-		gptClient:        gpt,
+		LLMClient:        gpt,
 		out:              cons,
 		consoleCmdChan:   consoleCommand,
 		clientController: clientController,
@@ -512,7 +445,7 @@ func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCt
 		PromptLibrary: config.PromptLibrary,
 		inConsoleMode: false,
 		config:        config,
-		gptClient:     gpt,
+		LLMClient:     gpt,
 		out:           os.Stdout,
 	}
 

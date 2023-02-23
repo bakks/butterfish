@@ -32,34 +32,6 @@ func NewGPT(token string, verbose bool, verboseWriter io.Writer) *GPT {
 	}
 }
 
-func (this *GPT) CompletionStream(ctx context.Context, prompt string, engine string, writer io.Writer) error {
-	if engine == "" {
-		engine = gpt3.TextDavinci003Engine
-	}
-
-	req := gpt3.CompletionRequest{
-		Prompt:    []string{prompt},
-		MaxTokens: gpt3.IntPtr(GPTMaxTokens),
-	}
-
-	callback := func(resp *gpt3.CompletionResponse) {
-		if resp.Choices == nil || len(resp.Choices) == 0 {
-			return
-		}
-
-		text := resp.Choices[0].Text
-		writer.Write([]byte(text))
-	}
-
-	if this.verbose {
-		printPrompt(this.verboseWriter, prompt)
-	}
-	err := this.client.CompletionStreamWithEngine(ctx, engine, req, callback)
-	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
-
-	return err
-}
-
 func printPrompt(writer io.Writer, prompt string) {
 	fmt.Fprintf(writer, "↑ ---\n%s\n-----\n", prompt)
 }
@@ -68,17 +40,48 @@ func printResponse(writer io.Writer, response string) {
 	fmt.Fprintf(writer, "↓ ---\n%s\n-----\n", response)
 }
 
-// Run a GPT completion request and return the response
-func (this *GPT) Completion(ctx context.Context, prompt string, writer io.Writer) (string, error) {
+func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+	engine := request.Model
 	req := gpt3.CompletionRequest{
-		Prompt:    []string{prompt},
-		MaxTokens: gpt3.IntPtr(GPTMaxTokens),
+		Prompt:      []string{request.Prompt},
+		MaxTokens:   &request.MaxTokens,
+		Temperature: &request.Temperature,
+	}
+
+	strBuilder := strings.Builder{}
+
+	callback := func(resp *gpt3.CompletionResponse) {
+		if resp.Choices == nil || len(resp.Choices) == 0 {
+			return
+		}
+
+		text := resp.Choices[0].Text
+		writer.Write([]byte(text))
+		strBuilder.WriteString(text)
 	}
 
 	if this.verbose {
-		printPrompt(this.verboseWriter, prompt)
+		printPrompt(this.verboseWriter, request.Prompt)
 	}
-	resp, err := this.client.Completion(ctx, req)
+	err := this.client.CompletionStreamWithEngine(request.Ctx, engine, req, callback)
+	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
+
+	return strBuilder.String(), err
+}
+
+// Run a GPT completion request and return the response
+func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
+	engine := request.Model
+	req := gpt3.CompletionRequest{
+		Prompt:      []string{request.Prompt},
+		MaxTokens:   &request.MaxTokens,
+		Temperature: &request.Temperature,
+	}
+
+	if this.verbose {
+		printPrompt(this.verboseWriter, request.Prompt)
+	}
+	resp, err := this.client.CompletionWithEngine(request.Ctx, engine, req)
 	if err != nil {
 		return "", err
 	}
