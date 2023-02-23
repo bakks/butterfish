@@ -1,5 +1,5 @@
 builds:
-  - main: ./go
+  - main: ./cmd/butterfish
     binary: butterfish
     goos:
       - darwin
