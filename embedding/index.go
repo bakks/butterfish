@@ -20,7 +20,7 @@ import (
 	"golang.org/x/tools/godoc/vfs"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	util "github.com/bakks/butterfish/go/util"
+	util "github.com/bakks/butterfish/util"
 )
 
 type Embedder interface {

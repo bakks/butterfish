@@ -1,4 +1,4 @@
-package main
+package butterfish
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/PullRequestInc/go-gpt3"
-	"github.com/bakks/butterfish/go/util"
+	"github.com/bakks/butterfish/util"
 )
 
 type GPT struct {

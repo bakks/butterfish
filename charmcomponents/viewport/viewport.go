@@ -11,7 +11,7 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 	"github.com/muesli/reflow/wrap"
 
-	"github.com/bakks/butterfish/go/charmcomponents/util"
+	"github.com/bakks/butterfish/charmcomponents/util"
 )
 
 // A reimplementation of the Bubbles Viewport to behave more like a console

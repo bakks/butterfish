@@ -1,4 +1,4 @@
-package main
+package butterfish
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -376,4 +377,122 @@ func newStreamBatcher(msgOut chan<- *ClientOut) chan *ClientOut {
 	msgIn := make(chan *ClientOut)
 	go streamBatcher(msgIn, msgOut)
 	return msgIn
+}
+
+// We're multiplexing here between the stdin/stdout of this
+// process, stdin/stdout of the wrapped process, and
+// input/output of the connection to the butterfish server.
+func wrappingMultiplexer(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	remoteClient *IPCClient,
+	childIn io.Writer,
+	parentIn, remoteIn, childOut <-chan *byteMsg) {
+
+	buf := bytes.NewBuffer(nil)
+
+	for {
+		select {
+
+		// Receive data from this process's stdin and write it to the child
+		// process' stdin, add it to a local buffer, send to remote when
+		// we hit a carriage return
+		case s1 := <-parentIn:
+			if bytes.Contains(s1.Data, []byte{'\r'}) {
+				// the CR might be in the middle of a longer byte array, so we concat
+				// with the existing butter and add any others to the cleared buffer
+				concatted := append(buf.Bytes(), s1.Data...)
+				split := bytes.Split(concatted, []byte{'\r'})
+
+				if len(split) > 0 && len(split[0]) > 0 {
+					buf.Reset()
+					if len(split) > 1 {
+						buf.Write(split[1])
+					}
+					// Send to remote
+					remoteClient.SendInput(sanitizeTTYData(concatted))
+				}
+			} else {
+				buf.Write(s1.Data)
+			}
+
+			_, err := childIn.Write(s1.Data)
+			if err != nil {
+				log.Printf("Error writing to child process: %s\n", err)
+			}
+
+		// Receive data from the child process stdout and write it
+		// to this process's stdout and the remote server
+		case s2 := <-childOut:
+			if s2 == nil {
+				return // child process is done, let's bail out
+			}
+
+			// Write to this process's stdout
+			os.Stdout.Write(s2.Data)
+
+			// Filter out characters and send to server
+			printed := sanitizeTTYData(s2.Data)
+			err := remoteClient.SendOutput(printed)
+			if err != nil {
+				if err == io.EOF {
+					log.Printf("Remote server closed connection, exiting...\n")
+					cancel()
+					return
+				} else {
+					log.Fatalf("Error sending to remote server: %s\n", err)
+				}
+			}
+
+		// Receive data from the remote server and write it to the
+		// child process' stdin
+		case s3 := <-remoteIn:
+			if s3 == nil {
+				cancel()
+				return
+			}
+
+			_, err := fmt.Fprint(childIn, string(s3.Data))
+			if err != nil {
+				log.Printf("Error writing to child process: %s\n", err)
+			}
+
+		case <-ctx.Done():
+			break
+		}
+	}
+}
+
+func (this *ButterfishCtx) serverMultiplexer() {
+	clientInput := this.clientController.GetReader()
+	fmt.Fprintln(this.out, "Butterfish server active...")
+
+	for {
+		select {
+		case cmd := <-this.consoleCmdChan:
+			err := this.Command(cmd)
+			if err != nil {
+				this.printError(err)
+			}
+
+		case clientData := <-clientInput:
+			// Find the client's open/wrapping command, e.g. "zsh"
+			client := clientData.Client
+			wrappedCommand, err := this.clientController.GetClientOpenCommand(client)
+			if err != nil {
+				this.printError(err, "on client input")
+				continue
+			}
+
+			// If we think the client is wrapping a shell and the clientdata is
+			// greater than 35 bytes (a pretty dumb predicate), we'll check
+			// for unexpected / error output and try to be helpful
+			if strings.Contains(wrappedCommand, "sh") && len(clientData.Data) > 35 {
+				this.checkClientOutputForError(client, wrappedCommand, clientData.Data)
+			}
+
+		case <-this.ctx.Done():
+			return
+		}
+	}
 }

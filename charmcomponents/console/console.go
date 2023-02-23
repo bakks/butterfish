@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	alt "github.com/bakks/butterfish/go/charmcomponents/altscreenwrapper"
-	"github.com/bakks/butterfish/go/charmcomponents/util"
-	"github.com/bakks/butterfish/go/charmcomponents/viewport"
+	alt "github.com/bakks/butterfish/charmcomponents/altscreenwrapper"
+	"github.com/bakks/butterfish/charmcomponents/util"
+	"github.com/bakks/butterfish/charmcomponents/viewport"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

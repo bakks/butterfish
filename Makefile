@@ -11,7 +11,7 @@ proto/butterfish.pb.go: proto/butterfish.proto
 
 bin/butterfish: proto/butterfish.pb.go $(gofiles) Makefile
 	mkdir -p bin
-	cd go && go build -ldflags "${flags}" -o ../bin/butterfish
+	go build -ldflags "${flags}" -o ../bin/butterfish ./cmd/butterfish
 
 clean:
 	rm -f bin/butterfish proto/*.go
@@ -20,7 +20,7 @@ watch: Makefile
 	find . -name "*.go" -o -name "*.proto" | entr -c make
 
 test: proto/butterfish.pb.go
-	cd go && go test ./...
+	go test ./...
 
 build: bin/butterfish
 

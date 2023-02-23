@@ -1,4 +1,4 @@
-package main
+package butterfish
 
 import (
 	"context"
@@ -12,8 +12,9 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
-	"github.com/bakks/butterfish/go/prompt"
-	"github.com/bakks/butterfish/go/util"
+	"github.com/bakks/butterfish/prompt"
+	"github.com/bakks/butterfish/util"
+	"github.com/spf13/afero"
 )
 
 // Parse and execute a command in a butterfish context
@@ -31,8 +32,8 @@ func (this *ButterfishCtx) Command(cmd string) error {
 	return nil
 }
 
-func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliConsole, error) {
-	options := &cliConsole{}
+func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *CliCommandConfig, error) {
+	options := &CliCommandConfig{}
 	parser, err := kong.New(options)
 	if err != nil {
 		return nil, nil, err
@@ -44,7 +45,7 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *cliConsole,
 }
 
 // Kong CLI parser option configuration
-type cliConsole struct {
+type CliCommandConfig struct {
 	Prompt struct {
 		Prompt []string `arg:"" help:"Prompt to use." optional:""`
 		Model  string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
@@ -137,7 +138,7 @@ func (this *ButterfishCtx) cleanInput(input []string) string {
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
-func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *cliConsole) error {
+func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommandConfig) error {
 
 	switch parsed.Command() {
 	case "exit", "quit":
@@ -520,4 +521,76 @@ func (this *ButterfishCtx) execCommand(cmd string) (*executeResult, error) {
 		this.StylePrintf(this.config.Styles.Question, "exec> %s\n", cmd)
 	}
 	return executeCommand(this.ctx, cmd, this.out)
+}
+
+// Iterate through a list of file paths and summarize each
+func (this *ButterfishCtx) SummarizePaths(paths []string) error {
+	for _, path := range paths {
+		err := this.SummarizePath(path)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Given a file path we attempt to semantically summarize its content.
+// If the file is short enough, we ask directly for a summary, otherwise
+// we ask for a list of facts and then summarize those.
+
+// From OpenAI documentation:
+// Tokens can be words or just chunks of characters. For example, the word
+// “hamburger” gets broken up into the tokens “ham”, “bur” and “ger”, while a
+// short and common word like “pear” is a single token. Many tokens start with
+// a whitespace, for example “ hello” and “ bye”.
+// The number of tokens processed in a given API request depends on the length
+// of both your inputs and outputs. As a rough rule of thumb, 1 token is
+// approximately 4 characters or 0.75 words for English text.
+func (this *ButterfishCtx) SummarizePath(path string) error {
+	bytesPerChunk := this.config.SummarizeChunkSize
+	maxChunks := this.config.SummarizeMaxChunks
+
+	this.StylePrintf(this.config.Styles.Question, "Summarizing %s\n", path)
+
+	fs := afero.NewOsFs()
+	chunks, err := util.GetFileChunks(this.ctx, fs, path, uint64(bytesPerChunk), maxChunks)
+	if err != nil {
+		return err
+	}
+
+	return this.SummarizeChunks(chunks)
+}
+
+// Execute the command stored in commandRegister on the remote host,
+// either from the command register or from a command string
+func (this *ButterfishCtx) execremoteCommand(cmd string) error {
+	if cmd == "" && this.commandRegister == "" {
+		return errors.New("No command to execute")
+	}
+	if cmd == "" {
+		cmd = this.commandRegister
+	}
+	cmd += "\n"
+
+	fmt.Fprintf(this.out, "Executing: %s\n", cmd)
+	client := this.clientController.GetClientWithOpenCmdLike("sh")
+	if client == -1 {
+		return errors.New("No wrapped clients with open command like 'sh' found")
+	}
+
+	return this.clientController.Write(client, cmd)
+}
+
+func (this *ButterfishCtx) updateCommandRegister(cmd string) {
+	// If we're not in console mode then we don't care about updating the register
+	if !this.inConsoleMode {
+		return
+	}
+
+	cmd = strings.TrimSpace(cmd)
+	this.commandRegister = cmd
+	this.Printf("Command register updated to:\n")
+	this.StylePrintf(this.config.Styles.Answer, "%s\n", cmd)
+	this.Printf("Run exec or execremote to execute\n")
 }
