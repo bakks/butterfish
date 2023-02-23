@@ -15,7 +15,7 @@ Let's do useful things with LLMs from the command line, with a bent towards soft
 
 Solution:
 
-- This is an experimental MacOS command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
+- This is an experimental MacOS/Linux command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
 - What can you do with it?
   - Run raw GPT prompts.
   - Semantically summarize local content.
@@ -32,23 +32,32 @@ Solution:
 
 ## Installation / Authentication
 
-Butterfish works on MacOS and is installed via Homebrew:
+Butterfish works on MacOS and Linux. You can install via Homebrew:
 
-```
-
+```bash
 brew install bakks/bakks/butterfish
 butterfish prompt "Is this thing working?"
-
 ```
 
-This should prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
+You can also install with `go get`, which is recommended for Linux:
+
+```bash
+go get github.com/bakks/butterfish/cmd/butterfish
+butterfish prompt "Is this thing working?"
+```
+
+The first invocation will prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
 
 The key will be written to `~/.config/butterfish/butterfish.env`, which looks like:
 
 ```
-
 OPENAI_TOKEN=sk-foobar
+```
 
+It may also be useful to alias the `butterfish` command to something shorter. If you add the following line to your `~/.zshrc` or `~/.bashrc` file then you can run it with only `bf`.
+
+```
+alias bf="butterfish"
 ```
 
 ## Examples
