@@ -2,6 +2,7 @@ package butterfish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -214,7 +215,7 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 
 	if len(chunks) == 1 {
 		// the entire document fits within the token limit, summarize directly
-		prompt, err := this.promptLibrary.GetPrompt(prompt.PromptSummarize,
+		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarize,
 			"content", string(chunks[0]))
 		if err != nil {
 			return err
@@ -231,7 +232,7 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 			break
 		}
 
-		prompt, err := this.promptLibrary.GetPrompt(prompt.PromptSummarizeFacts,
+		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarizeFacts,
 			"content", string(chunk))
 		if err != nil {
 			return err
@@ -245,7 +246,7 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	}
 
 	mergedFacts := facts.String()
-	prompt, err := this.promptLibrary.GetPrompt(prompt.PromptSummarizeListOfFacts,
+	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptSummarizeListOfFacts,
 		"content", mergedFacts)
 	if err != nil {
 		return err
@@ -253,10 +254,14 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	return this.gptClient.CompletionStream(this.ctx, prompt, "", writer)
 }
 
+type PromptLibrary interface {
+	GetPrompt(name string, args ...string) (string, error)
+}
+
 type ButterfishCtx struct {
 	ctx              context.Context              // global context, should be passed through to other calls
 	cancel           context.CancelFunc           // cancel function for the global context
-	promptLibrary    *prompt.PromptLibrary        // library of prompts
+	PromptLibrary    PromptLibrary                // library of prompts
 	inConsoleMode    bool                         // true if we're running in console mode
 	config           *ButterfishConfig            // configuration
 	gptClient        *GPT                         // GPT client
@@ -319,7 +324,7 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 	// interpolate the prompt to ask if there's an error in the output and
 	// call GPT, the response will be streamed (but filter the special token
 	// combo "NOOP")
-	prompt, err := this.promptLibrary.GetPrompt(prompt.PromptWatchShellOutput,
+	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptWatchShellOutput,
 		"shell_name", openCmd,
 		"command", lastCmd,
 		"output", string(output))
@@ -375,8 +380,8 @@ type ButterfishConfig struct {
 	ColorScheme *ColorScheme
 	Styles      *styles
 
-	// File for loading/saving the list of prompts
 	PromptLibraryPath string
+	PromptLibrary     PromptLibrary
 
 	// How many bytes should we read at a time when summarizing
 	SummarizeChunkSize int
@@ -388,10 +393,6 @@ func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
 
 	promptPath := "~/.config/butterfish/prompts.yaml"
-	promptPath, err := homedir.Expand(promptPath)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	return &ButterfishConfig{
 		Verbose:            false,
@@ -407,14 +408,8 @@ func MakeButterfishConfig() *ButterfishConfig {
 // Either way, we'll then add the default prompts to the library, replacing
 // loaded prompts only if OkToReplace is set on them. Then we save the library
 // at the same path.
-func initializePrompts(config *ButterfishConfig, writer io.Writer) (*prompt.PromptLibrary, error) {
-	promptLibrary := prompt.NewPromptLibrary(config.PromptLibraryPath)
-
-	if config.Verbose {
-		promptLibrary.Verbose = true
-		promptLibrary.VerboseWriter = writer
-	}
-
+func NewDiskPromptLibrary(path string, verbose bool, writer io.Writer) (*prompt.DiskPromptLibrary, error) {
+	promptLibrary := prompt.NewPromptLibrary(path, verbose, writer)
 	loaded := false
 
 	if promptLibrary.LibraryFileExists() {
@@ -428,7 +423,7 @@ func initializePrompts(config *ButterfishConfig, writer io.Writer) (*prompt.Prom
 	promptLibrary.Save()
 
 	if !loaded {
-		fmt.Fprintf(writer, "Initialized prompt library at %s\n", config.PromptLibraryPath)
+		fmt.Fprintf(writer, "Wrote prompt library at %s\n", path)
 	}
 
 	return promptLibrary, nil
@@ -466,9 +461,20 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 	verboseWriter := util.NewStyledWriter(cons, config.Styles.Grey)
 	gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
-	promptLibrary, err := initializePrompts(config, verboseWriter)
-	if err != nil {
-		return nil
+	library := config.PromptLibrary
+	if config.PromptLibrary == nil && config.PromptLibraryPath == "" {
+		return errors.New("Must set either a PromptLibraryPath or a PromptLibrary")
+	}
+	if library == nil {
+		promptPath, err := homedir.Expand(config.PromptLibraryPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		library, err = NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
+		if err != nil {
+			return err
+		}
 	}
 
 	clientController := RunIPCServer(ctx, cons)
@@ -476,7 +482,7 @@ func RunConsole(ctx context.Context, config *ButterfishConfig) error {
 	butterfishCtx := ButterfishCtx{
 		ctx:              ctx,
 		cancel:           cancel,
-		promptLibrary:    promptLibrary,
+		PromptLibrary:    library,
 		inConsoleMode:    true,
 		config:           config,
 		gptClient:        gpt,
@@ -495,9 +501,21 @@ func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCt
 	verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
 	gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
 
-	promptLibrary, err := initializePrompts(config, verboseWriter)
-	if err != nil {
-		return nil, err
+	if config.PromptLibrary == nil && config.PromptLibraryPath == "" {
+		return nil, errors.New("Must set either a PromptLibraryPath or a PromptLibrary")
+	}
+
+	library := config.PromptLibrary
+	if library == nil {
+		promptPath, err := homedir.Expand(config.PromptLibraryPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		library, err = NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -505,7 +523,7 @@ func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCt
 	butterfishCtx := &ButterfishCtx{
 		ctx:           ctx,
 		cancel:        cancel,
-		promptLibrary: promptLibrary,
+		PromptLibrary: config.PromptLibrary,
 		inConsoleMode: false,
 		config:        config,
 		gptClient:     gpt,

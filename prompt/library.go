@@ -20,8 +20,8 @@ type Prompt struct {
 	OkToReplace bool
 }
 
-// PromptLibrary struct which includes a Path string and a Prompts instance
-type PromptLibrary struct {
+// DiskPromptLibrary struct which includes a Path string and a Prompts instance
+type DiskPromptLibrary struct {
 	Path          string
 	Prompts       []Prompt
 	Verbose       bool
@@ -29,9 +29,11 @@ type PromptLibrary struct {
 }
 
 // NewPromptLibrary function to make a NewPromptLibrary which takes a path argument
-func NewPromptLibrary(path string) *PromptLibrary {
-	return &PromptLibrary{
-		Path: path,
+func NewPromptLibrary(path string, verbose bool, verboseWriter io.Writer) *DiskPromptLibrary {
+	return &DiskPromptLibrary{
+		Path:          path,
+		Verbose:       verbose,
+		VerboseWriter: verboseWriter,
 	}
 }
 
@@ -46,7 +48,7 @@ func getFields(prompt string) []string {
 // Throws an error if fields are missing.
 // The argument pattern is first the field name, then the value, for example:
 //   GetPrompt("my_prompt", "name", "John", "age", "30")
-func (this *PromptLibrary) GetPrompt(name string, args ...string) (string, error) {
+func (this *DiskPromptLibrary) GetPrompt(name string, args ...string) (string, error) {
 
 	// first find the prompt given the name
 	index := this.ContainsPromptNamed(name)
@@ -85,7 +87,7 @@ func (this *PromptLibrary) GetPrompt(name string, args ...string) (string, error
 }
 
 // Write a yaml file at the path with the contents marshalled from Prompts
-func (this *PromptLibrary) Save() error {
+func (this *DiskPromptLibrary) Save() error {
 	if this.Prompts == nil || len(this.Prompts) == 0 {
 		return errors.New("No prompts to write, please initialize the prompt library")
 	}
@@ -107,7 +109,7 @@ func (this *PromptLibrary) Save() error {
 	return nil
 }
 
-func (this *PromptLibrary) ContainsPromptNamed(name string) int {
+func (this *DiskPromptLibrary) ContainsPromptNamed(name string) int {
 	for i, prompt := range this.Prompts {
 		if prompt.Name == name {
 			return i
@@ -117,7 +119,7 @@ func (this *PromptLibrary) ContainsPromptNamed(name string) int {
 }
 
 // Given an array of Prompt objects, replace prompts in the prompt library based on name, only if OkToReplace is true on the Prompt already in the library
-func (this *PromptLibrary) ReplacePrompts(newPrompts []Prompt) {
+func (this *DiskPromptLibrary) ReplacePrompts(newPrompts []Prompt) {
 	for _, newPrompt := range newPrompts {
 		index := this.ContainsPromptNamed(newPrompt.Name)
 		if index == -1 {
@@ -129,7 +131,7 @@ func (this *PromptLibrary) ReplacePrompts(newPrompts []Prompt) {
 }
 
 // Check if the library file exists, should be called before Load()
-func (this *PromptLibrary) LibraryFileExists() bool {
+func (this *DiskPromptLibrary) LibraryFileExists() bool {
 	if _, err := os.Stat(this.Path); os.IsNotExist(err) {
 		return false
 	}
@@ -137,7 +139,7 @@ func (this *PromptLibrary) LibraryFileExists() bool {
 }
 
 // Load a yaml file at the path with a contents marshalled into Prompts
-func (this *PromptLibrary) Load() error {
+func (this *DiskPromptLibrary) Load() error {
 	data, err := ioutil.ReadFile(this.Path)
 	if err != nil {
 		return errors.New("Unable to access prompt file, please check write permissions and try again.")

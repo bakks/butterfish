@@ -388,7 +388,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 		exerpts := strings.Join(samples, "\n---\n")
 
-		prompt, err := this.promptLibrary.GetPrompt(prompt.PromptQuestion,
+		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptQuestion,
 			"snippets", exerpts,
 			"question", input)
 		if err != nil {
@@ -408,7 +408,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 // Given a description of functionality, we call GPT to generate a shell
 // command
 func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
-	prompt, err := this.promptLibrary.GetPrompt("generate_command", "content", description)
+	prompt, err := this.PromptLibrary.GetPrompt("generate_command", "content", description)
 	if err != nil {
 		return "", err
 	}
@@ -434,7 +434,7 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 
 		this.ErrorPrintf("Command failed with status %d, requesting fix...\n", result.Status)
 
-		prompt, err := this.promptLibrary.GetPrompt("fix_command",
+		prompt, err := this.PromptLibrary.GetPrompt("fix_command",
 			"command", cmd,
 			"status", fmt.Sprintf("%d", result.Status),
 			"output", string(result.LastOutput))
