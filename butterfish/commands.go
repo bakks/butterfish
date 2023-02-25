@@ -474,7 +474,7 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 	req := &util.CompletionRequest{
 		Ctx:         this.Ctx,
 		Prompt:      prompt,
-		Model:       "code-davinci-003",
+		Model:       "text-davinci-003",
 		MaxTokens:   512,
 		Temperature: 0.6,
 	}

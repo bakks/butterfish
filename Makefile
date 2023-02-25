@@ -11,7 +11,7 @@ proto/butterfish.pb.go: proto/butterfish.proto
 
 bin/butterfish: proto/butterfish.pb.go $(gofiles) Makefile
 	mkdir -p bin
-	go build -ldflags "${flags}" -o ../bin/butterfish ./cmd/butterfish
+	go build -ldflags "${flags}" -o ./bin/butterfish ./cmd/butterfish
 
 clean:
 	rm -f bin/butterfish proto/*.go
