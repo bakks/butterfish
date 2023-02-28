@@ -4,9 +4,8 @@
 package onnx
 
 /*
-#cgo LDFLAGS: -lonnxruntime
-#cgo CFLAGS: -O3
-#cgo arm64 CFLAGS: -DCOREML=1
+#cgo LDFLAGS: -lonnxruntime -L/Users/bakks/onnxruntime/build/MacOS/RelWithDebInfo/
+#cgo CFLAGS: -O3 -DCOREML=1 -I/Users/bakks/onnxruntime/build/MacOS/RelWithDebInfo/
 #include "onnx_capi.h"
 */
 import "C"
