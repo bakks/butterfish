@@ -167,6 +167,7 @@ func main() {
 			fmt.Fprintf(errorWriter, err.Error())
 			os.Exit(3)
 		}
+		//butterfishCtx.Config.Styles.PrintTestColors()
 
 		err = butterfishCtx.ExecCommand(parsedCmd, &cli.CliCommandConfig)
 

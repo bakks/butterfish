@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 )
 
@@ -68,7 +69,7 @@ type CliCommandConfig struct {
 		Prompt      string  `arg:"" help:"Instruction to the model on how to rewrite."`
 		Inputfile   string  `short:"i" help:"Source file for content to rewrite. If not set then there must be piped input."`
 		Outputfile  string  `short:"o" help:"File to write the rewritten output to."`
-		Inplace     bool    `short:"I" help:"Rewrite the input file in place, cannot be set at the same time as the outputfile flag."`
+		Inplace     bool    `short:"I" help:"Rewrite the input file in place. This is potentially destructive, use with caution! Cannot be set at the same time as the outputfile flag."`
 		Model       string  `short:"m" default:"code-davinci-edit-001" help:"GPT model to use for editing. At compile time this should be either 'code-davinci-edit-001' or 'text-davinci-edit-001'."`
 		Temperature float32 `short:"T" default:"0.6" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 		ChunkSize   int     `short:"c" default:"4000" help:"Number of bytes to rewrite at a time if the file must be split up."`
@@ -429,6 +430,25 @@ func (this *ButterfishCtx) Prompt(prompt string, model string, maxTokens int, te
 	return err
 }
 
+func (this *ButterfishCtx) diffStrings(a, b string) string {
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(a, b, false)
+
+	strBuilder := strings.Builder{}
+	for _, diff := range diffs {
+		switch diff.Type {
+		case diffmatchpatch.DiffInsert:
+			strBuilder.WriteString(
+				this.StyleSprintf(this.Config.Styles.Go, "%s", diff.Text))
+		case diffmatchpatch.DiffEqual:
+			strBuilder.WriteString(
+				this.StyleSprintf(this.Config.Styles.Foreground, "%s", diff.Text))
+		}
+	}
+
+	return strBuilder.String()
+}
+
 func (this *ButterfishCtx) rewriteCommand(
 	prompt, model string,
 	inputFilePath, outputFilePath string,
@@ -458,6 +478,7 @@ func (this *ButterfishCtx) rewriteCommand(
 
 	var inputReader io.Reader
 	var outputWriter io.Writer
+	doStyling := false
 
 	inputReader = this.getPipedStdinReader()
 	if inputReader != nil && inputFilePath != "" {
@@ -478,14 +499,31 @@ func (this *ButterfishCtx) rewriteCommand(
 
 	if outputFilePath != "" {
 		// open output file for writing
-		outputFile, err := os.Create(outputFilePath)
-		defer outputFile.Close()
-		if err != nil {
-			return err
+		// if the output file is the same as the input file then we write to a
+		// temporary file and then rename it to the input file
+		if outputFilePath == inputFilePath {
+			tempFile, err := ioutil.TempFile("", "butterfish")
+			if err != nil {
+				return err
+			}
+			defer func() {
+				tempFile.Close()
+				// move the temp file to the input file
+				os.Rename(tempFile.Name(), inputFilePath)
+			}()
+
+			outputWriter = tempFile
+		} else {
+			outputFile, err := os.Create(outputFilePath)
+			if err != nil {
+				return err
+			}
+			defer outputFile.Close()
+			outputWriter = outputFile
 		}
-		outputWriter = outputFile
 	} else {
-		outputWriter = util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
+		doStyling = true
+		outputWriter = this.Out
 	}
 
 	return util.ChunkFromReader(inputReader, chunkSize, maxChunks, func(i int, chunk []byte) error {
@@ -497,6 +535,11 @@ func (this *ButterfishCtx) rewriteCommand(
 		// drop any added newline
 		if edited[len(edited)-1] == '\n' && chunk[len(chunk)-1] != '\n' {
 			edited = edited[:len(edited)-1]
+		}
+
+		if doStyling {
+			// do diffing and styling
+			edited = this.diffStrings(string(chunk), edited)
 		}
 
 		_, err = outputWriter.Write([]byte(edited))

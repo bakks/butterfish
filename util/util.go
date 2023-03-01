@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/afero"
@@ -171,9 +172,10 @@ func (this *CacheWriter) GetLastN(n int) []byte {
 // and filters out the special token "NOOP". This is specially handled -
 // we seem to get "NO" as a separate token from GPT.
 type StyledWriter struct {
-	Writer io.Writer
-	Style  lipgloss.Style
-	cache  []byte
+	Writer    io.Writer
+	Style     lipgloss.Style
+	cache     []byte
+	seenInput bool
 }
 
 // Lipgloss is a little tricky - if you render a string with newlines it
@@ -200,6 +202,11 @@ func MultilineLipglossRender(style lipgloss.Style, str string) string {
 // This is a bit insane but it's a dumb way to filter out NOOP split into
 // two tokens, should probably be rewritten
 func (this *StyledWriter) Write(input []byte) (int, error) {
+	if !this.seenInput && unicode.IsSpace(rune(input[0])) {
+		return len(input), nil
+	}
+	this.seenInput = true
+
 	if string(input) == "NOOP" {
 		// This doesn't seem to actually happen since it gets split into two
 		// tokens? but let's code defensively

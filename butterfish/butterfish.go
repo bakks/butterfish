@@ -67,10 +67,10 @@ type ButterfishCtx struct {
 }
 
 type ColorScheme struct {
-	Foreground string
+	Foreground string // neutral foreground color
 	Background string
-	Error      string
-	Color1     string
+	Error      string // should be reddish
+	Color1     string // should be greenish
 	Color2     string
 	Color3     string
 	Color4     string
@@ -85,9 +85,9 @@ var GruvboxDark = ColorScheme{
 	Foreground: "#ebdbb2",
 	Background: "#282828",
 	Error:      "#fb4934", // red
-	Color1:     "#bb8b26", // green
+	Color1:     "#b8bb26", // green
 	Color2:     "#fabd2f", // yellow
-	Color3:     "#458588", // blue
+	Color3:     "#83a598", // blue
 	Color4:     "#d3869b", // magenta
 	Color5:     "#8ec07c", // cyan
 	Color6:     "#fe8019", // orange
@@ -237,6 +237,10 @@ func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ..
 	this.Out.Write([]byte(str))
 }
 
+func (this *ButterfishCtx) StyleSprintf(style lipgloss.Style, format string, a ...any) string {
+	return util.MultilineLipglossRender(style, fmt.Sprintf(format, a...))
+}
+
 func (this *ButterfishCtx) Printf(format string, a ...any) {
 	this.StylePrintf(this.Config.Styles.Foreground, format, a...)
 }
@@ -287,6 +291,7 @@ func (this *ButterfishCtx) printError(err error, prefix ...string) {
 type styles struct {
 	Question   lipgloss.Style
 	Answer     lipgloss.Style
+	Go         lipgloss.Style
 	Summarize  lipgloss.Style
 	Highlight  lipgloss.Style
 	Prompt     lipgloss.Style
@@ -295,10 +300,23 @@ type styles struct {
 	Grey       lipgloss.Style
 }
 
+func (this *styles) PrintTestColors() {
+	fmt.Println("Question: ", this.Question.Render("Question"))
+	fmt.Println("Answer: ", this.Answer.Render("Answer"))
+	fmt.Println("Go: ", this.Go.Render("Go"))
+	fmt.Println("Summarize: ", this.Summarize.Render("Summarize"))
+	fmt.Println("Highlight: ", this.Highlight.Render("Highlight"))
+	fmt.Println("Prompt: ", this.Prompt.Render("Prompt"))
+	fmt.Println("Error: ", this.Error.Render("Error"))
+	fmt.Println("Foreground: ", this.Foreground.Render("Foreground"))
+	fmt.Println("Grey: ", this.Grey.Render("Grey"))
+}
+
 func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	return &styles{
-		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color3)),
-		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color1)),
+		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),
+		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
+		Go:         lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color5)),
 		Highlight:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Prompt:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),

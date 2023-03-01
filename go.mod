@@ -14,6 +14,7 @@ require (
 	github.com/joho/godotenv v1.4.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/muesli/reflow v0.3.0
+	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/afero v1.9.3
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/term v0.5.0
