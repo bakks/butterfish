@@ -157,7 +157,9 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 
 const GPTEditModel = "code-davinci-edit-001"
 
-func (this *GPT) Edits(ctx context.Context, content, instruction, model string) (string, error) {
+func (this *GPT) Edits(ctx context.Context,
+	content, instruction, model string,
+	temperature float32) (string, error) {
 	if model == "" {
 		model = GPTEditModel
 	}
@@ -166,6 +168,7 @@ func (this *GPT) Edits(ctx context.Context, content, instruction, model string) 
 		Model:       model,
 		Input:       content,
 		Instruction: instruction,
+		Temperature: &temperature,
 	}
 
 	if this.verbose {

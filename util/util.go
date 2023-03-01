@@ -24,7 +24,7 @@ type CompletionRequest struct {
 func ChunkFile(
 	fs afero.Fs,
 	path string,
-	chunkSize uint64,
+	chunkSize int,
 	maxChunks int,
 	callback func(int, []byte) error) error {
 
@@ -39,7 +39,7 @@ func ChunkFile(
 
 func ChunkFromReader(
 	reader io.Reader,
-	chunkSize uint64,
+	chunkSize int,
 	maxChunks int,
 	callback func(int, []byte) error) error {
 
@@ -66,7 +66,7 @@ func ChunkFromReader(
 // Given a filesystem, a path, a chunk size, and maximum number of chunks,
 // return a list of chunks of the file at the given path
 func GetFileChunks(ctx context.Context, fs afero.Fs, path string,
-	chunkSize uint64, maxChunks int) ([][]byte, error) {
+	chunkSize int, maxChunks int) ([][]byte, error) {
 	chunks := make([][]byte, 0)
 
 	err := ChunkFile(fs, path, chunkSize, maxChunks, func(i int, chunk []byte) error {
@@ -81,7 +81,7 @@ func GetFileChunks(ctx context.Context, fs afero.Fs, path string,
 	return chunks, err
 }
 
-func GetChunks(reader io.Reader, chunkSize uint64, maxChunks int) ([][]byte, error) {
+func GetChunks(reader io.Reader, chunkSize int, maxChunks int) ([][]byte, error) {
 	chunks := make([][]byte, 0)
 	err := ChunkFromReader(reader, chunkSize, maxChunks, func(i int, chunk []byte) error {
 		chunks = append(chunks, chunk)

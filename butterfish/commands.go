@@ -65,12 +65,15 @@ type CliCommandConfig struct {
 	} `cmd:"" help:"Generate a shell command from a prompt, i.e. pass in what you want, a shell command will be generated. Accepts piped input. You can use the -f command to execute it sight-unseen."`
 
 	Rewrite struct {
-		Prompt     string `arg:"" help:"Instruction to the model on how to rewrite."`
-		Inputfile  string `short:"i" help:"File to rewrite."`
-		Outputfile string `short:"o" help:"File to write the rewritten output to."`
-		Inplace    bool   `short:"I" help:"Rewrite the input file in place, cannot be set at the same time as the Output file flag."`
-		Model      string `short:"m" default:"code-davinci-edit-001" help:"GPT model to use for editing. At compile time this should be either 'code-davinci-edit-001' or 'text-davinci-edit-001'."`
-	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input, and can output to stdout, output to a given file, or edit the input file in-place."`
+		Prompt      string  `arg:"" help:"Instruction to the model on how to rewrite."`
+		Inputfile   string  `short:"i" help:"Source file for content to rewrite. If not set then there must be piped input."`
+		Outputfile  string  `short:"o" help:"File to write the rewritten output to."`
+		Inplace     bool    `short:"I" help:"Rewrite the input file in place, cannot be set at the same time as the outputfile flag."`
+		Model       string  `short:"m" default:"code-davinci-edit-001" help:"GPT model to use for editing. At compile time this should be either 'code-davinci-edit-001' or 'text-davinci-edit-001'."`
+		Temperature float32 `short:"T" default:"0.6" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		ChunkSize   int     `short:"c" default:"4000" help:"Number of bytes to rewrite at a time if the file must be split up."`
+		MaxChunks   int     `short:"C" default:"128" help:"Maximum number of chunks to rewrite from a specific file."`
+	} `cmd:"" help:"Rewrite a file using a prompt, must specify either a file path or provide piped input, and can output to stdout, output to a given file, or edit the input file in-place. This command uses the OpenAI edit API rather than the completion API."`
 
 	Exec struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
@@ -121,6 +124,13 @@ func (this *ButterfishCtx) getPipedStdin() string {
 		return string(stdin)
 	}
 	return ""
+}
+
+func (this *ButterfishCtx) getPipedStdinReader() io.Reader {
+	if !this.InConsoleMode && util.IsPipedStdin() {
+		return os.Stdin
+	}
+	return nil
 }
 
 // Given a parsed input split into a slice, join the string together
@@ -190,7 +200,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	case "summarize":
 		chunks, err := util.GetChunks(
 			os.Stdin,
-			uint64(options.Summarize.ChunkSize),
+			options.Summarize.ChunkSize,
 			options.Summarize.MaxChunks)
 
 		if err != nil {
@@ -215,60 +225,15 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		return err
 
 	case "rewrite <prompt>":
-		prompt := options.Rewrite.Prompt
-		model := options.Rewrite.Model
-		if prompt == "" {
-			return errors.New("Please provide a prompt")
-		}
-		if model == "" {
-			return errors.New("Please provide a model")
-		}
-
-		// cannot set Outputfile and Inplace at the same time
-		if options.Rewrite.Outputfile != "" && options.Rewrite.Inplace {
-			return errors.New("Cannot set both outputfile and inplace flags")
-		}
-
-		input := this.getPipedStdin()
-		filename := options.Rewrite.Inputfile
-		if input != "" && filename != "" {
-			return errors.New("Please provide either piped data or a file path, not both")
-		}
-		if input == "" && filename == "" {
-			return errors.New("Please provide a file path or piped data to rewrite")
-		}
-		if filename != "" {
-			// we have a filename but no piped input, read the file
-			content, err := ioutil.ReadFile(filename)
-			if err != nil {
-				return err
-			}
-			input = string(content)
-		}
-
-		edited, err := this.LLMClient.Edits(this.Ctx, input, prompt, model)
-		if err != nil {
-			return err
-		}
-
-		outputFile := options.Rewrite.Outputfile
-		// if output file is empty then check inplace flag and use input as output
-		if outputFile == "" && options.Rewrite.Inplace {
-			outputFile = filename
-		}
-
-		if outputFile == "" {
-			// If there's no output file specified then print edited text
-			this.StylePrintf(this.Config.Styles.Answer, "%s", edited)
-		} else {
-			// otherwise we write to the output file
-			err = ioutil.WriteFile(outputFile, []byte(edited), 0644)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return this.rewriteCommand(
+			options.Rewrite.Prompt,
+			options.Rewrite.Model,
+			options.Rewrite.Inputfile,
+			options.Rewrite.Outputfile,
+			options.Rewrite.Inplace,
+			options.Rewrite.ChunkSize,
+			options.Rewrite.MaxChunks,
+			options.Rewrite.Temperature)
 
 	case "gencmd <prompt>":
 		input := this.cleanInput(options.Gencmd.Prompt)
@@ -464,6 +429,81 @@ func (this *ButterfishCtx) Prompt(prompt string, model string, maxTokens int, te
 	return err
 }
 
+func (this *ButterfishCtx) rewriteCommand(
+	prompt, model string,
+	inputFilePath, outputFilePath string,
+	inPlace bool,
+	chunkSize, maxChunks int,
+	temperature float32) error {
+	if prompt == "" {
+		return errors.New("Please provide a prompt")
+	}
+	if model == "" {
+		return errors.New("Please provide a model")
+	}
+
+	if inPlace {
+		if inputFilePath == "" {
+			return errors.New("Cannot use the edit in-place flag (--inplace, -I) without specifying an input file with (--inputfile, -i)")
+		}
+
+		if outputFilePath != "" {
+			// cannot set Outputfile and Inplace at the same time
+			return errors.New("Cannot set both (--outputfile, -o) and (--inplace, -I) flags")
+		} else {
+			// if output file is empty then check inplace flag and use input as output
+			outputFilePath = inputFilePath
+		}
+	}
+
+	var inputReader io.Reader
+	var outputWriter io.Writer
+
+	inputReader = this.getPipedStdinReader()
+	if inputReader != nil && inputFilePath != "" {
+		return errors.New("Please provide either piped data or a file path, not both")
+	}
+	if inputReader == nil && inputFilePath == "" {
+		return errors.New("Please provide a file path or piped data to rewrite")
+	}
+	if inputFilePath != "" {
+		// open the file and get a reader
+		inputFile, err := os.Open(inputFilePath)
+		if err != nil {
+			return err
+		}
+		defer inputFile.Close()
+		inputReader = inputFile
+	}
+
+	if outputFilePath != "" {
+		// open output file for writing
+		outputFile, err := os.Create(outputFilePath)
+		defer outputFile.Close()
+		if err != nil {
+			return err
+		}
+		outputWriter = outputFile
+	} else {
+		outputWriter = util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
+	}
+
+	return util.ChunkFromReader(inputReader, chunkSize, maxChunks, func(i int, chunk []byte) error {
+		edited, err := this.LLMClient.Edits(this.Ctx, string(chunk), prompt, model, temperature)
+		if err != nil {
+			return err
+		}
+
+		// drop any added newline
+		if edited[len(edited)-1] == '\n' && chunk[len(chunk)-1] != '\n' {
+			edited = edited[:len(edited)-1]
+		}
+
+		_, err = outputWriter.Write([]byte(edited))
+		return err
+	})
+}
+
 // Given a description of functionality, we call GPT to generate a shell
 // command
 func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
@@ -621,7 +661,7 @@ func (this *ButterfishCtx) SummarizePath(path string, chunkSize, maxChunks int) 
 	this.StylePrintf(this.Config.Styles.Question, "Summarizing %s\n", path)
 
 	fs := afero.NewOsFs()
-	chunks, err := util.GetFileChunks(this.Ctx, fs, path, uint64(chunkSize), maxChunks)
+	chunks, err := util.GetFileChunks(this.Ctx, fs, path, chunkSize, maxChunks)
 	if err != nil {
 		return err
 	}

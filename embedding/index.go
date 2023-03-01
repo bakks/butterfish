@@ -669,7 +669,7 @@ func (this *DiskCachedEmbeddingIndex) EmbedFile(ctx context.Context, path string
 	}
 
 	// first we chunk the file
-	chunks, err := util.GetFileChunks(ctx, this.Fs, absPath, uint64(chunkSize), maxChunks)
+	chunks, err := util.GetFileChunks(ctx, this.Fs, absPath, chunkSize, maxChunks)
 	if err != nil {
 		return nil, err
 	}

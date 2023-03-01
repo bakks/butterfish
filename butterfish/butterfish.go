@@ -47,7 +47,7 @@ type LLM interface {
 	CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error)
 	Completion(request *util.CompletionRequest) (string, error)
 	Embeddings(ctx context.Context, input []string) ([][]float64, error)
-	Edits(ctx context.Context, content, instruction, model string) (string, error)
+	Edits(ctx context.Context, content, instruction, model string, temperature float32) (string, error)
 }
 
 type ButterfishCtx struct {
