@@ -80,21 +80,20 @@ Run an LLM prompt without wrapping, stream results back. This is a
 straight-through call to the LLM from the command line with a given prompt.
 This accepts piped input, if there is both piped input and a prompt then they
 will be concatenated together (prompt first). It is recommended that you wrap
-the prompt with quotes. The default GPT model is text-davinci-003.
+the prompt with quotes. The default GPT model is gpt-3.5-turbo.
 
 Arguments:
   [<prompt> ...]    Prompt to use.
 
 Flags:
-  -h, --help               Show context-sensitive help.
-  -v, --verbose            Verbose mode, prints full LLM prompts.
+  -h, --help                     Show context-sensitive help.
+  -v, --verbose                  Verbose mode, prints full LLM prompts.
 
-  -m, --model="text-davinci-003"
-                           GPT model to use for the prompt.
-  -n, --num-tokens=1024    Maximum number of tokens to generate.
-  -T, --temperature=0.7    Temperature to use for the prompt, higher temperature
-                           indicates more freedom/randomness when generating
-                           each token.
+  -m, --model="gpt-3.5-turbo"    GPT model to use for the prompt.
+  -n, --num-tokens=1024          Maximum number of tokens to generate.
+  -T, --temperature=0.7          Temperature to use for the prompt, higher
+                                 temperature indicates more freedom/randomness
+                                 when generating each token.
 
 ```
 
@@ -142,7 +141,7 @@ Usage: butterfish rewrite <prompt>
 
 Rewrite a file using a prompt, must specify either a file path or provide piped
 input, and can output to stdout, output to a given file, or edit the input file
-in-place.
+in-place. This command uses the OpenAI edit API rather than the completion API.
 
 Arguments:
   <prompt>    Instruction to the model on how to rewrite.
@@ -151,14 +150,23 @@ Flags:
   -h, --help                 Show context-sensitive help.
   -v, --verbose              Verbose mode, prints full LLM prompts.
 
-  -i, --inputfile=STRING     File to rewrite.
+  -i, --inputfile=STRING     Source file for content to rewrite. If not set then
+                             there must be piped input.
   -o, --outputfile=STRING    File to write the rewritten output to.
-  -I, --inplace              Rewrite the input file in place, cannot be set at
-                             the same time as the Output file flag.
+  -I, --inplace              Rewrite the input file in place. This is
+                             potentially destructive, use with caution! Cannot
+                             be set at the same time as the outputfile flag.
   -m, --model="code-davinci-edit-001"
                              GPT model to use for editing. At compile time
                              this should be either 'code-davinci-edit-001' or
                              'text-davinci-edit-001'.
+  -T, --temperature=0.6      Temperature to use for the prompt, higher
+                             temperature indicates more freedom/randomness when
+                             generating each token.
+  -c, --chunk-size=4000      Number of bytes to rewrite at a time if the file
+                             must be split up.
+  -C, --max-chunks=128       Maximum number of chunks to rewrite from a specific
+                             file.
 
 ```
 
@@ -225,8 +233,8 @@ Here's the command help:
 Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. dev dev dev (commit 102e58bd06e7bdaf578fc0d617955941ceb47c61-dirty)
-(built 2023-02-23T22:41:52Z) MIT License - Copyright (c) 2023 Peter Bakkum
+engineering. v0.0.19 darwin amd64 (commit 336665f) (built 2023-03-02T07:04:41Z)
+MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.
@@ -244,7 +252,7 @@ Commands:
     straight-through call to the LLM from the command line with a given prompt.
     This accepts piped input, if there is both piped input and a prompt then
     they will be concatenated together (prompt first). It is recommended that
-    you wrap the prompt with quotes. The default GPT model is text-davinci-003.
+    you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo.
 
   summarize [<files> ...]
     Semantically summarize a list of files (or piped input). We read in the
@@ -261,7 +269,8 @@ Commands:
   rewrite <prompt>
     Rewrite a file using a prompt, must specify either a file path or provide
     piped input, and can output to stdout, output to a given file, or edit the
-    input file in-place.
+    input file in-place. This command uses the OpenAI edit API rather than the
+    completion API.
 
   exec [<command> ...]
     Execute a command and try to debug problems. The command can either passed
