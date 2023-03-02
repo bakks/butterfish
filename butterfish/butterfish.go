@@ -29,14 +29,23 @@ import (
 // for using AI capabilities on the command line.
 
 type ButterfishConfig struct {
-	Verbose     bool
-	OpenAIToken string
-	LLMClient   LLM
-	ColorScheme *ColorScheme
-	Styles      *styles
-
+	Verbose           bool
+	OpenAIToken       string
+	LLMClient         LLM
+	ColorScheme       *ColorScheme
+	Styles            *styles
 	PromptLibraryPath string
 	PromptLibrary     PromptLibrary
+
+	GencmdModel          string
+	GencmdTemperature    float32
+	GencmdMaxTokens      int
+	ExeccheckModel       string
+	ExeccheckTemperature float32
+	ExeccheckMaxTokens   int
+	SummarizeModel       string
+	SummarizeTemperature float32
+	SummarizeMaxTokens   int
 }
 
 type PromptLibrary interface {
@@ -105,6 +114,27 @@ var GruvboxLight = ColorScheme{
 	Color5:     "#689D6A",
 	Color6:     "#D65D0E",
 	Grey:       "#928374",
+}
+
+const BestCompletionModel = "gpt-3.5-turbo"
+
+func MakeButterfishConfig() *ButterfishConfig {
+	colorScheme := &GruvboxDark
+
+	return &ButterfishConfig{
+		Verbose:              false,
+		ColorScheme:          colorScheme,
+		Styles:               ColorSchemeToStyles(colorScheme),
+		GencmdModel:          BestCompletionModel,
+		GencmdTemperature:    0.6,
+		GencmdMaxTokens:      512,
+		ExeccheckModel:       BestCompletionModel,
+		ExeccheckTemperature: 0.6,
+		ExeccheckMaxTokens:   512,
+		SummarizeModel:       BestCompletionModel,
+		SummarizeTemperature: 0.7,
+		SummarizeMaxTokens:   1024,
+	}
 }
 
 // Data type for passing byte chunks from a wrapped command around
@@ -323,16 +353,6 @@ func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
 		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
 		Grey:       lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Grey)),
-	}
-}
-
-func MakeButterfishConfig() *ButterfishConfig {
-	colorScheme := &GruvboxDark
-
-	return &ButterfishConfig{
-		Verbose:     false,
-		ColorScheme: colorScheme,
-		Styles:      ColorSchemeToStyles(colorScheme),
 	}
 }
 

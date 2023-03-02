@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PullRequestInc/go-gpt3"
 	"github.com/bakks/butterfish/util"
+	"github.com/bakks/go-gpt3"
 )
 
 type GPT struct {
@@ -40,7 +40,27 @@ func printResponse(writer io.Writer, response string) {
 	fmt.Fprintf(writer, "↓ ---\n%s\n-----\n", response)
 }
 
+// We're doing completions through the chat API by default, this routes
+// to the legacy completion API if the model is the legacy model.
+func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
+	if request.Model == gpt3.TextDavinci003Engine {
+		return this.LegacyCompletion(request)
+	}
+
+	return this.SimpleChatCompletion(request)
+}
+
+// We're doing completions through the chat API by default, this routes
+// to the legacy completion API if the model is the legacy model.
 func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+	if request.Model == gpt3.TextDavinci003Engine {
+		return this.LegacyCompletionStream(request, writer)
+	}
+
+	return this.SimpleChatCompletionStream(request, writer)
+}
+
+func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
 	engine := request.Model
 	req := gpt3.CompletionRequest{
 		Prompt:      []string{request.Prompt},
@@ -69,8 +89,55 @@ func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Wri
 	return strBuilder.String(), err
 }
 
+const chatbotSystemMessage = "You are a helpful assistant that gives people technical advince about the unix command line and writing software. Respond only in commands or code, do not wrap code in quotes."
+
+func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+	req := gpt3.ChatCompletionRequest{
+		Model: request.Model,
+		Messages: []gpt3.ChatCompletionRequestMessage{
+			{
+				Role:    "system",
+				Content: chatbotSystemMessage,
+			},
+			{
+				Role:    "user",
+				Content: request.Prompt,
+			},
+		},
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
+		N:           1,
+	}
+
+	strBuilder := strings.Builder{}
+
+	callback := func(resp *gpt3.ChatCompletionStreamResponse) {
+		//fmt.Fprintf(writer, "__%s\n", resp.Choices[0].Message.Content)
+		if resp.Choices == nil || len(resp.Choices) == 0 {
+			return
+		}
+
+		text := resp.Choices[0].Delta.Content
+		if text == "" {
+			return
+		}
+
+		writer.Write([]byte(text))
+		strBuilder.WriteString(text)
+	}
+
+	if this.verbose {
+		printPrompt(this.verboseWriter, request.Prompt)
+	}
+	err := this.client.ChatCompletionStream(request.Ctx, req, callback)
+	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
+
+	return strBuilder.String(), err
+}
+
 // Run a GPT completion request and return the response
-func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
+func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, error) {
+	panic("old")
 	engine := request.Model
 	req := gpt3.CompletionRequest{
 		Prompt:      []string{request.Prompt},
@@ -90,6 +157,40 @@ func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
 		printResponse(this.verboseWriter, resp.Choices[0].Text)
 	}
 	return resp.Choices[0].Text, nil
+}
+
+func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, error) {
+	req := gpt3.ChatCompletionRequest{
+		Model: request.Model,
+		Messages: []gpt3.ChatCompletionRequestMessage{
+			{
+				Role:    "system",
+				Content: chatbotSystemMessage,
+			},
+			{
+				Role:    "user",
+				Content: request.Prompt,
+			},
+		},
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
+		N:           1,
+	}
+
+	if this.verbose {
+		printPrompt(this.verboseWriter, request.Prompt)
+	}
+	resp, err := this.client.ChatCompletion(request.Ctx, req)
+	if err != nil {
+		return "", err
+	}
+
+	responseText := resp.Choices[0].Message.Content
+
+	if this.verbose {
+		printResponse(this.verboseWriter, responseText)
+	}
+	return responseText, nil
 }
 
 func (this *GPT) SetVerbose(verbose bool) {

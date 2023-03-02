@@ -49,10 +49,10 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *CliCommandC
 type CliCommandConfig struct {
 	Prompt struct {
 		Prompt      []string `arg:"" help:"Prompt to use." optional:""`
-		Model       string   `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		Model       string   `short:"m" default:"gpt-3.5-turbo" help:"GPT model to use for the prompt."`
 		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is text-davinci-003."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo."`
 
 	Summarize struct {
 		Files     []string `arg:"" help:"File paths to summarize." optional:""`
@@ -110,7 +110,7 @@ type CliCommandConfig struct {
 
 	Indexquestion struct {
 		Question    string  `arg:"" help:"Question to ask."`
-		Model       string  `short:"m" default:"text-davinci-003" help:"GPT model to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-3.5-turbo" help:"GPT model to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt."`
 	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
@@ -557,9 +557,9 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 	req := &util.CompletionRequest{
 		Ctx:         this.Ctx,
 		Prompt:      prompt,
-		Model:       "text-davinci-003",
-		MaxTokens:   512,
-		Temperature: 0.6,
+		Model:       this.Config.GencmdModel,
+		MaxTokens:   this.Config.GencmdMaxTokens,
+		Temperature: this.Config.GencmdTemperature,
 	}
 
 	resp, err := this.LLMClient.Completion(req)
@@ -596,9 +596,9 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 		req := &util.CompletionRequest{
 			Ctx:         this.Ctx,
 			Prompt:      prompt,
-			Model:       "code-davinci-003",
-			MaxTokens:   512,
-			Temperature: 0.6,
+			Model:       this.Config.ExeccheckModel,
+			MaxTokens:   this.Config.ExeccheckMaxTokens,
+			Temperature: this.Config.ExeccheckTemperature,
 		}
 
 		response, err := this.LLMClient.CompletionStream(req, styleWriter)
@@ -749,9 +749,9 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
 	req := &util.CompletionRequest{
 		Ctx:         this.Ctx,
-		Model:       "text-davinci-003",
-		MaxTokens:   1024,
-		Temperature: 0.7,
+		Model:       this.Config.SummarizeModel,
+		MaxTokens:   this.Config.SummarizeMaxTokens,
+		Temperature: this.Config.SummarizeTemperature,
 	}
 
 	if len(chunks) == 1 {
@@ -825,7 +825,7 @@ func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string,
 	req := &util.CompletionRequest{
 		Ctx:         this.Ctx,
 		Prompt:      prompt,
-		Model:       "text-davinci-003",
+		Model:       "gpt-3.5-turbo",
 		MaxTokens:   1024,
 		Temperature: 0.7,
 	}
