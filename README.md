@@ -204,7 +204,7 @@ Flags:
 butterfish exec 'find -nam foobar'
 ```
 
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/index.gif" alt="Butterfish" width="500px" height="250px" />
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/exec.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `index` - Index local files with embeddings
 
