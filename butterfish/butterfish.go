@@ -421,7 +421,7 @@ func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error
 	}
 	//fmt.Println("Starting butterfish shell")
 
-	shellMultiplexer(ctx, bf, ptmx, ptmx, os.Stdin, os.Stdout)
+	bf.ShellMultiplexer(ptmx, ptmx, os.Stdin, os.Stdout)
 	return nil
 }
 
@@ -498,9 +498,7 @@ const (
 	statePrompting
 )
 
-func shellMultiplexer(
-	ctx context.Context,
-	bf *ButterfishCtx,
+func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
 	childOutReader := make(chan *byteMsg)
@@ -510,7 +508,7 @@ func shellMultiplexer(
 	go readerToChannel(parentIn, parentInReader)
 
 	history := NewShellHistory()
-	promptOutputWriter := util.NewStyledWriter(parentOut, bf.Config.Styles.Answer)
+	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
 
 	currState := stateNormal
 	prompt := ""
@@ -566,14 +564,14 @@ func shellMultiplexer(
 
 					historyBlocks := history.GetLastNBytes(2500)
 					request := &util.CompletionRequest{
-						Ctx:           ctx,
+						Ctx:           this.Ctx,
 						Prompt:        prompt,
 						Model:         "gpt-3.5-turbo",
 						MaxTokens:     512,
 						Temperature:   0.7,
 						HistoryBlocks: historyBlocks,
 					}
-					output, err := bf.LLMClient.CompletionStream(request, promptOutputWriter)
+					output, err := this.LLMClient.CompletionStream(request, promptOutputWriter)
 					if err != nil {
 						panic(err)
 					}
@@ -597,7 +595,7 @@ func shellMultiplexer(
 				panic("Unknown state")
 			}
 
-		case <-ctx.Done():
+		case <-this.Ctx.Done():
 			return
 		}
 	}
