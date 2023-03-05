@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
-	bf "github.com/bakks/butterfish/butterfish"
-	"github.com/bakks/butterfish/util"
 	"github.com/joho/godotenv"
 	"github.com/mitchellh/go-homedir"
+
+	bf "github.com/bakks/butterfish/butterfish"
+	"github.com/bakks/butterfish/util"
 )
 
 var ( // these are filled in at build time
@@ -40,6 +41,10 @@ type CliConfig struct {
 
 	Console struct {
 	} `cmd:"" help:"Start a Butterfish console and server."`
+
+	Shell struct {
+		Bin string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
+	} `cmd:"" help:"Start a Butterfish shell."`
 
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
@@ -146,6 +151,19 @@ func main() {
 	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
 
 	switch parsedCmd.Command() {
+	case "shell":
+		initLogging(ctx)
+		shell := os.Getenv("SHELL")
+		if cli.Shell.Bin != "" {
+			shell = cli.Shell.Bin
+		}
+		if shell == "" {
+			fmt.Fprintf(errorWriter, "No shell found, please specify one with -b or $SHELL")
+			os.Exit(7)
+		}
+
+		bf.RunShell(ctx, config, shell)
+
 	case "wrap <cmd>":
 		cmdArr := os.Args[2:]
 		err := bf.RunConsoleClient(ctx, cmdArr)

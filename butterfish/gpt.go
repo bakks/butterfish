@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PullRequestInc/go-gpt3"
 	"github.com/bakks/butterfish/util"
-	"github.com/bakks/go-gpt3"
 )
 
 type GPT struct {
@@ -40,6 +40,30 @@ func printResponse(writer io.Writer, response string) {
 	fmt.Fprintf(writer, "↓ ---\n%s\n-----\n", response)
 }
 
+func ShellHistoryBlockToGPTChat(blocks []util.HistoryBlock) []gpt3.ChatCompletionRequestMessage {
+	out := []gpt3.ChatCompletionRequestMessage{
+		{
+			Role:    "system",
+			Content: "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and provide context and examples.",
+		},
+	}
+
+	for _, block := range blocks {
+		role := "user"
+		if block.Type == historyTypeLLMOutput {
+			role = "assistant"
+		}
+
+		nextBlock := gpt3.ChatCompletionRequestMessage{
+			Role:    role,
+			Content: block.Content,
+		}
+		out = append(out, nextBlock)
+	}
+
+	return out
+}
+
 // We're doing completions through the chat API by default, this routes
 // to the legacy completion API if the model is the legacy model.
 func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
@@ -47,7 +71,12 @@ func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
 		return this.LegacyCompletion(request)
 	}
 
-	return this.SimpleChatCompletion(request)
+	if request.HistoryBlocks == nil {
+		return this.SimpleChatCompletion(request)
+	}
+	panic("unimplemented")
+	//return this.FullChatCompletion(request)
+
 }
 
 // We're doing completions through the chat API by default, this routes
@@ -57,7 +86,10 @@ func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Wri
 		return this.LegacyCompletionStream(request, writer)
 	}
 
-	return this.SimpleChatCompletionStream(request, writer)
+	if request.HistoryBlocks == nil {
+		return this.SimpleChatCompletionStream(request, writer)
+	}
+	return this.FullChatCompletionStream(request, writer)
 }
 
 func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
@@ -109,10 +141,32 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 		N:           1,
 	}
 
+	return this.doChatStreamCompletion(request.Ctx, req, writer)
+}
+
+func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+	gptHistory := ShellHistoryBlockToGPTChat(request.HistoryBlocks)
+	messages := append(gptHistory, gpt3.ChatCompletionRequestMessage{
+		Role:    "user",
+		Content: request.Prompt,
+	})
+
+	req := gpt3.ChatCompletionRequest{
+		Model:       request.Model,
+		Messages:    messages,
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
+		N:           1,
+	}
+
+	return this.doChatStreamCompletion(request.Ctx, req, writer)
+}
+
+func (this *GPT) doChatStreamCompletion(ctx context.Context, req gpt3.ChatCompletionRequest, writer io.Writer) (string, error) {
+
 	strBuilder := strings.Builder{}
 
 	callback := func(resp *gpt3.ChatCompletionStreamResponse) {
-		//fmt.Fprintf(writer, "__%s\n", resp.Choices[0].Message.Content)
 		if resp.Choices == nil || len(resp.Choices) == 0 {
 			return
 		}
@@ -127,9 +181,9 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 	}
 
 	if this.verbose {
-		printPrompt(this.verboseWriter, request.Prompt)
+		printPrompt(this.verboseWriter, "xxxxx TODO")
 	}
-	err := this.client.ChatCompletionStream(request.Ctx, req, callback)
+	err := this.client.ChatCompletionStream(ctx, req, callback)
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
 	return strBuilder.String(), err
@@ -137,7 +191,6 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 
 // Run a GPT completion request and return the response
 func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, error) {
-	panic("old")
 	engine := request.Model
 	req := gpt3.CompletionRequest{
 		Prompt:      []string{request.Prompt},

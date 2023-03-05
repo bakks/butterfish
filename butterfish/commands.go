@@ -12,10 +12,11 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
-	"github.com/bakks/butterfish/prompt"
-	"github.com/bakks/butterfish/util"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
+
+	"github.com/bakks/butterfish/prompt"
+	"github.com/bakks/butterfish/util"
 )
 
 // Parse and execute a command in a butterfish context

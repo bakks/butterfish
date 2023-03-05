@@ -1,6 +1,7 @@
 package butterfish
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -204,20 +205,20 @@ func sanitizeTTYData(data []byte) []byte {
 	return []byte(filterNonPrintable(stripANSI(string(data))))
 }
 
-// Based on example at https://github.com/creack/pty
-// Apparently you can't start a shell like zsh without
-// this more complex command execution
-func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client *IPCClient) error {
+func ptyCommand(ctx context.Context, command []string) (*os.File, func() error, error) {
 	// Create arbitrary command.
-	c := exec.Command(command[0], command[1:]...)
+	var cmd *exec.Cmd
+	if len(command) > 1 {
+		cmd = exec.CommandContext(ctx, command[0], command[1:]...)
+	} else {
+		cmd = exec.CommandContext(ctx, command[0])
+	}
 
 	// Start the command with a pty.
-	ptmx, err := pty.Start(c)
+	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	// Make sure to close the pty at the end.
-	defer func() { _ = ptmx.Close() }() // Best effort.
 
 	// Handle pty size.
 	ch := make(chan os.Signal, 1)
@@ -229,15 +230,41 @@ func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []strin
 			}
 		}
 	}()
-	ch <- syscall.SIGWINCH                        // Initial resize.
-	defer func() { signal.Stop(ch); close(ch) }() // Cleanup signals when done.
+	ch <- syscall.SIGWINCH // Initial resize.
 
 	// Set stdin in raw mode.
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		panic(err)
+		ptmx.Close()
+		signal.Stop(ch)
+		close(ch)
+		return nil, nil, err
 	}
-	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }() // Best effort.
+
+	cleanup := func() error {
+		err := ptmx.Close()
+		if err != nil {
+			return err
+		}
+
+		signal.Stop(ch)
+		close(ch)
+
+		return term.Restore(int(os.Stdin.Fd()), oldState)
+	}
+
+	return ptmx, cleanup, nil
+}
+
+// Based on example at https://github.com/creack/pty
+// Apparently you can't start a shell like zsh without
+// this more complex command execution
+func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client *IPCClient) error {
+	ptmx, cleanup, err := ptyCommand(ctx, command)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	parentIn := make(chan *byteMsg)
 	childOut := make(chan *byteMsg)
@@ -331,15 +358,15 @@ type styles struct {
 }
 
 func (this *styles) PrintTestColors() {
-	fmt.Println("Question: ", this.Question.Render("Question"))
-	fmt.Println("Answer: ", this.Answer.Render("Answer"))
-	fmt.Println("Go: ", this.Go.Render("Go"))
-	fmt.Println("Summarize: ", this.Summarize.Render("Summarize"))
-	fmt.Println("Highlight: ", this.Highlight.Render("Highlight"))
-	fmt.Println("Prompt: ", this.Prompt.Render("Prompt"))
-	fmt.Println("Error: ", this.Error.Render("Error"))
-	fmt.Println("Foreground: ", this.Foreground.Render("Foreground"))
-	fmt.Println("Grey: ", this.Grey.Render("Grey"))
+	fmt.Println(this.Question.Render("Question"))
+	fmt.Println(this.Answer.Render("Answer"))
+	fmt.Println(this.Go.Render("Go"))
+	fmt.Println(this.Summarize.Render("Summarize"))
+	fmt.Println(this.Highlight.Render("Highlight"))
+	fmt.Println(this.Prompt.Render("Prompt"))
+	fmt.Println(this.Error.Render("Error"))
+	fmt.Println(this.Foreground.Render("Foreground"))
+	fmt.Println(this.Grey.Render("Grey"))
 }
 
 func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
@@ -381,6 +408,203 @@ func NewDiskPromptLibrary(path string, verbose bool, writer io.Writer) (*prompt.
 	return promptLibrary, nil
 }
 
+func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
+	ptmx, ptyCleanup, err := ptyCommand(ctx, []string{shell})
+	if err != nil {
+		return err
+	}
+	defer ptyCleanup()
+
+	bf, err := NewButterfish(ctx, config)
+	if err != nil {
+		return err
+	}
+	//fmt.Println("Starting butterfish shell")
+
+	shellMultiplexer(ctx, bf, ptmx, ptmx, os.Stdin, os.Stdout)
+	return nil
+}
+
+const (
+	historyTypePrompt = iota
+	historyTypeShellOutput
+	historyTypeLLMOutput
+)
+
+// ShellHistory keeps a record of past shell history and LLM interaction in
+// a slice of util.HistoryBlock objects. You can add a new block, append to
+// the last block, and get the the last n bytes of the history as an array of
+// HistoryBlocks.
+type ShellHistory struct {
+	Blocks []*util.HistoryBlock
+}
+
+func NewShellHistory() *ShellHistory {
+	return &ShellHistory{
+		Blocks: make([]*util.HistoryBlock, 0),
+	}
+}
+
+func (this *ShellHistory) Add(historyType int, block string) {
+	this.Blocks = append(this.Blocks, &util.HistoryBlock{
+		Type:    historyType,
+		Content: block,
+	})
+}
+
+func (this *ShellHistory) AddToLast(content string) {
+	if len(this.Blocks) == 0 {
+		return
+	}
+	this.Blocks[len(this.Blocks)-1].Content += content
+}
+
+// Go back in history for a certain number of bytes.
+// This truncates each block content to a maximum of 2048 bytes.
+func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
+	var blocks []util.HistoryBlock
+
+	for i := len(this.Blocks) - 1; i >= 0; i-- {
+		block := this.Blocks[i]
+		if numBytes > 0 {
+			if len(block.Content) > 2048 {
+				block.Content = block.Content[:2048]
+			}
+			if len(block.Content) > numBytes {
+				block.Content = block.Content[:numBytes]
+			}
+			blocks = append(blocks, *block)
+			numBytes -= len(block.Content)
+		}
+	}
+
+	// reverse the blocks slice
+	for i := len(blocks)/2 - 1; i >= 0; i-- {
+		opp := len(blocks) - 1 - i
+		blocks[i], blocks[opp] = blocks[opp], blocks[i]
+	}
+
+	return blocks
+}
+
+// TODO add a diagram of streams here
+// States:
+// 1. Normal
+// 2. Prompting
+
+const (
+	stateNormal = iota
+	stateShell
+	statePrompting
+)
+
+func shellMultiplexer(
+	ctx context.Context,
+	bf *ButterfishCtx,
+	childIn io.Writer, childOut io.Reader,
+	parentIn io.Reader, parentOut io.Writer) {
+	childOutReader := make(chan *byteMsg)
+	parentInReader := make(chan *byteMsg)
+
+	go readerToChannel(childOut, childOutReader)
+	go readerToChannel(parentIn, parentInReader)
+
+	history := NewShellHistory()
+	promptOutputWriter := util.NewStyledWriter(parentOut, bf.Config.Styles.Answer)
+
+	currState := stateNormal
+	prompt := ""
+	log.Printf("Starting shell multiplexer")
+
+	for {
+		select {
+		case childOutMsg := <-childOutReader:
+			if childOutMsg == nil {
+				return
+			}
+			parentOut.Write(childOutMsg.Data)
+
+		case parentInMsg := <-parentInReader:
+			if parentInMsg == nil {
+				return
+			}
+			data := parentInMsg.Data
+			hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
+
+			switch currState {
+			case stateNormal:
+				// check if the first character is uppercase
+				// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
+				if unicode.IsUpper(rune(data[0])) {
+					currState = statePrompting
+					log.Printf("State change: normal -> prompting")
+					prompt = string(data)
+					parentOut.Write([]byte(data))
+				} else if hasCarriageReturn {
+					childIn.Write(data)
+				} else {
+					log.Printf("State change: normal -> shell")
+					currState = stateShell
+					childIn.Write(data)
+				}
+
+			case statePrompting:
+				// check if the input contains a newline
+				toAdd := data
+				if hasCarriageReturn {
+					toAdd = data[:bytes.Index(data, []byte{'\r'})]
+					currState = stateNormal
+					log.Printf("State change: prompting -> normal")
+				}
+				prompt += string(toAdd)
+				parentOut.Write(toAdd)
+
+				if currState == stateNormal {
+					//parentOut.Write([]byte("\n\rPrompting: " + prompt + "\n\r"))
+					log.Printf("Prompting: %s", prompt)
+					parentOut.Write([]byte("\n\r"))
+
+					historyBlocks := history.GetLastNBytes(2500)
+					request := &util.CompletionRequest{
+						Ctx:           ctx,
+						Prompt:        prompt,
+						Model:         "gpt-3.5-turbo",
+						MaxTokens:     512,
+						Temperature:   0.7,
+						HistoryBlocks: historyBlocks,
+					}
+					output, err := bf.LLMClient.CompletionStream(request, promptOutputWriter)
+					if err != nil {
+						panic(err)
+					}
+
+					history.Add(historyTypePrompt, prompt)
+					history.Add(historyTypeLLMOutput, output)
+
+					childIn.Write([]byte("\n"))
+					prompt = ""
+				}
+
+			case stateShell:
+				childIn.Write(data)
+
+				if hasCarriageReturn {
+					currState = stateNormal
+					log.Printf("State change: shell -> normal")
+				}
+
+			default:
+				panic("Unknown state")
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+
+	panic("unreachable")
+}
+
 func RunConsoleClient(ctx context.Context, args []string) error {
 	client, err := runIPCClient(ctx)
 	if err != nil {
@@ -393,7 +617,6 @@ func RunConsoleClient(ctx context.Context, args []string) error {
 }
 
 func RunConsole(ctx context.Context, config *ButterfishConfig) error {
-	//initLogging(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 
 	// initialize console UI

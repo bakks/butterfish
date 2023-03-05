@@ -13,11 +13,17 @@ import (
 )
 
 type CompletionRequest struct {
-	Ctx         context.Context
-	Prompt      string
-	Model       string
-	MaxTokens   int
-	Temperature float32
+	Ctx           context.Context
+	Prompt        string
+	Model         string
+	MaxTokens     int
+	Temperature   float32
+	HistoryBlocks []HistoryBlock
+}
+
+type HistoryBlock struct {
+	Type    int
+	Content string
 }
 
 // Read a file, break into chunks of a given number of bytes, up to a maximum
