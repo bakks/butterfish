@@ -427,6 +427,7 @@ func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error
 
 const (
 	historyTypePrompt = iota
+	historyTypeShellInput
 	historyTypeShellOutput
 	historyTypeLLMOutput
 )
@@ -450,6 +451,17 @@ func (this *ShellHistory) Add(historyType int, block string) {
 		Type:    historyType,
 		Content: block,
 	})
+}
+
+func (this *ShellHistory) IdempotentAdd(historyType int, block string) {
+	if len(this.Blocks) > 0 && this.Blocks[len(this.Blocks)-1].Type == historyType {
+		this.Blocks[len(this.Blocks)-1].Content += block
+	} else {
+		this.Blocks = append(this.Blocks, &util.HistoryBlock{
+			Type:    historyType,
+			Content: block,
+		})
+	}
 }
 
 func (this *ShellHistory) AddToLast(content string) {
@@ -509,6 +521,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	history := NewShellHistory()
 	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
+	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
 
 	currState := stateNormal
 	prompt := ""
@@ -521,6 +534,8 @@ func (this *ButterfishCtx) ShellMultiplexer(
 				return
 			}
 			parentOut.Write(childOutMsg.Data)
+			cleanData := sanitizeTTYData(childOutMsg.Data)
+			history.IdempotentAdd(historyTypeShellOutput, string(cleanData))
 
 		case parentInMsg := <-parentInReader:
 			if parentInMsg == nil {
@@ -544,6 +559,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 					log.Printf("State change: normal -> shell")
 					currState = stateShell
 					childIn.Write(data)
+					history.IdempotentAdd(historyTypeShellInput, string(data))
 				}
 
 			case statePrompting:
@@ -571,7 +587,10 @@ func (this *ButterfishCtx) ShellMultiplexer(
 						Temperature:   0.7,
 						HistoryBlocks: historyBlocks,
 					}
-					output, err := this.LLMClient.CompletionStream(request, promptOutputWriter)
+
+					//dump, _ := json.Marshal(historyBlocks)
+					//fmt.Fprintf(parentOut, "History: %s\n\r", dump)
+					output, err := this.LLMClient.CompletionStream(request, cleanedWriter)
 					if err != nil {
 						panic(err)
 					}
@@ -584,6 +603,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 				}
 
 			case stateShell:
+				//history.IdempotentAdd(historyTypeShellInput, string(data))
 				childIn.Write(data)
 
 				if hasCarriageReturn {

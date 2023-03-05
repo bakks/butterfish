@@ -174,6 +174,27 @@ func (this *CacheWriter) GetLastN(n int) []byte {
 	return this.cache[len(this.cache)-n:]
 }
 
+// A Writer implementation that allows you to string replace the content
+// flowing through
+type ReplaceWriter struct {
+	Writer io.Writer
+	From   string
+	To     string
+}
+
+func (this *ReplaceWriter) Write(p []byte) (n int, err error) {
+	s := strings.Replace(string(p), this.From, this.To, -1)
+	return this.Writer.Write([]byte(s))
+}
+
+func NewReplaceWriter(writer io.Writer, from string, to string) *ReplaceWriter {
+	return &ReplaceWriter{
+		Writer: writer,
+		From:   from,
+		To:     to,
+	}
+}
+
 // An implementation of io.Writer that renders output with a lipgloss style
 // and filters out the special token "NOOP". This is specially handled -
 // we seem to get "NO" as a separate token from GPT.
