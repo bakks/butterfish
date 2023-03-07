@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
@@ -118,6 +119,7 @@ var GruvboxLight = ColorScheme{
 }
 
 const BestCompletionModel = "gpt-3.5-turbo"
+const BestAutosuggestModel = "text-davinci-003"
 
 func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
@@ -475,12 +477,13 @@ func (this *ShellHistory) AddToLast(content string) {
 // This truncates each block content to a maximum of 2048 bytes.
 func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 	var blocks []util.HistoryBlock
+	const truncateLength = 512
 
 	for i := len(this.Blocks) - 1; i >= 0; i-- {
 		block := this.Blocks[i]
 		if numBytes > 0 {
-			if len(block.Content) > 2048 {
-				block.Content = block.Content[:2048]
+			if len(block.Content) > truncateLength {
+				block.Content = block.Content[:truncateLength]
 			}
 			if len(block.Content) > numBytes {
 				block.Content = block.Content[:numBytes]
@@ -499,6 +502,14 @@ func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 	return blocks
 }
 
+func HistoryBlocksToString(blocks []util.HistoryBlock) string {
+	var sb strings.Builder
+	for _, block := range blocks {
+		sb.WriteString(block.Content)
+	}
+	return sb.String()
+}
+
 // TODO add a diagram of streams here
 // States:
 // 1. Normal
@@ -510,6 +521,13 @@ const (
 	statePrompting
 )
 
+type AutosuggestResult struct {
+	Command    string
+	Suggestion string
+}
+
+var cursorLeft []byte = []byte{27, 91, 68}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
@@ -518,6 +536,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	go readerToChannel(childOut, childOutReader)
 	go readerToChannel(parentIn, parentInReader)
+	autosuggestChan := make(chan *AutosuggestResult)
 
 	history := NewShellHistory()
 	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
@@ -525,10 +544,36 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	currState := stateNormal
 	prompt := ""
+	command := ""
+	lastAutosuggest := ""
+	var autosuggestCtx context.Context
+	var autosuggestCancel context.CancelFunc
 	log.Printf("Starting shell multiplexer")
 
 	for {
 		select {
+		case result := <-autosuggestChan:
+			if result.Command != command || result.Suggestion == "" {
+				// this is an old result (or no suggestion appeared), ignore it
+				continue
+			}
+
+			log.Printf("Autosuggest result: %s", result.Suggestion)
+
+			// test that the command is equal to the beginning of the suggestion
+			if !strings.HasPrefix(result.Suggestion, result.Command) {
+				continue
+			}
+
+			// Print out autocomplete suggestion
+			suggToAdd := result.Suggestion[len(command):]
+			lastAutosuggest = suggToAdd
+			rendered := this.Config.Styles.Grey.Render(suggToAdd)
+			parentOut.Write([]byte(rendered))
+			for i := 0; i < len(result.Suggestion)-len(command); i++ {
+				parentOut.Write(cursorLeft)
+			}
+
 		case childOutMsg := <-childOutReader:
 			if childOutMsg == nil {
 				return
@@ -552,13 +597,15 @@ func (this *ButterfishCtx) ShellMultiplexer(
 					currState = statePrompting
 					log.Printf("State change: normal -> prompting")
 					prompt = string(data)
-					parentOut.Write([]byte(data))
+					rendered := this.Config.Styles.Question.Render(prompt)
+					parentOut.Write([]byte(rendered))
 				} else if hasCarriageReturn {
 					childIn.Write(data)
 				} else {
 					log.Printf("State change: normal -> shell")
 					currState = stateShell
 					childIn.Write(data)
+					command = string(data)
 					history.IdempotentAdd(historyTypeShellInput, string(data))
 				}
 
@@ -571,18 +618,20 @@ func (this *ButterfishCtx) ShellMultiplexer(
 					log.Printf("State change: prompting -> normal")
 				}
 				prompt += string(toAdd)
-				parentOut.Write(toAdd)
+				rendered := this.Config.Styles.Question.Render(string(toAdd))
+				parentOut.Write([]byte(rendered))
 
+				// Submit this prompt if we just switched back into stateNormal
 				if currState == stateNormal {
 					//parentOut.Write([]byte("\n\rPrompting: " + prompt + "\n\r"))
 					log.Printf("Prompting: %s", prompt)
 					parentOut.Write([]byte("\n\r"))
 
-					historyBlocks := history.GetLastNBytes(2500)
+					historyBlocks := history.GetLastNBytes(3000)
 					request := &util.CompletionRequest{
 						Ctx:           this.Ctx,
 						Prompt:        prompt,
-						Model:         "gpt-3.5-turbo",
+						Model:         BestCompletionModel,
 						MaxTokens:     512,
 						Temperature:   0.7,
 						HistoryBlocks: historyBlocks,
@@ -592,7 +641,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 					//fmt.Fprintf(parentOut, "History: %s\n\r", dump)
 					output, err := this.LLMClient.CompletionStream(request, cleanedWriter)
 					if err != nil {
-						panic(err)
+						log.Printf("Error: %s", err)
 					}
 
 					history.Add(historyTypePrompt, prompt)
@@ -604,11 +653,87 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 			case stateShell:
 				//history.IdempotentAdd(historyTypeShellInput, string(data))
-				childIn.Write(data)
 
 				if hasCarriageReturn {
+					if lastAutosuggest != "" {
+						// clear out the last autosuggest
+						for i := 0; i < len(lastAutosuggest); i++ {
+							parentOut.Write([]byte(" "))
+						}
+						for i := 0; i < len(lastAutosuggest); i++ {
+							parentOut.Write(cursorLeft)
+						}
+						lastAutosuggest = ""
+					}
+
 					currState = stateNormal
+					childIn.Write(data)
+					command = ""
 					log.Printf("State change: shell -> normal")
+				} else if data[0] == '\t' {
+					// Tab was pressed, fill in lastAutosuggest
+					if lastAutosuggest != "" {
+						childIn.Write([]byte(lastAutosuggest))
+					} else {
+						// no last autosuggest found, just forward the tab
+						childIn.Write(data)
+					}
+				} else {
+					if lastAutosuggest != "" {
+						// TODO special case when the added character is the same as the lastAutosuggest
+						// clear out the last autosuggest
+						for i := 0; i < len(lastAutosuggest); i++ {
+							parentOut.Write([]byte(" "))
+						}
+						for i := 0; i < len(lastAutosuggest); i++ {
+							parentOut.Write(cursorLeft)
+						}
+						lastAutosuggest = ""
+					}
+
+					childIn.Write(data)
+					command += string(data)
+
+					if autosuggestCancel != nil {
+						autosuggestCancel()
+					}
+					autosuggestCtx, autosuggestCancel = context.WithCancel(context.Background())
+					historyBlocks := HistoryBlocksToString(history.GetLastNBytes(2000))
+
+					go func(ctx context.Context, currCommand string, historyText string) {
+						time.Sleep(150 * time.Millisecond)
+						if ctx.Err() != nil {
+							return
+						}
+						//historyBlocks
+						prompt := fmt.Sprintf(`The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
+'''
+%s
+'''.
+If there is a recent command explicitly labeled as an example or suggestion then bias heavily towards that. If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
+
+						request := &util.CompletionRequest{
+							Ctx:         autosuggestCtx,
+							Prompt:      prompt,
+							Model:       BestAutosuggestModel,
+							MaxTokens:   256,
+							Temperature: 0.7,
+							//HistoryBlocks: historyBlocks,
+						}
+
+						log.Printf("Autosuggesting: %s", prompt)
+
+						output, err := this.LLMClient.Completion(request)
+						if err != nil {
+							return
+						}
+
+						autoSuggest := &AutosuggestResult{
+							Command:    currCommand,
+							Suggestion: output,
+						}
+						autosuggestChan <- autoSuggest
+					}(autosuggestCtx, command, historyBlocks)
 				}
 
 			default:

@@ -74,8 +74,7 @@ func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
 	if request.HistoryBlocks == nil {
 		return this.SimpleChatCompletion(request)
 	}
-	panic("unimplemented")
-	//return this.FullChatCompletion(request)
+	return this.FullChatCompletion(request)
 
 }
 
@@ -206,10 +205,32 @@ func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, erro
 		return "", err
 	}
 
+	text := resp.Choices[0].Text
+	// clean whitespace prefix and suffix from text
+	text = strings.TrimSpace(text)
+
 	if this.verbose {
-		printResponse(this.verboseWriter, resp.Choices[0].Text)
+		printResponse(this.verboseWriter, text)
 	}
-	return resp.Choices[0].Text, nil
+	return text, nil
+}
+
+func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, error) {
+	gptHistory := ShellHistoryBlockToGPTChat(request.HistoryBlocks)
+	messages := append(gptHistory, gpt3.ChatCompletionRequestMessage{
+		Role:    "user",
+		Content: request.Prompt,
+	})
+
+	req := gpt3.ChatCompletionRequest{
+		Model:       request.Model,
+		Messages:    messages,
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
+		N:           1,
+	}
+
+	return this.doChatCompletion(request.Ctx, req)
 }
 
 func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, error) {
@@ -230,10 +251,14 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, 
 		N:           1,
 	}
 
+	return this.doChatCompletion(request.Ctx, req)
+}
+
+func (this *GPT) doChatCompletion(ctx context.Context, request gpt3.ChatCompletionRequest) (string, error) {
 	if this.verbose {
-		printPrompt(this.verboseWriter, request.Prompt)
+		printPrompt(this.verboseWriter, "xxxxx TODO")
 	}
-	resp, err := this.client.ChatCompletion(request.Ctx, req)
+	resp, err := this.client.ChatCompletion(ctx, request)
 	if err != nil {
 		return "", err
 	}
