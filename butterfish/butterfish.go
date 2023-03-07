@@ -557,13 +557,25 @@ func (this *ShellState) Mux() {
 		case result := <-this.AutosuggestChan:
 			if result.Command != this.Command || result.Suggestion == "" {
 				// this is an old result (or no suggestion appeared), ignore it
-				return
+				continue
 			}
+
+			// if result.Suggestion has newlines then discard it
+			if strings.Contains(result.Suggestion, "\n") {
+				continue
+			}
+
+			// if the suggestion is the same as the last one, ignore it
+			if result.Suggestion == this.LastAutosuggest {
+				continue
+			}
+
+			this.LastAutosuggest = result.Suggestion
 
 			log.Printf("Autosuggest result: %s", result.Suggestion)
 
 			// test that the command is equal to the beginning of the suggestion
-			if !strings.HasPrefix(result.Suggestion, result.Command) {
+			if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
 				continue
 			}
 
@@ -613,6 +625,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.ParentOut.Write([]byte(rendered))
 		} else if hasCarriageReturn {
 			this.ChildIn.Write(data)
+		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
+			if this.LastAutosuggest != "" {
+				this.ChildIn.Write([]byte(this.LastAutosuggest))
+			} else {
+				// no last autosuggest found, just forward the tab
+				this.ChildIn.Write(data)
+			}
 		} else {
 			log.Printf("State change: normal -> shell")
 			this.State = stateShell
@@ -661,6 +680,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 
 			this.ChildIn.Write([]byte("\n"))
 			this.Prompt = ""
+			this.RequestAutosuggest(true)
 		}
 
 	case stateShell:
@@ -670,6 +690,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.State = stateNormal
 			this.ChildIn.Write(data)
 			this.Command = ""
+			this.RequestAutosuggest(false)
 			log.Printf("State change: shell -> normal")
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
@@ -682,14 +703,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else { // otherwise user is typing a command
 			this.ChildIn.Write(data)
 			this.Command += string(data)
-
-			if this.AutosuggestCancel != nil {
-				this.AutosuggestCancel()
-			}
-			this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
-			historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(2000))
-
-			go RequestAutosuggest(this.AutosuggestCtx, this.Command, historyBlocks, this.Butterfish.LLMClient, this.AutosuggestChan)
+			this.RequestAutosuggest(false)
 		}
 
 	default:
@@ -697,8 +711,10 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	}
 }
 
+// Clear out the grayed out autosuggest text we wrote previously
 func (this *ShellState) ClearAutosuggest() {
 	if this.LastAutosuggest == "" {
+		// there wasn't actually a last autosuggest, so nothing to clear
 		return
 	}
 
@@ -713,17 +729,52 @@ func (this *ShellState) ClearAutosuggest() {
 	this.LastAutosuggest = ""
 }
 
-func RequestAutosuggest(ctx context.Context, currCommand string, historyText string, llmClient LLM, autosuggestChan chan<- *AutosuggestResult) {
-	time.Sleep(150 * time.Millisecond)
+func (this *ShellState) RequestAutosuggest(noDelay bool) {
+	if this.AutosuggestCancel != nil {
+		// clear out a previous request
+		this.AutosuggestCancel()
+	}
+	this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
+	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(2000))
+	var delay time.Duration
+	if !noDelay {
+		delay = 150 * time.Millisecond
+	}
+
+	go RequestCancelableAutosuggest(
+		this.AutosuggestCtx, delay, this.Command,
+		historyBlocks, this.Butterfish.LLMClient, this.AutosuggestChan)
+}
+
+func RequestCancelableAutosuggest(
+	ctx context.Context,
+	delay time.Duration,
+	currCommand string,
+	historyText string,
+	llmClient LLM,
+	autosuggestChan chan<- *AutosuggestResult) {
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 	if ctx.Err() != nil {
 		return
 	}
 	//historyBlocks
-	prompt := fmt.Sprintf(`The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
+	var prompt string
+
+	if len(currCommand) == 0 {
+		prompt = fmt.Sprintf(`The user is using a Unix shell but hasn't yet entered anything. Suggest a unix command based on previous assistant output like an example. If the user has entered a command recently which failed, suggest a fixed version of that command. Respond with only the shell command, do not add comments or quotations. Here is the recent history:
+'''
+%s
+'''`, historyText)
+	} else {
+		prompt = fmt.Sprintf(`The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
 '''
 %s
 '''.
 If there is a recent command explicitly labeled as an example or suggestion then bias heavily towards that. If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
+	}
 
 	request := &util.CompletionRequest{
 		Ctx:         ctx,
