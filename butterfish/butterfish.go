@@ -526,36 +526,38 @@ type AutosuggestResult struct {
 	Suggestion string
 }
 
-var cursorLeft []byte = []byte{27, 91, 68}
+type ShellState struct {
+	Butterfish *ButterfishCtx
+	ParentOut  io.Writer
+	ChildIn    io.Writer
 
-func (this *ButterfishCtx) ShellMultiplexer(
-	childIn io.Writer, childOut io.Reader,
-	parentIn io.Reader, parentOut io.Writer) {
-	childOutReader := make(chan *byteMsg)
-	parentInReader := make(chan *byteMsg)
+	// The current state of the shell
+	State              int
+	ChildOutReader     chan *byteMsg
+	ParentInReader     chan *byteMsg
+	AutosuggestChan    chan *AutosuggestResult
+	History            *ShellHistory
+	PromptAnswerWriter io.Writer
+	Prompt             string
+	PromptStyle        lipgloss.Style
+	Command            string
 
-	go readerToChannel(childOut, childOutReader)
-	go readerToChannel(parentIn, parentInReader)
-	autosuggestChan := make(chan *AutosuggestResult)
+	LastAutosuggest   string
+	AutosuggestCtx    context.Context
+	AutosuggestCancel context.CancelFunc
+	AutosuggestStyle  lipgloss.Style
+}
 
-	history := NewShellHistory()
-	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
-	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
-
-	currState := stateNormal
-	prompt := ""
-	command := ""
-	lastAutosuggest := ""
-	var autosuggestCtx context.Context
-	var autosuggestCancel context.CancelFunc
-	log.Printf("Starting shell multiplexer")
-
+func (this *ShellState) Mux() {
 	for {
 		select {
-		case result := <-autosuggestChan:
-			if result.Command != command || result.Suggestion == "" {
+		case <-this.Butterfish.Ctx.Done():
+			return
+
+		case result := <-this.AutosuggestChan:
+			if result.Command != this.Command || result.Suggestion == "" {
 				// this is an old result (or no suggestion appeared), ignore it
-				continue
+				return
 			}
 
 			log.Printf("Autosuggest result: %s", result.Suggestion)
@@ -566,186 +568,216 @@ func (this *ButterfishCtx) ShellMultiplexer(
 			}
 
 			// Print out autocomplete suggestion
-			suggToAdd := result.Suggestion[len(command):]
-			lastAutosuggest = suggToAdd
-			rendered := this.Config.Styles.Grey.Render(suggToAdd)
-			parentOut.Write([]byte(rendered))
-			for i := 0; i < len(result.Suggestion)-len(command); i++ {
-				parentOut.Write(cursorLeft)
+			suggToAdd := result.Suggestion[len(this.Command):]
+			this.LastAutosuggest = suggToAdd
+			rendered := this.AutosuggestStyle.Render(suggToAdd)
+			this.ParentOut.Write([]byte(rendered))
+			for i := 0; i < len(result.Suggestion)-len(this.Command); i++ {
+				this.ParentOut.Write(cursorLeft)
 			}
 
-		case childOutMsg := <-childOutReader:
+		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
+				log.Println("Child out reader closed")
+				this.Butterfish.Cancel()
 				return
 			}
-			parentOut.Write(childOutMsg.Data)
+			this.ParentOut.Write(childOutMsg.Data)
 			cleanData := sanitizeTTYData(childOutMsg.Data)
-			history.IdempotentAdd(historyTypeShellOutput, string(cleanData))
+			this.History.IdempotentAdd(historyTypeShellOutput, string(cleanData))
 
-		case parentInMsg := <-parentInReader:
+		case parentInMsg := <-this.ParentInReader:
 			if parentInMsg == nil {
+				log.Println("Parent in reader closed")
+				this.Butterfish.Cancel()
 				return
 			}
 			data := parentInMsg.Data
-			hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
+			this.InputFromParent(this.Butterfish.Ctx, data)
+		}
+	}
+}
 
-			switch currState {
-			case stateNormal:
-				// check if the first character is uppercase
-				// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
-				if unicode.IsUpper(rune(data[0])) {
-					currState = statePrompting
-					log.Printf("State change: normal -> prompting")
-					prompt = string(data)
-					rendered := this.Config.Styles.Question.Render(prompt)
-					parentOut.Write([]byte(rendered))
-				} else if hasCarriageReturn {
-					childIn.Write(data)
-				} else {
-					log.Printf("State change: normal -> shell")
-					currState = stateShell
-					childIn.Write(data)
-					command = string(data)
-					history.IdempotentAdd(historyTypeShellInput, string(data))
-				}
+func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
+	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
-			case statePrompting:
-				// check if the input contains a newline
-				toAdd := data
-				if hasCarriageReturn {
-					toAdd = data[:bytes.Index(data, []byte{'\r'})]
-					currState = stateNormal
-					log.Printf("State change: prompting -> normal")
-				}
-				prompt += string(toAdd)
-				rendered := this.Config.Styles.Question.Render(string(toAdd))
-				parentOut.Write([]byte(rendered))
+	switch this.State {
+	case stateNormal:
+		// check if the first character is uppercase
+		// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
+		if unicode.IsUpper(rune(data[0])) {
+			this.State = statePrompting
+			log.Printf("State change: normal -> prompting")
+			this.Prompt = string(data)
+			rendered := this.PromptStyle.Render(this.Prompt)
+			this.ParentOut.Write([]byte(rendered))
+		} else if hasCarriageReturn {
+			this.ChildIn.Write(data)
+		} else {
+			log.Printf("State change: normal -> shell")
+			this.State = stateShell
+			this.ChildIn.Write(data)
+			this.Command = string(data)
+			this.History.IdempotentAdd(historyTypeShellInput, string(data))
+		}
 
-				// Submit this prompt if we just switched back into stateNormal
-				if currState == stateNormal {
-					//parentOut.Write([]byte("\n\rPrompting: " + prompt + "\n\r"))
-					log.Printf("Prompting: %s", prompt)
-					parentOut.Write([]byte("\n\r"))
+	case statePrompting:
+		// check if the input contains a newline
+		toAdd := data
+		if hasCarriageReturn {
+			toAdd = data[:bytes.Index(data, []byte{'\r'})]
+			this.State = stateNormal
+			log.Printf("State change: prompting -> normal")
+		}
+		this.Prompt += string(toAdd)
+		rendered := this.Butterfish.Config.Styles.Question.Render(string(toAdd))
+		this.ParentOut.Write([]byte(rendered))
 
-					historyBlocks := history.GetLastNBytes(3000)
-					request := &util.CompletionRequest{
-						Ctx:           this.Ctx,
-						Prompt:        prompt,
-						Model:         BestCompletionModel,
-						MaxTokens:     512,
-						Temperature:   0.7,
-						HistoryBlocks: historyBlocks,
-					}
+		// Submit this prompt if we just switched back into stateNormal
+		if this.State == stateNormal {
+			//parentOut.Write([]byte("\n\rPrompting: " + prompt + "\n\r"))
+			log.Printf("Prompting: %s", this.Prompt)
+			this.ParentOut.Write([]byte("\n\r"))
 
-					//dump, _ := json.Marshal(historyBlocks)
-					//fmt.Fprintf(parentOut, "History: %s\n\r", dump)
-					output, err := this.LLMClient.CompletionStream(request, cleanedWriter)
-					if err != nil {
-						log.Printf("Error: %s", err)
-					}
+			historyBlocks := this.History.GetLastNBytes(3000)
+			request := &util.CompletionRequest{
+				Ctx:           ctx,
+				Prompt:        this.Prompt,
+				Model:         BestCompletionModel,
+				MaxTokens:     512,
+				Temperature:   0.7,
+				HistoryBlocks: historyBlocks,
+			}
 
-					history.Add(historyTypePrompt, prompt)
-					history.Add(historyTypeLLMOutput, output)
+			//dump, _ := json.Marshal(historyBlocks)
+			//fmt.Fprintf(parentOut, "History: %s\n\r", dump)
+			output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
+			if err != nil {
+				log.Printf("Error: %s", err)
+			}
 
-					childIn.Write([]byte("\n"))
-					prompt = ""
-				}
+			this.History.Add(historyTypePrompt, this.Prompt)
+			this.History.Add(historyTypeLLMOutput, output)
 
-			case stateShell:
-				//history.IdempotentAdd(historyTypeShellInput, string(data))
+			this.ChildIn.Write([]byte("\n"))
+			this.Prompt = ""
+		}
 
-				if hasCarriageReturn {
-					if lastAutosuggest != "" {
-						// clear out the last autosuggest
-						for i := 0; i < len(lastAutosuggest); i++ {
-							parentOut.Write([]byte(" "))
-						}
-						for i := 0; i < len(lastAutosuggest); i++ {
-							parentOut.Write(cursorLeft)
-						}
-						lastAutosuggest = ""
-					}
+	case stateShell:
+		if hasCarriageReturn { // user is submitting a command
+			this.ClearAutosuggest()
 
-					currState = stateNormal
-					childIn.Write(data)
-					command = ""
-					log.Printf("State change: shell -> normal")
-				} else if data[0] == '\t' {
-					// Tab was pressed, fill in lastAutosuggest
-					if lastAutosuggest != "" {
-						childIn.Write([]byte(lastAutosuggest))
-					} else {
-						// no last autosuggest found, just forward the tab
-						childIn.Write(data)
-					}
-				} else {
-					if lastAutosuggest != "" {
-						// TODO special case when the added character is the same as the lastAutosuggest
-						// clear out the last autosuggest
-						for i := 0; i < len(lastAutosuggest); i++ {
-							parentOut.Write([]byte(" "))
-						}
-						for i := 0; i < len(lastAutosuggest); i++ {
-							parentOut.Write(cursorLeft)
-						}
-						lastAutosuggest = ""
-					}
+			this.State = stateNormal
+			this.ChildIn.Write(data)
+			this.Command = ""
+			log.Printf("State change: shell -> normal")
+		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
+			// Tab was pressed, fill in lastAutosuggest
+			if this.LastAutosuggest != "" {
+				this.ChildIn.Write([]byte(this.LastAutosuggest))
+			} else {
+				// no last autosuggest found, just forward the tab
+				this.ChildIn.Write(data)
+			}
+		} else { // otherwise user is typing a command
+			this.ChildIn.Write(data)
+			this.Command += string(data)
 
-					childIn.Write(data)
-					command += string(data)
+			if this.AutosuggestCancel != nil {
+				this.AutosuggestCancel()
+			}
+			this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
+			historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(2000))
 
-					if autosuggestCancel != nil {
-						autosuggestCancel()
-					}
-					autosuggestCtx, autosuggestCancel = context.WithCancel(context.Background())
-					historyBlocks := HistoryBlocksToString(history.GetLastNBytes(2000))
+			go RequestAutosuggest(this.AutosuggestCtx, this.Command, historyBlocks, this.Butterfish.LLMClient, this.AutosuggestChan)
+		}
 
-					go func(ctx context.Context, currCommand string, historyText string) {
-						time.Sleep(150 * time.Millisecond)
-						if ctx.Err() != nil {
-							return
-						}
-						//historyBlocks
-						prompt := fmt.Sprintf(`The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
+	default:
+		panic("Unknown state")
+	}
+}
+
+func (this *ShellState) ClearAutosuggest() {
+	if this.LastAutosuggest == "" {
+		return
+	}
+
+	// TODO special case when the added character is the same as the lastAutosuggest
+	// clear out the last autosuggest
+	for i := 0; i < len(this.LastAutosuggest); i++ {
+		this.ParentOut.Write([]byte(" "))
+	}
+	for i := 0; i < len(this.LastAutosuggest); i++ {
+		this.ParentOut.Write(cursorLeft)
+	}
+	this.LastAutosuggest = ""
+}
+
+func RequestAutosuggest(ctx context.Context, currCommand string, historyText string, llmClient LLM, autosuggestChan chan<- *AutosuggestResult) {
+	time.Sleep(150 * time.Millisecond)
+	if ctx.Err() != nil {
+		return
+	}
+	//historyBlocks
+	prompt := fmt.Sprintf(`The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
 '''
 %s
 '''.
 If there is a recent command explicitly labeled as an example or suggestion then bias heavily towards that. If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
 
-						request := &util.CompletionRequest{
-							Ctx:         autosuggestCtx,
-							Prompt:      prompt,
-							Model:       BestAutosuggestModel,
-							MaxTokens:   256,
-							Temperature: 0.7,
-							//HistoryBlocks: historyBlocks,
-						}
-
-						log.Printf("Autosuggesting: %s", prompt)
-
-						output, err := this.LLMClient.Completion(request)
-						if err != nil {
-							return
-						}
-
-						autoSuggest := &AutosuggestResult{
-							Command:    currCommand,
-							Suggestion: output,
-						}
-						autosuggestChan <- autoSuggest
-					}(autosuggestCtx, command, historyBlocks)
-				}
-
-			default:
-				panic("Unknown state")
-			}
-
-		case <-this.Ctx.Done():
-			return
-		}
+	request := &util.CompletionRequest{
+		Ctx:         ctx,
+		Prompt:      prompt,
+		Model:       BestAutosuggestModel,
+		MaxTokens:   256,
+		Temperature: 0.7,
+		//HistoryBlocks: historyBlocks,
 	}
 
-	panic("unreachable")
+	log.Printf("Autosuggesting: %s", prompt)
+
+	output, err := llmClient.Completion(request)
+	if err != nil {
+		return
+	}
+
+	autoSuggest := &AutosuggestResult{
+		Command:    currCommand,
+		Suggestion: output,
+	}
+	autosuggestChan <- autoSuggest
+}
+
+var cursorLeft []byte = []byte{27, 91, 68}
+
+func (this *ButterfishCtx) ShellMultiplexer(
+	childIn io.Writer, childOut io.Reader,
+	parentIn io.Reader, parentOut io.Writer) {
+	childOutReader := make(chan *byteMsg)
+	parentInReader := make(chan *byteMsg)
+
+	go readerToChannel(childOut, childOutReader)
+	go readerToChannel(parentIn, parentInReader)
+	log.Printf("Starting shell multiplexer")
+
+	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
+	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
+
+	shellState := &ShellState{
+		Butterfish:         this,
+		ParentOut:          parentOut,
+		ChildIn:            childIn,
+		State:              stateNormal,
+		ChildOutReader:     childOutReader,
+		ParentInReader:     parentInReader,
+		AutosuggestChan:    make(chan *AutosuggestResult),
+		History:            NewShellHistory(),
+		PromptAnswerWriter: cleanedWriter,
+		PromptStyle:        this.Config.Styles.Question,
+		AutosuggestStyle:   this.Config.Styles.Grey,
+	}
+
+	shellState.Mux()
 }
 
 func RunConsoleClient(ctx context.Context, args []string) error {
