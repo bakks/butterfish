@@ -427,6 +427,85 @@ func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error
 	return nil
 }
 
+// This holds a buffer that represents a tty shell buffer. Incoming data
+// manipulates the buffer, for example the left arrow will move the cursor left,
+// a backspace would erase the end of the buffer. Special characters that do not
+// impact the cursor or printable characters will be ignored, for example 0x00
+// is ignored.
+type ShellBuffer struct {
+	// The buffer itself
+	buffer []rune
+	cursor int
+}
+
+func (this *ShellBuffer) WriteRune(r rune) {
+	// otherwise just add the character to the buffer
+	if this.cursor == len(this.buffer) {
+		this.buffer = append(this.buffer, r)
+	} else {
+		this.buffer = append(this.buffer[:this.cursor], append([]rune{r}, this.buffer[this.cursor:]...)...)
+	}
+	this.cursor++
+}
+
+func (this *ShellBuffer) Write(data string) {
+	if len(data) == 0 {
+		return
+	}
+
+	data = stripANSI(data)
+	if len(data) == 0 {
+		return
+	}
+
+	if len(data) >= 3 && data[0] == 0x1b && data[1] == 0x5b {
+		if data[2] == 0x44 {
+			// left arrow
+			if this.cursor > 0 {
+				this.cursor--
+			}
+			this.Write(data[3:])
+			return
+		}
+		if data[2] == 0x43 {
+			// right arrow
+			if this.cursor < len(this.buffer) {
+				this.cursor++
+			}
+			this.Write(data[3:])
+			return
+		}
+	}
+
+	for _, r := range data {
+		switch int(r) {
+		case 0x0a, 0x0d: // newline, carriage return
+			this.WriteRune(r)
+
+		case 0x08, 0x7f: // backspace
+			if this.cursor > 0 && len(this.buffer) > 0 {
+				this.buffer = append(this.buffer[:this.cursor-1], this.buffer[this.cursor:]...)
+				this.cursor--
+			}
+
+		default:
+			this.WriteRune(r)
+
+		}
+	}
+}
+
+func (this *ShellBuffer) String() string {
+	return string(this.buffer)
+}
+
+func NewShellBuffer() *ShellBuffer {
+	return &ShellBuffer{
+		buffer: make([]rune, 0),
+		cursor: 0,
+	}
+}
+
 const (
 	historyTypePrompt = iota
 	historyTypeShellInput
@@ -434,63 +513,68 @@ const (
 	historyTypeLLMOutput
 )
 
+type HistoryBuffer struct {
+	Type    int
+	Content *ShellBuffer
+}
+
 // ShellHistory keeps a record of past shell history and LLM interaction in
 // a slice of util.HistoryBlock objects. You can add a new block, append to
 // the last block, and get the the last n bytes of the history as an array of
 // HistoryBlocks.
 type ShellHistory struct {
-	Blocks []*util.HistoryBlock
+	Blocks []HistoryBuffer
 }
 
 func NewShellHistory() *ShellHistory {
 	return &ShellHistory{
-		Blocks: make([]*util.HistoryBlock, 0),
+		Blocks: make([]HistoryBuffer, 0),
 	}
 }
 
 func (this *ShellHistory) Add(historyType int, block string) {
-	this.Blocks = append(this.Blocks, &util.HistoryBlock{
+	buffer := NewShellBuffer()
+	buffer.Write(block)
+	this.Blocks = append(this.Blocks, HistoryBuffer{
 		Type:    historyType,
-		Content: block,
+		Content: buffer,
 	})
 }
 
-func (this *ShellHistory) IdempotentAdd(historyType int, block string) {
+func (this *ShellHistory) Append(historyType int, data string) {
 	if len(this.Blocks) > 0 && this.Blocks[len(this.Blocks)-1].Type == historyType {
-		this.Blocks[len(this.Blocks)-1].Content += block
+		this.Blocks[len(this.Blocks)-1].Content.Write(data)
 	} else {
-		this.Blocks = append(this.Blocks, &util.HistoryBlock{
-			Type:    historyType,
-			Content: block,
-		})
+		this.Add(historyType, data)
 	}
 }
 
-func (this *ShellHistory) AddToLast(content string) {
-	if len(this.Blocks) == 0 {
-		return
+func (this *ShellHistory) NewBlock() {
+	if len(this.Blocks) > 0 {
+		this.Add(this.Blocks[len(this.Blocks)-1].Type, "")
 	}
-	this.Blocks[len(this.Blocks)-1].Content += content
 }
 
 // Go back in history for a certain number of bytes.
-// This truncates each block content to a maximum of 2048 bytes.
+// This truncates each block content to a maximum of 512 bytes.
 func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 	var blocks []util.HistoryBlock
 	const truncateLength = 512
 
-	for i := len(this.Blocks) - 1; i >= 0; i-- {
+	for i := len(this.Blocks) - 1; i >= 0 && numBytes > 0; i-- {
 		block := this.Blocks[i]
-		if numBytes > 0 {
-			if len(block.Content) > truncateLength {
-				block.Content = block.Content[:truncateLength]
-			}
-			if len(block.Content) > numBytes {
-				block.Content = block.Content[:numBytes]
-			}
-			blocks = append(blocks, *block)
-			numBytes -= len(block.Content)
+		content := block.Content.String()
+		if len(content) > truncateLength {
+			content = content[:truncateLength]
 		}
+		if len(content) > numBytes {
+			break // we don't want a weird partial line so we bail out here
+		}
+		blocks = append(blocks, util.HistoryBlock{
+			Type:    block.Type,
+			Content: content,
+		})
+		numBytes -= len(content)
 	}
 
 	// reverse the blocks slice
@@ -502,18 +586,33 @@ func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 	return blocks
 }
 
+func (this *ShellHistory) LogRecentHistory() {
+	blocks := this.GetLastNBytes(2000)
+	log.Printf("Recent history: =======================================")
+	for _, block := range blocks {
+		if block.Type == historyTypePrompt {
+			log.Printf("Prompt: %s", block.Content)
+		} else if block.Type == historyTypeShellInput {
+			log.Printf("Shell input: %s", block.Content)
+		} else if block.Type == historyTypeShellOutput {
+			log.Printf("Shell output: %s", block.Content)
+		} else if block.Type == historyTypeLLMOutput {
+			log.Printf("LLM output: %s", block.Content)
+		}
+	}
+	log.Printf("=======================================")
+}
+
 func HistoryBlocksToString(blocks []util.HistoryBlock) string {
 	var sb strings.Builder
-	for _, block := range blocks {
+	for i, block := range blocks {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
 		sb.WriteString(block.Content)
 	}
 	return sb.String()
 }
-
-// TODO add a diagram of streams here
-// States:
-// 1. Normal
-// 2. Prompting
 
 const (
 	stateNormal = iota
@@ -540,7 +639,7 @@ type ShellState struct {
 	PromptAnswerWriter io.Writer
 	Prompt             string
 	PromptStyle        lipgloss.Style
-	Command            string
+	Command            *ShellBuffer
 
 	LastAutosuggest   string
 	AutosuggestCtx    context.Context
@@ -548,6 +647,11 @@ type ShellState struct {
 	AutosuggestStyle  lipgloss.Style
 }
 
+// TODO add a diagram of streams here
+// States:
+// 1. Normal
+// 2. Prompting
+// 3. Shell
 func (this *ShellState) Mux() {
 	for {
 		select {
@@ -555,7 +659,7 @@ func (this *ShellState) Mux() {
 			return
 
 		case result := <-this.AutosuggestChan:
-			if result.Command != this.Command || result.Suggestion == "" {
+			if result.Command != this.Command.String() || result.Suggestion == "" {
 				// this is an old result (or no suggestion appeared), ignore it
 				continue
 			}
@@ -580,11 +684,12 @@ func (this *ShellState) Mux() {
 			}
 
 			// Print out autocomplete suggestion
-			suggToAdd := result.Suggestion[len(this.Command):]
+			cmdLen := len(this.Command.String())
+			suggToAdd := result.Suggestion[cmdLen:]
 			this.LastAutosuggest = suggToAdd
 			rendered := this.AutosuggestStyle.Render(suggToAdd)
 			this.ParentOut.Write([]byte(rendered))
-			for i := 0; i < len(result.Suggestion)-len(this.Command); i++ {
+			for i := 0; i < len(result.Suggestion)-cmdLen; i++ {
 				this.ParentOut.Write(cursorLeft)
 			}
 
@@ -594,9 +699,12 @@ func (this *ShellState) Mux() {
 				this.Butterfish.Cancel()
 				return
 			}
+			//cleanData := sanitizeTTYData(childOutMsg.Data)
+			//this.History.IdempotentAdd(historyTypeShellOutput, string(cleanData))
+			this.History.Append(historyTypeShellOutput, string(childOutMsg.Data))
+			//log.Printf("Child out: %s  0x%x", string(childOutMsg.Data), childOutMsg.Data)
+			//this.History.LogRecentHistory()
 			this.ParentOut.Write(childOutMsg.Data)
-			cleanData := sanitizeTTYData(childOutMsg.Data)
-			this.History.IdempotentAdd(historyTypeShellOutput, string(cleanData))
 
 		case parentInMsg := <-this.ParentInReader:
 			if parentInMsg == nil {
@@ -635,9 +743,10 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else {
 			log.Printf("State change: normal -> shell")
 			this.State = stateShell
+			this.History.NewBlock()
 			this.ChildIn.Write(data)
-			this.Command = string(data)
-			this.History.IdempotentAdd(historyTypeShellInput, string(data))
+			this.Command = NewShellBuffer()
+			this.Command.Write(string(data))
 		}
 
 	case statePrompting:
@@ -689,8 +798,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 
 			this.State = stateNormal
 			this.ChildIn.Write(data)
-			this.Command = ""
-			this.RequestAutosuggest(false)
+			this.Command = NewShellBuffer()
+			this.History.NewBlock()
 			log.Printf("State change: shell -> normal")
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
@@ -702,12 +811,29 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			}
 		} else { // otherwise user is typing a command
 			this.ChildIn.Write(data)
-			this.Command += string(data)
-			this.RequestAutosuggest(false)
+			this.Command.Write(string(data))
+			this.RefreshAutosuggest(data)
 		}
 
 	default:
 		panic("Unknown state")
+	}
+}
+
+// Update autosuggest when we receive new data
+func (this *ShellState) RefreshAutosuggest(newData []byte) {
+	// check if data is a prefix of lastautosuggest
+	if bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
+		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
+		return
+	}
+
+	// otherwise, clear the autosuggest
+	this.ClearAutosuggest()
+
+	// and request a new one
+	if this.State == stateShell {
+		this.RequestAutosuggest(false)
 	}
 }
 
@@ -729,6 +855,8 @@ func (this *ShellState) ClearAutosuggest() {
 	this.LastAutosuggest = ""
 }
 
+var autosuggestDelay = 100 * time.Millisecond
+
 func (this *ShellState) RequestAutosuggest(noDelay bool) {
 	if this.AutosuggestCancel != nil {
 		// clear out a previous request
@@ -736,13 +864,15 @@ func (this *ShellState) RequestAutosuggest(noDelay bool) {
 	}
 	this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
 	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(2000))
+	//this.History.LogRecentHistory()
+
 	var delay time.Duration
 	if !noDelay {
-		delay = 150 * time.Millisecond
+		delay = autosuggestDelay
 	}
 
 	go RequestCancelableAutosuggest(
-		this.AutosuggestCtx, delay, this.Command,
+		this.AutosuggestCtx, delay, this.Command.String(),
 		historyBlocks, this.Butterfish.LLMClient, this.AutosuggestChan)
 }
 
@@ -760,7 +890,6 @@ func RequestCancelableAutosuggest(
 	if ctx.Err() != nil {
 		return
 	}
-	//historyBlocks
 	var prompt string
 
 	if len(currCommand) == 0 {
@@ -773,7 +902,7 @@ func RequestCancelableAutosuggest(
 '''
 %s
 '''.
-If there is a recent command explicitly labeled as an example or suggestion then bias heavily towards that. If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
+If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
 	}
 
 	request := &util.CompletionRequest{
@@ -785,7 +914,7 @@ If there is a recent command explicitly labeled as an example or suggestion then
 		//HistoryBlocks: historyBlocks,
 	}
 
-	log.Printf("Autosuggesting: %s", prompt)
+	//log.Printf("Autosuggesting: %s %x\n%s", currCommand, []byte(currCommand), request.Prompt)
 
 	output, err := llmClient.Completion(request)
 	if err != nil {
