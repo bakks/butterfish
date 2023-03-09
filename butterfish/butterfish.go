@@ -955,6 +955,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		PromptAnswerWriter: cleanedWriter,
 		PromptStyle:        this.Config.Styles.Question,
 		AutosuggestStyle:   this.Config.Styles.Grey,
+		Command:            NewShellBuffer(),
 	}
 
 	shellState.Mux()
