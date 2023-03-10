@@ -458,19 +458,25 @@ func (this *ShellBuffer) Write(data string) []byte {
 	for i := 0; i < len(runes); i++ {
 
 		if len(runes) >= i+3 && runes[i] == 0x1b && runes[i+1] == 0x5b {
-			if runes[i+2] == 0x44 {
-				// left arrow
-				if this.cursor > 0 {
-					this.cursor--
+			lastRune := runes[i+2]
+			switch lastRune {
+			case 0x41, 0x42:
+				// up or down arrow, ignore these because they will break the editing line
+				i += 2
+				continue
+
+			case 0x43:
+				// right arrow
+				if this.cursor < len(this.buffer) {
+					this.cursor++
 				}
 				i += 2
 				continue
 
-			}
-			if runes[i+2] == 0x43 {
-				// right arrow
-				if this.cursor < len(this.buffer) {
-					this.cursor++
+			case 0x44:
+				// left arrow
+				if this.cursor > 0 {
+					this.cursor--
 				}
 				i += 2
 				continue
