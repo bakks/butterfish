@@ -52,8 +52,10 @@ Sleep 5s
 Type "git commit"
 Sleep 1s
 Enter
+Sleep 10s
 
 Type "What happened?"
 Sleep 1s
 Enter
-Sleep 10s
+Sleep 20s
+
