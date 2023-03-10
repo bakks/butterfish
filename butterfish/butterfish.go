@@ -443,8 +443,8 @@ type ShellBuffer struct {
 	cursor int
 }
 
-func (this *ShellBuffer) WriteRune(r rune) {
-	// otherwise just add the character to the buffer
+func (this *ShellBuffer) Size() int {
+	return len(this.buffer)
 }
 
 func (this *ShellBuffer) Write(data string) []byte {
@@ -453,27 +453,26 @@ func (this *ShellBuffer) Write(data string) []byte {
 	}
 
 	startingCursor := this.cursor
+	runes := []rune(data)
 
-	for i := 0; i < len(data); i++ {
+	for i := 0; i < len(runes); i++ {
 
-		if len(data) >= 3+i && data[i] == 0x1b && data[i+1] == 0x5b {
-			if data[i+2] == 0x44 {
+		if len(runes) >= i+3 && runes[i] == 0x1b && runes[i+1] == 0x5b {
+			if runes[i+2] == 0x44 {
 				// left arrow
 				if this.cursor > 0 {
 					this.cursor--
 				}
 				i += 2
-				log.Printf("left arrow, cursor: %d, len: %d", this.cursor, len(this.buffer))
 				continue
 
 			}
-			if data[i+2] == 0x43 {
+			if runes[i+2] == 0x43 {
 				// right arrow
 				if this.cursor < len(this.buffer) {
 					this.cursor++
 				}
 				i += 2
-				log.Printf("right arrow, cursor: %d, len: %d", this.cursor, len(this.buffer))
 				continue
 			}
 		}
@@ -482,7 +481,7 @@ func (this *ShellBuffer) Write(data string) []byte {
 		//if len(data) == 0 {
 		//	return
 		//}
-		r := rune(data[i])
+		r := rune(runes[i])
 
 		switch r {
 		case '\n', '\r':
@@ -773,12 +772,15 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			}
 
 		} else {
-			log.Printf("State change: normal -> shell")
-			this.State = stateShell
-			this.History.NewBlock()
-			this.ChildIn.Write(data)
 			this.Command = NewShellBuffer()
 			this.Command.Write(string(data))
+
+			if this.Command.Size() > 0 {
+				log.Printf("State change: normal -> shell")
+				this.State = stateShell
+				this.History.NewBlock()
+				this.ChildIn.Write(data)
+			}
 		}
 
 	case statePrompting:
@@ -790,8 +792,15 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			log.Printf("State change: prompting -> normal")
 		}
 		toPrint := this.Prompt.Write(string(toAdd))
+
 		rendered := this.PromptStyle.Render(string(toPrint))
 		this.ParentOut.Write([]byte(rendered))
+
+		if this.Prompt.Size() == 0 {
+			this.State = stateNormal
+			log.Printf("State change: prompting -> normal")
+			return
+		}
 
 		// Submit this prompt if we just switched back into stateNormal
 		if this.State == stateNormal {
@@ -844,6 +853,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else { // otherwise user is typing a command
 			this.ChildIn.Write(data)
 			this.Command.Write(string(data))
+			if this.Command.Size() == 0 {
+				this.State = stateNormal
+				log.Printf("State change: shell -> normal")
+				return
+			}
 			this.RefreshAutosuggest(data)
 		}
 

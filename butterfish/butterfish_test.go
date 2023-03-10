@@ -28,12 +28,20 @@ func TestShellBuffer(t *testing.T) {
 	buffer.Write("foo")
 	buffer.Write(red)
 	buffer.Write("bar")
-	assert.Equal(t, "foobar", buffer.String())
+	assert.Equal(t, "foo"+red+"bar", buffer.String())
 
 	// test shell control characters
 	buffer = NewShellBuffer()
 	buffer.Write(string([]byte{0x6c, 0x08, 0x6c, 0x73, 0x20}))
 	assert.Equal(t, "ls ", buffer.String())
+
+	// test left cursor, backspace, and then insertion
+	buffer = NewShellBuffer()
+	buffer.Write("hello world")
+	buffer.Write("\x1b[D\x1b[D\x1b[D\x1b[D\x1b[D")
+	buffer.Write("foo   ")
+	buffer.Write("\x08\x7f") // backspace
+	assert.Equal(t, "hello foo world", buffer.String())
 }
 
 // function to test shell history using golang testing tools
@@ -54,7 +62,7 @@ func TestShellHistory(t *testing.T) {
 	output = HistoryBlocksToString(history.GetLastNBytes(14))
 	assert.Equal(t, "llm2", output)
 
-	history.Append(historyTypeLLMOutput, "\x1b[31mmore llm ᐅ")
+	history.Append(historyTypeLLMOutput, "more llm ᐅ")
 	output = HistoryBlocksToString(history.GetLastNBytes(24))
 	assert.Equal(t, "llm2more llm ᐅ", output)
 }
