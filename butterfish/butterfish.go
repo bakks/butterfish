@@ -30,6 +30,11 @@ import (
 // Main driver for the Butterfish set of command line tools. These are tools
 // for using AI capabilities on the command line.
 
+// Shell to-do
+// - Use shellbuffer for prompting
+// - Add fallback when you need to start a command with a capital letter
+// - Check if the cursor has moved back before doing autocomplete
+
 type ButterfishConfig struct {
 	Verbose           bool
 	OpenAIToken       string
@@ -440,47 +445,48 @@ type ShellBuffer struct {
 
 func (this *ShellBuffer) WriteRune(r rune) {
 	// otherwise just add the character to the buffer
-	if this.cursor == len(this.buffer) {
-		this.buffer = append(this.buffer, r)
-	} else {
-		this.buffer = append(this.buffer[:this.cursor], append([]rune{r}, this.buffer[this.cursor:]...)...)
-	}
-	this.cursor++
 }
 
-func (this *ShellBuffer) Write(data string) {
+func (this *ShellBuffer) Write(data string) []byte {
 	if len(data) == 0 {
-		return
+		return []byte{}
 	}
 
-	data = stripANSI(data)
-	if len(data) == 0 {
-		return
-	}
+	startingCursor := this.cursor
 
-	if len(data) >= 3 && data[0] == 0x1b && data[1] == 0x5b {
-		if data[2] == 0x44 {
-			// left arrow
-			if this.cursor > 0 {
-				this.cursor--
+	for i := 0; i < len(data); i++ {
+
+		if len(data) >= 3+i && data[i] == 0x1b && data[i+1] == 0x5b {
+			if data[i+2] == 0x44 {
+				// left arrow
+				if this.cursor > 0 {
+					this.cursor--
+				}
+				i += 2
+				log.Printf("left arrow, cursor: %d, len: %d", this.cursor, len(this.buffer))
+				continue
+
 			}
-			this.Write(data[3:])
-			return
-		}
-		if data[2] == 0x43 {
-			// right arrow
-			if this.cursor < len(this.buffer) {
-				this.cursor++
+			if data[i+2] == 0x43 {
+				// right arrow
+				if this.cursor < len(this.buffer) {
+					this.cursor++
+				}
+				i += 2
+				log.Printf("right arrow, cursor: %d, len: %d", this.cursor, len(this.buffer))
+				continue
 			}
-			this.Write(data[3:])
-			return
 		}
-	}
 
-	for _, r := range data {
-		switch int(r) {
-		case 0x0a, 0x0d: // newline, carriage return
-			this.WriteRune(r)
+		//data = stripANSI(data)
+		//if len(data) == 0 {
+		//	return
+		//}
+		r := rune(data[i])
+
+		switch r {
+		case '\n', '\r':
+			continue
 
 		case 0x08, 0x7f: // backspace
 			if this.cursor > 0 && len(this.buffer) > 0 {
@@ -489,10 +495,32 @@ func (this *ShellBuffer) Write(data string) {
 			}
 
 		default:
-			this.WriteRune(r)
+			if this.cursor == len(this.buffer) {
+				this.buffer = append(this.buffer, r)
+			} else {
+				this.buffer = append(this.buffer[:this.cursor], append([]rune{r}, this.buffer[this.cursor:]...)...)
+			}
+			this.cursor++
 
 		}
 	}
+
+	var w io.Writer
+	// create writer to a string buffer
+	var buf bytes.Buffer
+	w = &buf
+
+	for i := 0; i < startingCursor; i++ {
+		w.Write(cursorLeft)
+	}
+	w.Write([]byte(string(this.buffer)))
+	// clear to end of line
+	w.Write([]byte("\x1b[0K"))
+	for i := this.cursor; i < len(this.buffer); i++ {
+		w.Write(cursorLeft)
+	}
+
+	return buf.Bytes()
 }
 
 func (this *ShellBuffer) String() string {
@@ -637,7 +665,7 @@ type ShellState struct {
 	AutosuggestChan    chan *AutosuggestResult
 	History            *ShellHistory
 	PromptAnswerWriter io.Writer
-	Prompt             string
+	Prompt             *ShellBuffer
 	PromptStyle        lipgloss.Style
 	Command            *ShellBuffer
 
@@ -728,11 +756,14 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		if unicode.IsUpper(rune(data[0])) {
 			this.State = statePrompting
 			log.Printf("State change: normal -> prompting")
-			this.Prompt = string(data)
-			rendered := this.PromptStyle.Render(this.Prompt)
+			this.Prompt = NewShellBuffer()
+			this.Prompt.Write(string(data))
+			rendered := this.PromptStyle.Render(this.Prompt.String())
 			this.ParentOut.Write([]byte(rendered))
+
 		} else if hasCarriageReturn {
 			this.ChildIn.Write(data)
+
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
 				this.ChildIn.Write([]byte(this.LastAutosuggest))
@@ -740,6 +771,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
 			}
+
 		} else {
 			log.Printf("State change: normal -> shell")
 			this.State = stateShell
@@ -757,8 +789,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.State = stateNormal
 			log.Printf("State change: prompting -> normal")
 		}
-		this.Prompt += string(toAdd)
-		rendered := this.Butterfish.Config.Styles.Question.Render(string(toAdd))
+		toPrint := this.Prompt.Write(string(toAdd))
+		rendered := this.PromptStyle.Render(string(toPrint))
 		this.ParentOut.Write([]byte(rendered))
 
 		// Submit this prompt if we just switched back into stateNormal
@@ -770,7 +802,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			historyBlocks := this.History.GetLastNBytes(3000)
 			request := &util.CompletionRequest{
 				Ctx:           ctx,
-				Prompt:        this.Prompt,
+				Prompt:        this.Prompt.String(),
 				Model:         BestCompletionModel,
 				MaxTokens:     512,
 				Temperature:   0.7,
@@ -784,11 +816,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				log.Printf("Error: %s", err)
 			}
 
-			this.History.Add(historyTypePrompt, this.Prompt)
+			this.History.Add(historyTypePrompt, this.Prompt.String())
 			this.History.Add(historyTypeLLMOutput, output)
 
 			this.ChildIn.Write([]byte("\n"))
-			this.Prompt = ""
+			this.Prompt = NewShellBuffer()
 			this.RequestAutosuggest(true)
 		}
 
