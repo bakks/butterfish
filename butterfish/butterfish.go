@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,7 +32,6 @@ import (
 // for using AI capabilities on the command line.
 
 // Shell to-do
-// - Use shellbuffer for prompting
 // - Add fallback when you need to start a command with a capital letter
 // - Check if the cursor has moved back before doing autocomplete
 
@@ -378,7 +378,7 @@ func (this *styles) PrintTestColors() {
 
 func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
 	return &styles{
-		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),
+		Question:   lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color5)),
 		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Go:         lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color5)),
 		Highlight:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
@@ -434,13 +434,31 @@ func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error
 
 // This holds a buffer that represents a tty shell buffer. Incoming data
 // manipulates the buffer, for example the left arrow will move the cursor left,
-// a backspace would erase the end of the buffer. Special characters that do not
-// impact the cursor or printable characters will be ignored, for example 0x00
-// is ignored.
+// a backspace would erase the end of the buffer.
 type ShellBuffer struct {
 	// The buffer itself
-	buffer []rune
-	cursor int
+	buffer       []rune
+	cursor       int
+	termWidth    int
+	promptLength int
+	color        string
+}
+
+func (this *ShellBuffer) SetColor(r int, g int, b int) {
+	this.color = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+}
+
+func (this *ShellBuffer) Clear() {
+	this.buffer = []rune{}
+	this.cursor = 0
+}
+
+func (this *ShellBuffer) SetPromptLength(promptLength int) {
+	this.promptLength = promptLength
+}
+
+func (this *ShellBuffer) SetTerminalWidth(width int) {
+	this.termWidth = width
 }
 
 func (this *ShellBuffer) Size() int {
@@ -483,16 +501,9 @@ func (this *ShellBuffer) Write(data string) []byte {
 			}
 		}
 
-		//data = stripANSI(data)
-		//if len(data) == 0 {
-		//	return
-		//}
 		r := rune(runes[i])
 
 		switch r {
-		case '\n', '\r':
-			continue
-
 		case 0x08, 0x7f: // backspace
 			if this.cursor > 0 && len(this.buffer) > 0 {
 				this.buffer = append(this.buffer[:this.cursor-1], this.buffer[this.cursor:]...)
@@ -510,22 +521,88 @@ func (this *ShellBuffer) Write(data string) []byte {
 		}
 	}
 
+	// Ok, we've updated the buffer. Now we need to figure out what to print.
+	// The assumption here is that we need to print new stuff, that might fill
+	// multiple lines, might start with a prompt (i.e. not at column 0), and
+	// the cursor might be in the middle of the buffer.
+
 	var w io.Writer
 	// create writer to a string buffer
 	var buf bytes.Buffer
 	w = &buf
 
-	for i := 0; i < startingCursor; i++ {
-		w.Write(cursorLeft)
+	// if we have no termwidth we just print out, don't worry about wrapping
+	if this.termWidth == 0 {
+		// go left from the starting cursor
+		fmt.Fprintf(w, "\x1b[%dD", startingCursor)
+		// print the buffer
+		fmt.Fprintf(w, "%s", string(this.buffer))
+		// go back to the ending cursor
+		fmt.Fprintf(w, "\x1b[%dD", len(this.buffer)-this.cursor)
+
+		return buf.Bytes()
 	}
+
+	newNumLines := (max(len(this.buffer), this.cursor+1) + this.promptLength) / this.termWidth
+	oldCursorLine := (startingCursor + this.promptLength) / this.termWidth
+	newCursorLine := (this.cursor + this.promptLength) / this.termWidth
+	newColumn := (this.cursor + this.promptLength) % this.termWidth
+	posAfterWriting := (len(this.buffer) + this.promptLength) % this.termWidth
+
+	// get cursor back to the beginning of the prompt
+	// carriage return to go to left side of term
+	w.Write([]byte{'\r'})
+	// go up for the number of lines
+	if oldCursorLine > 0 {
+		// in this case we clear out the final old line
+		fmt.Fprintf(w, "\x1b[0K")
+		fmt.Fprintf(w, "\x1b[%dA", oldCursorLine)
+	}
+	// go right for the prompt length
+	if this.promptLength > 0 {
+		fmt.Fprintf(w, "\x1b[%dC", this.promptLength)
+	}
+
+	// set the terminal color
+	if this.color != "" {
+		fmt.Fprintf(w, "%s", this.color)
+	}
+
+	// write the full new buffer
 	w.Write([]byte(string(this.buffer)))
+
+	if posAfterWriting == 0 {
+		// if we are at the beginning of a new line, we need to go down
+		// one line to get to the right spot
+		w.Write([]byte("\r\n"))
+	}
+
 	// clear to end of line
 	w.Write([]byte("\x1b[0K"))
-	for i := this.cursor; i < len(this.buffer); i++ {
-		w.Write(cursorLeft)
+
+	// if the cursor is not at the end of the buffer we need to adjust it because
+	// we rewrote the entire buffer
+	if this.cursor < len(this.buffer) {
+		// carriage return to go to left side of term
+		w.Write([]byte{'\r'})
+		// go up for the number of lines
+		if newNumLines-newCursorLine > 0 {
+			fmt.Fprintf(w, "\x1b[%dA", newNumLines-newCursorLine)
+		}
+		// go right to the new cursor column
+		if newColumn > 0 {
+			fmt.Fprintf(w, "\x1b[%dC", newColumn)
+		}
 	}
 
 	return buf.Bytes()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (this *ShellBuffer) String() string {
@@ -732,11 +809,7 @@ func (this *ShellState) Mux() {
 				this.Butterfish.Cancel()
 				return
 			}
-			//cleanData := sanitizeTTYData(childOutMsg.Data)
-			//this.History.IdempotentAdd(historyTypeShellOutput, string(cleanData))
 			this.History.Append(historyTypeShellOutput, string(childOutMsg.Data))
-			//log.Printf("Child out: %s  0x%x", string(childOutMsg.Data), childOutMsg.Data)
-			//this.History.LogRecentHistory()
 			this.ParentOut.Write(childOutMsg.Data)
 
 		case parentInMsg := <-this.ParentInReader:
@@ -751,8 +824,39 @@ func (this *ShellState) Mux() {
 	}
 }
 
+// compile a regex that matches \x1b[%d;%dR
+var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
+
+func parseCursorPos(data []byte) (int, int) {
+	matches := cursorPosRegex.FindSubmatch(data)
+	if len(matches) != 3 {
+		return -1, -1
+	}
+	row, err := strconv.Atoi(string(matches[1]))
+	if err != nil {
+		return -1, -1
+	}
+	col, err := strconv.Atoi(string(matches[2]))
+	if err != nil {
+		return -1, -1
+	}
+	return row, col
+}
+
 func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
+
+	// check if this is a message telling us the cursor position
+	if cursorPosRegex.Match(data) {
+		_, col := parseCursorPos(data)
+		if col == -1 {
+			log.Printf("Failed to parse cursor position: %x", data)
+			return
+		}
+
+		this.Prompt.SetPromptLength(col - 1)
+		return // don't write the data to the child
+	}
 
 	switch this.State {
 	case stateNormal:
@@ -761,9 +865,15 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		if unicode.IsUpper(rune(data[0])) {
 			this.State = statePrompting
 			log.Printf("State change: normal -> prompting")
-			this.Prompt = NewShellBuffer()
+			this.Prompt.Clear()
 			this.Prompt.Write(string(data))
 			rendered := this.PromptStyle.Render(this.Prompt.String())
+
+			// We're starting a prompt managed here in the wrapper, so we want to
+			// get the cursor position
+			this.ParentOut.Write([]byte("\x1b[6n"))
+
+			// Write the actual prompt start
 			this.ParentOut.Write([]byte(rendered))
 
 		} else if hasCarriageReturn {
@@ -797,21 +907,22 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.State = stateNormal
 			log.Printf("State change: prompting -> normal")
 		}
+
 		toPrint := this.Prompt.Write(string(toAdd))
 
-		rendered := this.PromptStyle.Render(string(toPrint))
+		rendered := toPrint
 		this.ParentOut.Write([]byte(rendered))
 
 		if this.Prompt.Size() == 0 {
 			this.State = stateNormal
+			// reset color
+			this.ParentOut.Write([]byte("\x1b[0m"))
 			log.Printf("State change: prompting -> normal")
 			return
 		}
 
 		// Submit this prompt if we just switched back into stateNormal
 		if this.State == stateNormal {
-			//parentOut.Write([]byte("\n\rPrompting: " + prompt + "\n\r"))
-			log.Printf("Prompting: %s", this.Prompt)
 			this.ParentOut.Write([]byte("\n\r"))
 
 			historyBlocks := this.History.GetLastNBytes(3000)
@@ -835,7 +946,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.History.Add(historyTypeLLMOutput, output)
 
 			this.ChildIn.Write([]byte("\n"))
-			this.Prompt = NewShellBuffer()
+			this.Prompt.Clear()
 			this.RequestAutosuggest(true)
 		}
 
@@ -995,6 +1106,11 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
 	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
 
+	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		panic(err)
+	}
+
 	shellState := &ShellState{
 		Butterfish:         this,
 		ParentOut:          parentOut,
@@ -1008,8 +1124,14 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		PromptStyle:        this.Config.Styles.Question,
 		AutosuggestStyle:   this.Config.Styles.Grey,
 		Command:            NewShellBuffer(),
+		Prompt:             NewShellBuffer(),
 	}
 
+	shellState.Prompt.SetTerminalWidth(termWidth)
+	r, g, b, _ := shellState.PromptStyle.GetForeground().RGBA()
+	shellState.Prompt.SetColor(int(r/255), int(g/255), int(b/255))
+
+	// start
 	shellState.Mux()
 }
 
