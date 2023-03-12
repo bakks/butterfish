@@ -35,29 +35,60 @@ import (
 // - Check if the cursor has moved back before doing autocomplete
 
 type ButterfishConfig struct {
-	Verbose           bool
-	OpenAIToken       string
-	LLMClient         LLM
-	ColorScheme       *ColorScheme
-	Styles            *styles
-	PromptLibraryPath string
-	PromptLibrary     PromptLibrary
+	// Verbose mode, prints out more information like raw OpenAI communication
+	Verbose bool
 
-	GencmdModel          string
-	GencmdTemperature    float32
-	GencmdMaxTokens      int
+	// OpenAI private token, should start with "sk-".
+	// Found at https://platform.openai.com/account/api-keys
+	OpenAIToken string
+
+	// LLM API communication client that implements the LLM interface
+	LLMClient LLM
+
+	// Color scheme to use for the shell, see GruvboxDark below
+	ColorScheme *ColorScheme
+
+	// A list of context-specific styles drawn from the colorscheme
+	// These are what should actually be used during rendering
+	Styles *styles
+
+	// Path of yaml file from which to load LLM prompts
+	// Defaults to ~/.config/butterfish/prompts.yaml
+	PromptLibraryPath string
+
+	// The instantiated prompt library used when interpolating prompts before
+	// calling the LLM
+	PromptLibrary PromptLibrary
+
+	// Model, temp, and max tokens to use when executing the `gencmd` command
+	GencmdModel       string
+	GencmdTemperature float32
+	GencmdMaxTokens   int
+
+	// Model, temp, and max tokens to use when executing the `exec` command
 	ExeccheckModel       string
 	ExeccheckTemperature float32
 	ExeccheckMaxTokens   int
+
+	// Model, temp, and max tokens to use when executing the `summarize` command
 	SummarizeModel       string
 	SummarizeTemperature float32
 	SummarizeMaxTokens   int
 }
 
+// Interface for a library that accepts a prompt and interpolates variables
+// within the prompt
 type PromptLibrary interface {
+	// Get a prompt by name. The arguments are passed in a pattern of key, value.
+	// For example, if the prompt is "Hello, {name}", then you would call
+	// GetPrompt("greeting", "name", "Peter") and "Hello, Peter" would be
+	// returned. If a variable is not found, or an argument is passed that doesn't
+	// have a corresponding variable, an error is returned.
 	GetPrompt(name string, args ...string) (string, error)
 }
 
+// A generic interface for a service that calls a large larguage model based
+// on input prompts.
 type LLM interface {
 	CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error)
 	Completion(request *util.CompletionRequest) (string, error)
@@ -66,17 +97,27 @@ type LLM interface {
 }
 
 type ButterfishCtx struct {
-	Ctx    context.Context    // global context, should be passed through to other calls
-	Cancel context.CancelFunc // cancel function for the global context
-	Out    io.Writer          // output writer
+	// global context, should be passed through to other calls
+	Ctx context.Context
+	// cancel function for the global context
+	Cancel context.CancelFunc
+	// output writer
+	Out io.Writer
 
-	Config          *ButterfishConfig            // configuration
-	InConsoleMode   bool                         // true if we're running in console mode
-	PromptLibrary   PromptLibrary                // library of prompts
-	LLMClient       LLM                          // GPT client
-	CommandRegister string                       // landing space for generated commands
-	VectorIndex     embedding.FileEmbeddingIndex // embedding index for searching local files
+	// configuration
+	Config *ButterfishConfig
+	// true if we're running in console mode
+	InConsoleMode bool
+	// library of prompts
+	PromptLibrary PromptLibrary
+	// GPT client
+	LLMClient LLM
+	// landing space for generated commands
+	CommandRegister string
+	// embedding index for searching local files
+	VectorIndex embedding.FileEmbeddingIndex
 
+	// TODO remove these
 	ConsoleCmdChan   <-chan string    // channel for console commands
 	ClientController ClientController // client controller
 }
