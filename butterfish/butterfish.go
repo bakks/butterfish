@@ -22,7 +22,6 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/term"
 
-	"github.com/bakks/butterfish/bubbles/console"
 	"github.com/bakks/butterfish/embedding"
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
@@ -1133,64 +1132,6 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	// start
 	shellState.Mux()
-}
-
-func RunConsoleClient(ctx context.Context, args []string) error {
-	client, err := runIPCClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	return wrapCommand(ctx, cancel, args, client) // this is blocking
-}
-
-func RunConsole(ctx context.Context, config *ButterfishConfig) error {
-	ctx, cancel := context.WithCancel(ctx)
-
-	// initialize console UI
-	consoleCommand := make(chan string)
-	cmdCallback := func(cmd string) {
-		consoleCommand <- cmd
-	}
-	exitCallback := func() {
-		cancel()
-	}
-	configCallback := func(model console.ConsoleModel) console.ConsoleModel {
-		model.SetStyles(config.Styles.Prompt, config.Styles.Question)
-		return model
-	}
-	cons := console.NewConsoleProgram(configCallback, cmdCallback, exitCallback)
-
-	llmClient, err := initLLM(config)
-	if err != nil {
-		return err
-	}
-
-	clientController := RunIPCServer(ctx, cons)
-
-	promptLibrary, err := initPromptLibrary(config)
-	if err != nil {
-		return err
-	}
-
-	butterfishCtx := ButterfishCtx{
-		Ctx:              ctx,
-		Cancel:           cancel,
-		PromptLibrary:    promptLibrary,
-		InConsoleMode:    true,
-		Config:           config,
-		LLMClient:        llmClient,
-		Out:              cons,
-		ConsoleCmdChan:   consoleCommand,
-		ClientController: clientController,
-	}
-
-	// this is blocking
-	butterfishCtx.serverMultiplexer()
-
-	return nil
 }
 
 func initLLM(config *ButterfishConfig) (LLM, error) {

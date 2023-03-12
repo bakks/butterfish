@@ -35,16 +35,9 @@ const defaultPromptPath = "~/.config/butterfish/prompts.yaml"
 type CliConfig struct {
 	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
 
-	Wrap struct {
-		Cmd string `arg:"" help:"Command to wrap (e.g. zsh)"`
-	} `cmd:"" help:"Wrap a command (e.g. zsh) to expose to Butterfish."`
-
-	Console struct {
-	} `cmd:"" help:"Start a Butterfish console and server."`
-
 	Shell struct {
 		Bin string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-	} `cmd:"" help:"Start a Butterfish shell."`
+	} `cmd:"" help:"Start the Butterfish shell wrapper, which lets you run a prompt at any time by starting your command with a capital letter and uses recent context to autosuggest shell commands."`
 
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
@@ -163,21 +156,6 @@ func main() {
 		}
 
 		bf.RunShell(ctx, config, shell)
-
-	case "wrap <cmd>":
-		cmdArr := os.Args[2:]
-		err := bf.RunConsoleClient(ctx, cmdArr)
-		if err != nil {
-			fmt.Fprintf(errorWriter, err.Error())
-			os.Exit(1)
-		}
-
-	case "console":
-		err := bf.RunConsole(ctx, config)
-		if err != nil {
-			fmt.Fprintf(errorWriter, err.Error())
-			os.Exit(2)
-		}
 
 	default:
 		butterfishCtx, err := bf.NewButterfish(ctx, config)
