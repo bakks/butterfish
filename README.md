@@ -370,19 +370,6 @@ The `.butterfish_index` cache files are binary files written using the protobuf 
 protoc --decode DirectoryIndex butterfish/proto/butterfish.proto < .butterfish_index
 ```
 
-### Console Mode
-
-I'm experimenting with having a persistent console window open that has context from other shells that you run. You open a console with `butterfish console`, and can then run Butterfish commands in a persistent window, e.g. `prompt '[prompt text]'`.
-
-If you have a console open, you can then plug other shells into the console with `butterfish wrap [shellname]`. The console will watch the output of the shell and attempt to offer advice if it detects an error.
-
-You can also generate commands in the console and run them on the other shell. For example:
-
-```
-gencmd "Pull down recent remote changes to the git repo and rebase my own commits on top of them"
-execremote
-```
-
 ## Dev Setup
 
 I've been developing Butterfish on an Intel Mac, but it should work fine on ARM Macs and probably work on Linux (untested). Here is how to get set up for development on MacOS:
