@@ -482,6 +482,9 @@ type ShellBuffer struct {
 	termWidth    int
 	promptLength int
 	color        string
+
+	lastAutosuggestLen int
+	lastJumpForward    int
 }
 
 func (this *ShellBuffer) SetColor(r int, g int, b int) {
@@ -561,6 +564,10 @@ func (this *ShellBuffer) Write(data string) []byte {
 		}
 	}
 
+	return this.calculateShellUpdate(startingCursor)
+}
+
+func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 	// Ok, we've updated the buffer. Now we need to figure out what to print.
 	// The assumption here is that we need to print new stuff, that might fill
 	// multiple lines, might start with a prompt (i.e. not at column 0), and
@@ -654,6 +661,76 @@ func NewShellBuffer() *ShellBuffer {
 		buffer: make([]rune, 0),
 		cursor: 0,
 	}
+}
+
+// >>> command
+//            ^ cursor
+// autosuggest: " foobar"
+// jumpForward: 0
+//
+// >>> command
+//          ^ cursor
+// autosuggest: " foobar"
+// jumpForward: 2
+func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward int) []byte {
+	// promptlength represents the starting cursor position in this context
+
+	var w io.Writer
+	// create writer to a string buffer
+	var buf bytes.Buffer
+	w = &buf
+
+	numLines := (len(autosuggestText) + jumpForward + this.promptLength) / this.termWidth
+	this.lastAutosuggestLen = len(autosuggestText)
+	this.lastJumpForward = jumpForward
+
+	log.Printf("Applying autosuggest, numLines: %d, jumpForward: %d, promptLength: %d, autosuggestText: %s", numLines, jumpForward, this.promptLength, autosuggestText)
+
+	// if we would have to jump down to the next line to write the autosuggest
+	if this.promptLength+jumpForward > this.termWidth {
+		// don't handle this case
+		return []byte{}
+	}
+
+	// go right to the jumpForward position
+	if jumpForward > 0 {
+		fmt.Fprintf(w, "\x1b[%dC", jumpForward)
+	}
+
+	// handle color
+	if this.color != "" {
+		fmt.Fprintf(w, "%s", this.color)
+	}
+
+	// write the autosuggest text
+	w.Write([]byte(autosuggestText))
+
+	// return cursor to original position
+
+	// carriage return to go to left side of term
+	w.Write([]byte{'\r'})
+
+	// go up for the number of lines
+	if numLines > 0 {
+		fmt.Fprintf(w, "\x1b[%dA", numLines)
+	}
+
+	// go right for the prompt length
+	if this.promptLength > 0 {
+		fmt.Fprintf(w, "\x1b[%dC", this.promptLength)
+	}
+
+	return buf.Bytes()
+}
+
+func (this *ShellBuffer) ClearLast() []byte {
+	log.Printf("Clearing last autosuggest, lastAutosuggestLen: %d, lastJumpForward: %d, promptLength: %d", this.lastAutosuggestLen, this.lastJumpForward, this.promptLength)
+	buf := make([]byte, this.lastAutosuggestLen)
+	for i := 0; i < this.lastAutosuggestLen; i++ {
+		buf[i] = ' '
+	}
+
+	return this.WriteAutosuggest(string(buf), this.lastJumpForward)
 }
 
 const (
@@ -790,11 +867,14 @@ type ShellState struct {
 	Prompt             *ShellBuffer
 	PromptStyle        lipgloss.Style
 	Command            *ShellBuffer
+	TerminalWidth      int
 
-	LastAutosuggest   string
-	AutosuggestCtx    context.Context
-	AutosuggestCancel context.CancelFunc
-	AutosuggestStyle  lipgloss.Style
+	LastAutosuggest    string
+	AutosuggestCtx     context.Context
+	AutosuggestCancel  context.CancelFunc
+	AutosuggestStyle   lipgloss.Style
+	AutosuggestBuffer  *ShellBuffer
+	PendingAutosuggest *AutosuggestResult
 }
 
 // TODO add a diagram of streams here
@@ -809,39 +889,9 @@ func (this *ShellState) Mux() {
 			return
 
 		case result := <-this.AutosuggestChan:
-			if result.Command != this.Command.String() || result.Suggestion == "" {
-				// this is an old result (or no suggestion appeared), ignore it
-				continue
-			}
-
-			// if result.Suggestion has newlines then discard it
-			if strings.Contains(result.Suggestion, "\n") {
-				continue
-			}
-
-			// if the suggestion is the same as the last one, ignore it
-			if result.Suggestion == this.LastAutosuggest {
-				continue
-			}
-
-			this.LastAutosuggest = result.Suggestion
-
-			log.Printf("Autosuggest result: %s", result.Suggestion)
-
-			// test that the command is equal to the beginning of the suggestion
-			if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
-				continue
-			}
-
-			// Print out autocomplete suggestion
-			cmdLen := len(this.Command.String())
-			suggToAdd := result.Suggestion[cmdLen:]
-			this.LastAutosuggest = suggToAdd
-			rendered := this.AutosuggestStyle.Render(suggToAdd)
-			this.ParentOut.Write([]byte(rendered))
-			for i := 0; i < len(result.Suggestion)-cmdLen; i++ {
-				this.ParentOut.Write(cursorLeft)
-			}
+			this.PendingAutosuggest = result
+			// request cursor position
+			this.ParentOut.Write([]byte("\x1b[6n"))
 
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
@@ -894,7 +944,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			return
 		}
 
-		this.Prompt.SetPromptLength(col - 1)
+		if this.State == statePrompting {
+			this.Prompt.SetPromptLength(col - 1)
+		} else if this.State == stateShell {
+			this.ApplyAutosuggest(this.PendingAutosuggest, col-1, this.TerminalWidth)
+		}
 		return // don't write the data to the child
 	}
 
@@ -1023,6 +1077,47 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	}
 }
 
+func (this *ShellState) ApplyAutosuggest(result *AutosuggestResult, cursorCol int, termWidth int) {
+	if result.Command != this.Command.String() || result.Suggestion == "" {
+		// this is an old result (or no suggestion appeared), ignore it
+		return
+	}
+
+	// if result.Suggestion has newlines then discard it
+	if strings.Contains(result.Suggestion, "\n") {
+		return
+	}
+
+	// if the suggestion is the same as the last one, ignore it
+	if result.Suggestion == this.LastAutosuggest {
+		return
+	}
+
+	log.Printf("Autosuggest result: %s", result.Suggestion)
+
+	// test that the command is equal to the beginning of the suggestion
+	if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
+		return
+	}
+
+	// Print out autocomplete suggestion
+	cmdLen := this.Command.Size()
+	suggToAdd := result.Suggestion[cmdLen:]
+	log.Printf("cursorCol: %d, cmdLen: %d, suggToAdd: %s", cursorCol, cmdLen, suggToAdd)
+	jumpForward := this.Command.Size() - this.Command.cursor
+
+	this.LastAutosuggest = suggToAdd
+	this.AutosuggestBuffer = NewShellBuffer()
+
+	r, g, b, _ := this.AutosuggestStyle.GetForeground().RGBA()
+	this.AutosuggestBuffer.SetColor(int(r/255), int(g/255), int(b/255))
+
+	this.AutosuggestBuffer.SetPromptLength(cursorCol)
+	this.AutosuggestBuffer.SetTerminalWidth(termWidth)
+	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward)
+	this.ParentOut.Write([]byte(buf))
+}
+
 // Update autosuggest when we receive new data
 func (this *ShellState) RefreshAutosuggest(newData []byte) {
 	// check if data is a prefix of lastautosuggest
@@ -1040,22 +1135,15 @@ func (this *ShellState) RefreshAutosuggest(newData []byte) {
 	}
 }
 
-// Clear out the grayed out autosuggest text we wrote previously
 func (this *ShellState) ClearAutosuggest() {
 	if this.LastAutosuggest == "" {
 		// there wasn't actually a last autosuggest, so nothing to clear
 		return
 	}
 
-	// TODO special case when the added character is the same as the lastAutosuggest
-	// clear out the last autosuggest
-	for i := 0; i < len(this.LastAutosuggest); i++ {
-		this.ParentOut.Write([]byte(" "))
-	}
-	for i := 0; i < len(this.LastAutosuggest); i++ {
-		this.ParentOut.Write(cursorLeft)
-	}
 	this.LastAutosuggest = ""
+	this.ParentOut.Write(this.AutosuggestBuffer.ClearLast())
+	this.AutosuggestBuffer = nil
 }
 
 var autosuggestDelay = 100 * time.Millisecond
@@ -1165,6 +1253,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		AutosuggestStyle:   this.Config.Styles.Grey,
 		Command:            NewShellBuffer(),
 		Prompt:             NewShellBuffer(),
+		TerminalWidth:      termWidth,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
