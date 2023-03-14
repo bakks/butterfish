@@ -730,13 +730,22 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 }
 
 func (this *ShellBuffer) ClearLast() []byte {
-	log.Printf("Clearing last autosuggest, lastAutosuggestLen: %d, lastJumpForward: %d, promptLength: %d", this.lastAutosuggestLen, this.lastJumpForward, this.promptLength)
+	//log.Printf("Clearing last autosuggest, lastAutosuggestLen: %d, lastJumpForward: %d, promptLength: %d", this.lastAutosuggestLen, this.lastJumpForward, this.promptLength)
 	buf := make([]byte, this.lastAutosuggestLen)
 	for i := 0; i < this.lastAutosuggestLen; i++ {
 		buf[i] = ' '
 	}
 
 	return this.WriteAutosuggest(string(buf), this.lastJumpForward, false)
+}
+
+func (this *ShellBuffer) EatAutosuggestRune() {
+	if this.lastJumpForward > 0 {
+		panic("jump forward should be 0")
+	}
+
+	this.lastAutosuggestLen--
+	this.promptLength++
 }
 
 const (
@@ -1160,11 +1169,16 @@ func (this *ShellState) ApplyAutosuggest(
 
 // Update autosuggest when we receive new data
 func (this *ShellState) RefreshAutosuggest(newData []byte) {
-	// check if data is a prefix of lastautosuggest
-	//	if bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
-	//		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
-	//		return
-	//	}
+	// if we're typing out the exact autosuggest, and we haven't moved the cursor
+	// backwards in the buffer, then we can just append and adjust the
+	// autosuggest
+	if this.Command.Size() == this.Command.Cursor() &&
+		bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
+		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
+		this.ParentOut.Write([]byte("\x1b[0m"))
+		this.AutosuggestBuffer.EatAutosuggestRune()
+		return
+	}
 
 	// otherwise, clear the autosuggest
 	this.ClearAutosuggest()
