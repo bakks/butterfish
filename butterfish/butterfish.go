@@ -508,6 +508,10 @@ func (this *ShellBuffer) Size() int {
 	return len(this.buffer)
 }
 
+func (this *ShellBuffer) Cursor() int {
+	return this.cursor
+}
+
 func (this *ShellBuffer) Write(data string) []byte {
 	if len(data) == 0 {
 		return []byte{}
@@ -672,7 +676,7 @@ func NewShellBuffer() *ShellBuffer {
 //          ^ cursor
 // autosuggest: " foobar"
 // jumpForward: 2
-func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward int) []byte {
+func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward int, color bool) []byte {
 	// promptlength represents the starting cursor position in this context
 
 	var w io.Writer
@@ -684,7 +688,7 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 	this.lastAutosuggestLen = len(autosuggestText)
 	this.lastJumpForward = jumpForward
 
-	log.Printf("Applying autosuggest, numLines: %d, jumpForward: %d, promptLength: %d, autosuggestText: %s", numLines, jumpForward, this.promptLength, autosuggestText)
+	//log.Printf("Applying autosuggest, numLines: %d, jumpForward: %d, promptLength: %d, autosuggestText: %s", numLines, jumpForward, this.promptLength, autosuggestText)
 
 	// if we would have to jump down to the next line to write the autosuggest
 	if this.promptLength+jumpForward > this.termWidth {
@@ -698,8 +702,10 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 	}
 
 	// handle color
-	if this.color != "" {
+	if this.color != "" && color {
 		fmt.Fprintf(w, "%s", this.color)
+	} else {
+		fmt.Fprintf(w, "\x1b[0m")
 	}
 
 	// write the autosuggest text
@@ -730,7 +736,7 @@ func (this *ShellBuffer) ClearLast() []byte {
 		buf[i] = ' '
 	}
 
-	return this.WriteAutosuggest(string(buf), this.lastJumpForward)
+	return this.WriteAutosuggest(string(buf), this.lastJumpForward, false)
 }
 
 const (
@@ -1056,7 +1062,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.ChildIn.Write([]byte(this.LastAutosuggest))
+				this.RealizeAutosuggest()
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
@@ -1077,7 +1083,39 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	}
 }
 
-func (this *ShellState) ApplyAutosuggest(result *AutosuggestResult, cursorCol int, termWidth int) {
+// When the user presses tab or a similar hotkey, we want to turn the
+// autosuggest into a real command
+func (this *ShellState) RealizeAutosuggest() {
+	log.Printf("Realizing autosuggest: %s", this.LastAutosuggest)
+	// Clear color
+	fmt.Fprintf(this.ParentOut, "%s", "\x1b[0m")
+
+	// If we're not at the end of the line, we write out the remaining command
+	// before writing the autosuggest
+	jumpforward := this.Command.Size() - this.Command.Cursor()
+	if jumpforward > 0 {
+		// go right for the length of the suffix
+		for i := 0; i < jumpforward; i++ {
+			// move cursor right
+			fmt.Fprintf(this.ChildIn, "\x1b[C")
+			this.Command.Write("\x1b[C")
+		}
+	}
+
+	// Write the autosuggest
+	fmt.Fprintf(this.ChildIn, "%s", this.LastAutosuggest)
+	this.Command.Write(this.LastAutosuggest)
+
+	// clear the autosuggest now that we've used it
+	this.LastAutosuggest = ""
+}
+
+// We have a pending autosuggest and we've just received the cursor location
+// from the terminal. We can now render the autosuggest (in the greyed out
+// style)
+func (this *ShellState) ApplyAutosuggest(
+	result *AutosuggestResult, cursorCol int, termWidth int) {
+
 	if result.Command != this.Command.String() || result.Suggestion == "" {
 		// this is an old result (or no suggestion appeared), ignore it
 		return
@@ -1103,28 +1141,30 @@ func (this *ShellState) ApplyAutosuggest(result *AutosuggestResult, cursorCol in
 	// Print out autocomplete suggestion
 	cmdLen := this.Command.Size()
 	suggToAdd := result.Suggestion[cmdLen:]
-	log.Printf("cursorCol: %d, cmdLen: %d, suggToAdd: %s", cursorCol, cmdLen, suggToAdd)
-	jumpForward := this.Command.Size() - this.Command.cursor
+	jumpForward := cmdLen - this.Command.Cursor()
 
 	this.LastAutosuggest = suggToAdd
-	this.AutosuggestBuffer = NewShellBuffer()
 
+	this.AutosuggestBuffer = NewShellBuffer()
 	r, g, b, _ := this.AutosuggestStyle.GetForeground().RGBA()
 	this.AutosuggestBuffer.SetColor(int(r/255), int(g/255), int(b/255))
-
 	this.AutosuggestBuffer.SetPromptLength(cursorCol)
 	this.AutosuggestBuffer.SetTerminalWidth(termWidth)
-	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward)
+
+	// Use autosuggest buffer to get the bytes to write the greyed out
+	// autosuggestion and then move the cursor back to the original position
+	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, true)
+
 	this.ParentOut.Write([]byte(buf))
 }
 
 // Update autosuggest when we receive new data
 func (this *ShellState) RefreshAutosuggest(newData []byte) {
 	// check if data is a prefix of lastautosuggest
-	if bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
-		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
-		return
-	}
+	//	if bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
+	//		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
+	//		return
+	//	}
 
 	// otherwise, clear the autosuggest
 	this.ClearAutosuggest()
