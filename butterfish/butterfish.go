@@ -866,6 +866,7 @@ const (
 	stateNormal = iota
 	stateShell
 	statePrompting
+	statePromptResponse
 )
 
 type AutosuggestResult struct {
@@ -879,16 +880,17 @@ type ShellState struct {
 	ChildIn    io.Writer
 
 	// The current state of the shell
-	State              int
-	ChildOutReader     chan *byteMsg
-	ParentInReader     chan *byteMsg
-	AutosuggestChan    chan *AutosuggestResult
-	History            *ShellHistory
-	PromptAnswerWriter io.Writer
-	Prompt             *ShellBuffer
-	PromptStyle        lipgloss.Style
-	Command            *ShellBuffer
-	TerminalWidth      int
+	State                int
+	ChildOutReader       chan *byteMsg
+	ParentInReader       chan *byteMsg
+	AutosuggestChan      chan *AutosuggestResult
+	History              *ShellHistory
+	PromptAnswerWriter   io.Writer
+	Prompt               *ShellBuffer
+	PromptStyle          lipgloss.Style
+	PromptResponseCancel context.CancelFunc
+	Command              *ShellBuffer
+	TerminalWidth        int
 
 	AutosuggestEnabled bool
 	LastAutosuggest    string
@@ -957,6 +959,18 @@ func parseCursorPos(data []byte) (int, int) {
 
 func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
+
+	// Ctrl-C while receiving prompt
+	if this.State == statePromptResponse {
+		if bytes.Equal(data, []byte{'\x03'}) {
+			this.PromptResponseCancel()
+			this.PromptResponseCancel = nil
+			return
+		}
+
+		// If we're in the middle of a prompt response we ignore all other input
+		return
+	}
 
 	// check if this is a message telling us the cursor position
 	if cursorPosRegex.Match(data) {
@@ -1043,8 +1057,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.ParentOut.Write([]byte("\n\r"))
 
 			historyBlocks := this.History.GetLastNBytes(3000)
+			requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			this.PromptResponseCancel = cancel
+
 			request := &util.CompletionRequest{
-				Ctx:           ctx,
+				Ctx:           requestCtx,
 				Prompt:        this.Prompt.String(),
 				Model:         BestCompletionModel,
 				MaxTokens:     512,
@@ -1052,19 +1069,28 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				HistoryBlocks: historyBlocks,
 			}
 
-			//dump, _ := json.Marshal(historyBlocks)
-			//fmt.Fprintf(parentOut, "History: %s\n\r", dump)
-			output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
-			if err != nil {
-				log.Printf("Error: %s", err)
-			}
-
 			this.History.Add(historyTypePrompt, this.Prompt.String())
-			this.History.Add(historyTypeLLMOutput, output)
 
-			this.ChildIn.Write([]byte("\n"))
+			this.State = statePromptResponse
+			log.Printf("State change: prompting -> promptResponse")
+
+			// we run this in a goroutine so that we can still receive input
+			// like Ctrl-C while waiting for the response
+			go func() {
+				output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
+				if err != nil {
+					log.Printf("Error prompting in shell: %s", err)
+				}
+
+				this.History.Add(historyTypeLLMOutput, output)
+				this.ChildIn.Write([]byte("\n"))
+				this.RequestAutosuggest(true)
+
+				this.State = stateNormal
+				log.Printf("State change: promptResponse -> normal")
+			}()
+
 			this.Prompt.Clear()
-			this.RequestAutosuggest(true)
 		}
 
 	case stateShell:
@@ -1072,10 +1098,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.ClearAutosuggest()
 
 			this.State = stateNormal
+			log.Printf("State change: shell -> normal")
+
 			this.ChildIn.Write(data)
 			this.Command = NewShellBuffer()
 			this.History.NewBlock()
-			log.Printf("State change: shell -> normal")
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
@@ -1298,12 +1325,14 @@ var cursorLeft []byte = []byte{27, 91, 68}
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
+
+	log.Printf("Starting shell multiplexer")
+
 	childOutReader := make(chan *byteMsg)
 	parentInReader := make(chan *byteMsg)
 
 	go readerToChannel(childOut, childOutReader)
 	go readerToChannel(parentIn, parentInReader)
-	log.Printf("Starting shell multiplexer")
 
 	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
 	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
