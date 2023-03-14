@@ -38,11 +38,12 @@ Type "d"
 Backspace 2
 Type "dencies?"
 Enter
-Sleep 15s
+Sleep 10s
 
 Tab
 Sleep 1s
 Enter
+Sleep 5s
 
 Type "git status"
 Sleep 1s
