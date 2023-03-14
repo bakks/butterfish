@@ -572,6 +572,8 @@ func (this *ShellBuffer) Write(data string) []byte {
 		}
 	}
 
+	//log.Printf("Buffer update, cursor: %d, buffer: %s, written: %s  %x", this.cursor, string(this.buffer), data, []byte(data))
+
 	return this.calculateShellUpdate(startingCursor)
 }
 
@@ -888,6 +890,7 @@ type ShellState struct {
 	Command            *ShellBuffer
 	TerminalWidth      int
 
+	AutosuggestEnabled bool
 	LastAutosuggest    string
 	AutosuggestCtx     context.Context
 	AutosuggestCancel  context.CancelFunc
@@ -1003,6 +1006,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else {
 			this.Command = NewShellBuffer()
 			this.Command.Write(string(data))
+			this.RefreshAutosuggest(data)
 
 			if this.Command.Size() > 0 {
 				log.Printf("State change: normal -> shell")
@@ -1081,14 +1085,14 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				this.ChildIn.Write(data)
 			}
 		} else { // otherwise user is typing a command
-			this.ChildIn.Write(data)
 			this.Command.Write(string(data))
+			this.RefreshAutosuggest(data)
+			this.ChildIn.Write(data)
 			if this.Command.Size() == 0 {
 				this.State = stateNormal
 				log.Printf("State change: shell -> normal")
 				return
 			}
-			this.RefreshAutosuggest(data)
 		}
 
 	default:
@@ -1129,27 +1133,32 @@ func (this *ShellState) RealizeAutosuggest() {
 func (this *ShellState) ApplyAutosuggest(
 	result *AutosuggestResult, cursorCol int, termWidth int) {
 
-	if result.Command != this.Command.String() || result.Suggestion == "" {
-		// this is an old result (or no suggestion appeared), ignore it
+	if result.Suggestion == "" {
+		// no suggestion
 		return
 	}
 
-	// if result.Suggestion has newlines then discard it
+	if result.Command != this.Command.String() {
+		// this is an old result, it doesn't match the current command buffer
+		return
+	}
+
 	if strings.Contains(result.Suggestion, "\n") {
+		// if result.Suggestion has newlines then discard it
 		return
 	}
 
-	// if the suggestion is the same as the last one, ignore it
 	if result.Suggestion == this.LastAutosuggest {
+		// if the suggestion is the same as the last one, ignore it
+		return
+	}
+
+	if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
+		// test that the command is equal to the beginning of the suggestion
 		return
 	}
 
 	log.Printf("Autosuggest result: %s", result.Suggestion)
-
-	// test that the command is equal to the beginning of the suggestion
-	if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
-		return
-	}
 
 	// Print out autocomplete suggestion
 	cmdLen := this.Command.Size()
@@ -1176,7 +1185,8 @@ func (this *ShellState) RefreshAutosuggest(newData []byte) {
 	// if we're typing out the exact autosuggest, and we haven't moved the cursor
 	// backwards in the buffer, then we can just append and adjust the
 	// autosuggest
-	if this.Command.Size() == this.Command.Cursor() &&
+	if this.Command.Size() > 0 &&
+		this.Command.Size() == this.Command.Cursor() &&
 		bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
 		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
 		this.ParentOut.Write([]byte("\x1b[0m"))
@@ -1207,6 +1217,10 @@ func (this *ShellState) ClearAutosuggest() {
 var autosuggestDelay = 100 * time.Millisecond
 
 func (this *ShellState) RequestAutosuggest(noDelay bool) {
+	if !this.AutosuggestEnabled {
+		return
+	}
+
 	if this.AutosuggestCancel != nil {
 		// clear out a previous request
 		this.AutosuggestCancel()
@@ -1306,14 +1320,15 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		State:              stateNormal,
 		ChildOutReader:     childOutReader,
 		ParentInReader:     parentInReader,
-		AutosuggestChan:    make(chan *AutosuggestResult),
 		History:            NewShellHistory(),
 		PromptAnswerWriter: cleanedWriter,
 		PromptStyle:        this.Config.Styles.Question,
-		AutosuggestStyle:   this.Config.Styles.Grey,
 		Command:            NewShellBuffer(),
 		Prompt:             NewShellBuffer(),
 		TerminalWidth:      termWidth,
+		AutosuggestEnabled: true,
+		AutosuggestChan:    make(chan *AutosuggestResult),
+		AutosuggestStyle:   this.Config.Styles.Grey,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
