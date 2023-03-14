@@ -1185,6 +1185,11 @@ func (this *ShellState) ApplyAutosuggest(
 		return
 	}
 
+	if result.Suggestion == this.Command.String() {
+		// if the suggestion is the same as the command, ignore it
+		return
+	}
+
 	log.Printf("Autosuggest result: %s", result.Suggestion)
 
 	// Print out autocomplete suggestion
