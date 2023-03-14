@@ -878,6 +878,7 @@ type ShellState struct {
 	Butterfish *ButterfishCtx
 	ParentOut  io.Writer
 	ChildIn    io.Writer
+	Sigwinch   chan os.Signal
 
 	// The current state of the shell
 	State                int
@@ -901,6 +902,56 @@ type ShellState struct {
 	PendingAutosuggest *AutosuggestResult
 }
 
+func (this *ButterfishCtx) ShellMultiplexer(
+	childIn io.Writer, childOut io.Reader,
+	parentIn io.Reader, parentOut io.Writer) {
+
+	log.Printf("Starting shell multiplexer")
+
+	childOutReader := make(chan *byteMsg)
+	parentInReader := make(chan *byteMsg)
+
+	go readerToChannel(childOut, childOutReader)
+	go readerToChannel(parentIn, parentInReader)
+
+	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
+	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
+
+	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		panic(err)
+	}
+
+	sigwinch := make(chan os.Signal, 1)
+	signal.Notify(sigwinch, syscall.SIGWINCH)
+
+	shellState := &ShellState{
+		Butterfish:         this,
+		ParentOut:          parentOut,
+		ChildIn:            childIn,
+		Sigwinch:           sigwinch,
+		State:              stateNormal,
+		ChildOutReader:     childOutReader,
+		ParentInReader:     parentInReader,
+		History:            NewShellHistory(),
+		PromptAnswerWriter: cleanedWriter,
+		PromptStyle:        this.Config.Styles.Question,
+		Command:            NewShellBuffer(),
+		Prompt:             NewShellBuffer(),
+		TerminalWidth:      termWidth,
+		AutosuggestEnabled: true,
+		AutosuggestChan:    make(chan *AutosuggestResult),
+		AutosuggestStyle:   this.Config.Styles.Grey,
+	}
+
+	shellState.Prompt.SetTerminalWidth(termWidth)
+	r, g, b, _ := shellState.PromptStyle.GetForeground().RGBA()
+	shellState.Prompt.SetColor(int(r/255), int(g/255), int(b/255))
+
+	// start
+	shellState.Mux()
+}
+
 // TODO add a diagram of streams here
 // States:
 // 1. Normal
@@ -911,6 +962,20 @@ func (this *ShellState) Mux() {
 		select {
 		case <-this.Butterfish.Ctx.Done():
 			return
+
+		case <-this.Sigwinch:
+			termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
+			if err != nil {
+				log.Printf("Error getting terminal size after SIGWINCH: %s", err)
+			}
+			log.Printf("Terminal resized to %d", termWidth)
+			this.Prompt.SetTerminalWidth(termWidth)
+			if this.AutosuggestBuffer != nil {
+				this.AutosuggestBuffer.SetTerminalWidth(termWidth)
+			}
+			if this.Command != nil {
+				this.Command.SetTerminalWidth(termWidth)
+			}
 
 		case result := <-this.AutosuggestChan:
 			this.PendingAutosuggest = result
@@ -1326,52 +1391,6 @@ If a command has resulted in an error, avoid that. This is the start of the comm
 }
 
 var cursorLeft []byte = []byte{27, 91, 68}
-
-func (this *ButterfishCtx) ShellMultiplexer(
-	childIn io.Writer, childOut io.Reader,
-	parentIn io.Reader, parentOut io.Writer) {
-
-	log.Printf("Starting shell multiplexer")
-
-	childOutReader := make(chan *byteMsg)
-	parentInReader := make(chan *byteMsg)
-
-	go readerToChannel(childOut, childOutReader)
-	go readerToChannel(parentIn, parentInReader)
-
-	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
-	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
-
-	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		panic(err)
-	}
-
-	shellState := &ShellState{
-		Butterfish:         this,
-		ParentOut:          parentOut,
-		ChildIn:            childIn,
-		State:              stateNormal,
-		ChildOutReader:     childOutReader,
-		ParentInReader:     parentInReader,
-		History:            NewShellHistory(),
-		PromptAnswerWriter: cleanedWriter,
-		PromptStyle:        this.Config.Styles.Question,
-		Command:            NewShellBuffer(),
-		Prompt:             NewShellBuffer(),
-		TerminalWidth:      termWidth,
-		AutosuggestEnabled: true,
-		AutosuggestChan:    make(chan *AutosuggestResult),
-		AutosuggestStyle:   this.Config.Styles.Grey,
-	}
-
-	shellState.Prompt.SetTerminalWidth(termWidth)
-	r, g, b, _ := shellState.PromptStyle.GetForeground().RGBA()
-	shellState.Prompt.SetColor(int(r/255), int(g/255), int(b/255))
-
-	// start
-	shellState.Mux()
-}
 
 func initLLM(config *ButterfishConfig) (LLM, error) {
 	if config.OpenAIToken == "" && config.LLMClient != nil {
