@@ -252,6 +252,10 @@ func sanitizeTTYData(data []byte) []byte {
 	return []byte(filterNonPrintable(stripANSI(string(data))))
 }
 
+func sanitizeTTYString(data string) string {
+	return filterNonPrintable(stripANSI(data))
+}
+
 func ptyCommand(ctx context.Context, command []string) (*os.File, func() error, error) {
 	// Create arbitrary command.
 	var cmd *exec.Cmd
@@ -805,7 +809,7 @@ func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 
 	for i := len(this.Blocks) - 1; i >= 0 && numBytes > 0; i-- {
 		block := this.Blocks[i]
-		content := block.Content.String()
+		content := sanitizeTTYString(block.Content.String())
 		if len(content) > truncateLength {
 			content = content[:truncateLength]
 		}
@@ -961,7 +965,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 
 		if this.State == statePrompting {
 			this.Prompt.SetPromptLength(col - 1)
-		} else if this.State == stateShell {
+		} else if this.State == stateShell || this.State == stateNormal {
 			this.ApplyAutosuggest(this.PendingAutosuggest, col-1, this.TerminalWidth)
 		}
 		return // don't write the data to the child
@@ -990,7 +994,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
-				this.ChildIn.Write([]byte(this.LastAutosuggest))
+				this.RealizeAutosuggest()
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
@@ -1249,6 +1253,8 @@ func RequestCancelableAutosuggest(
 '''.
 If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
 	}
+
+	//log.Printf("Autosuggest history: %s", historyText)
 
 	request := &util.CompletionRequest{
 		Ctx:         ctx,
