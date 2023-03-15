@@ -60,6 +60,15 @@ type ButterfishConfig struct {
 	// calling the LLM
 	PromptLibrary PromptLibrary
 
+	// Shell mode configuration
+	ShellPromptModel         string // used when the user enters an explicit prompt
+	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
+	ShellAutosuggestModel    string // used when we're autocompleting a command
+	// how long to wait between when the user stos typing and we ask for an
+	// autosuggest
+	ShellAutosuggestTimeout       time.Duration
+	ShellAutosuggestHistoryWindow int // how many bytes of history to include when autosuggesting
+
 	// Model, temp, and max tokens to use when executing the `gencmd` command
 	GencmdModel       string
 	GencmdTemperature float32
@@ -1125,14 +1134,14 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		if this.State == stateNormal {
 			this.ParentOut.Write([]byte("\n\r"))
 
-			historyBlocks := this.History.GetLastNBytes(3000)
+			historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
 			requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			this.PromptResponseCancel = cancel
 
 			request := &util.CompletionRequest{
 				Ctx:           requestCtx,
 				Prompt:        this.Prompt.String(),
-				Model:         BestCompletionModel,
+				Model:         this.Butterfish.Config.ShellPromptModel,
 				MaxTokens:     512,
 				Temperature:   0.7,
 				HistoryBlocks: historyBlocks,
@@ -1315,8 +1324,6 @@ func (this *ShellState) ClearAutosuggest() {
 	this.AutosuggestBuffer = nil
 }
 
-var autosuggestDelay = 100 * time.Millisecond
-
 func (this *ShellState) RequestAutosuggest(noDelay bool) {
 	if !this.AutosuggestEnabled {
 		return
@@ -1327,20 +1334,20 @@ func (this *ShellState) RequestAutosuggest(noDelay bool) {
 		this.AutosuggestCancel()
 	}
 	this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
-	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(2000))
+	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow))
 	//this.History.LogRecentHistory()
 
 	var delay time.Duration
 	if !noDelay {
-		delay = autosuggestDelay
+		delay = this.Butterfish.Config.ShellAutosuggestTimeout
 	}
 
-	go RequestCancelableAutosuggest(
+	go this.RequestCancelableAutosuggest(
 		this.AutosuggestCtx, delay, this.Command.String(),
 		historyBlocks, this.Butterfish.LLMClient, this.AutosuggestChan)
 }
 
-func RequestCancelableAutosuggest(
+func (this *ShellState) RequestCancelableAutosuggest(
 	ctx context.Context,
 	delay time.Duration,
 	currCommand string,
@@ -1374,7 +1381,7 @@ If a command has resulted in an error, avoid that. This is the start of the comm
 	request := &util.CompletionRequest{
 		Ctx:         ctx,
 		Prompt:      prompt,
-		Model:       BestAutosuggestModel,
+		Model:       this.Butterfish.Config.ShellAutosuggestModel,
 		MaxTokens:   256,
 		Temperature: 0.7,
 		//HistoryBlocks: historyBlocks,
