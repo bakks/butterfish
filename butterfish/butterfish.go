@@ -771,12 +771,14 @@ type HistoryBuffer struct {
 // the last block, and get the the last n bytes of the history as an array of
 // HistoryBlocks.
 type ShellHistory struct {
-	Blocks []HistoryBuffer
+	Blocks         []HistoryBuffer
+	TruncateLength int
 }
 
 func NewShellHistory() *ShellHistory {
 	return &ShellHistory{
-		Blocks: make([]HistoryBuffer, 0),
+		Blocks:         make([]HistoryBuffer, 0),
+		TruncateLength: 512,
 	}
 }
 
@@ -790,16 +792,29 @@ func (this *ShellHistory) Add(historyType int, block string) {
 }
 
 func (this *ShellHistory) Append(historyType int, data string) {
-	if len(this.Blocks) > 0 && this.Blocks[len(this.Blocks)-1].Type == historyType {
-		this.Blocks[len(this.Blocks)-1].Content.Write(data)
-	} else {
-		this.Add(historyType, data)
+	length := len(this.Blocks)
+	// if we have a block already, and it matches the type, append to it
+	if length > 0 {
+		lastBlock := this.Blocks[len(this.Blocks)-1]
+
+		if lastBlock.Type == historyType {
+			if lastBlock.Content.Size() < this.TruncateLength {
+				// we append to the last block if we haven't hit the truncation length
+				this.Blocks[length-1].Content.Write(data)
+			}
+			// if we hit the truncation length we drop the data
+			return
+		}
 	}
+
+	// if the history type doesn't match we fall through and add a new block
+	this.Add(historyType, data)
 }
 
 func (this *ShellHistory) NewBlock() {
-	if len(this.Blocks) > 0 {
-		this.Add(this.Blocks[len(this.Blocks)-1].Type, "")
+	length := len(this.Blocks)
+	if length > 0 {
+		this.Add(this.Blocks[length-1].Type, "")
 	}
 }
 
@@ -807,13 +822,12 @@ func (this *ShellHistory) NewBlock() {
 // This truncates each block content to a maximum of 512 bytes.
 func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 	var blocks []util.HistoryBlock
-	const truncateLength = 512
 
 	for i := len(this.Blocks) - 1; i >= 0 && numBytes > 0; i-- {
 		block := this.Blocks[i]
 		content := sanitizeTTYString(block.Content.String())
-		if len(content) > truncateLength {
-			content = content[:truncateLength]
+		if len(content) > this.TruncateLength {
+			content = content[:this.TruncateLength]
 		}
 		if len(content) > numBytes {
 			break // we don't want a weird partial line so we bail out here
@@ -953,10 +967,6 @@ func (this *ButterfishCtx) ShellMultiplexer(
 }
 
 // TODO add a diagram of streams here
-// States:
-// 1. Normal
-// 2. Prompting
-// 3. Shell
 func (this *ShellState) Mux() {
 	for {
 		select {
@@ -1006,45 +1016,28 @@ func (this *ShellState) Mux() {
 // compile a regex that matches \x1b[%d;%dR
 var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
 
-func parseCursorPos(data []byte) (int, int) {
+func parseCursorPos(data []byte) (int, int, bool) {
 	matches := cursorPosRegex.FindSubmatch(data)
 	if len(matches) != 3 {
-		return -1, -1
+		return -1, -1, false
 	}
 	row, err := strconv.Atoi(string(matches[1]))
 	if err != nil {
-		return -1, -1
+		return -1, -1, false
 	}
 	col, err := strconv.Atoi(string(matches[2]))
 	if err != nil {
-		return -1, -1
+		return -1, -1, false
 	}
-	return row, col
+	return row, col, true
 }
 
 func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
-	// Ctrl-C while receiving prompt
-	if this.State == statePromptResponse {
-		if bytes.Equal(data, []byte{'\x03'}) {
-			this.PromptResponseCancel()
-			this.PromptResponseCancel = nil
-			return
-		}
-
-		// If we're in the middle of a prompt response we ignore all other input
-		return
-	}
-
 	// check if this is a message telling us the cursor position
-	if cursorPosRegex.Match(data) {
-		_, col := parseCursorPos(data)
-		if col == -1 {
-			log.Printf("Failed to parse cursor position: %x", data)
-			return
-		}
-
+	_, col, ok := parseCursorPos(data)
+	if ok {
 		if this.State == statePrompting {
 			this.Prompt.SetPromptLength(col - 1)
 		} else if this.State == stateShell || this.State == stateNormal {
@@ -1054,6 +1047,17 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	}
 
 	switch this.State {
+	case statePromptResponse:
+		// Ctrl-C while receiving prompt
+		if bytes.Equal(data, []byte{'\x03'}) {
+			this.PromptResponseCancel()
+			this.PromptResponseCancel = nil
+			return
+		}
+
+		// If we're in the middle of a prompt response we ignore all other input
+		return
+
 	case stateNormal:
 		// check if the first character is uppercase
 		// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
