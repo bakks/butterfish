@@ -2,8 +2,10 @@ package butterfish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 type GPT struct {
 	client        gpt3.Client
 	verbose       bool
+	useLogging    bool
 	verboseWriter io.Writer
 }
 
@@ -32,19 +35,49 @@ func NewGPT(token string, verbose bool, verboseWriter io.Writer) *GPT {
 	}
 }
 
-func printPrompt(writer io.Writer, prompt string) {
-	fmt.Fprintf(writer, "↑ ---\n%s\n-----\n", prompt)
+func (this *GPT) SetVerbose(verbose bool) {
+	this.verbose = verbose
 }
 
-func printResponse(writer io.Writer, response string) {
-	fmt.Fprintf(writer, "↓ ---\n%s\n-----\n", response)
+func (this *GPT) SetVerboseLogging() {
+	this.useLogging = true
+	this.verbose = true
 }
 
-func ShellHistoryBlockToGPTChat(blocks []util.HistoryBlock) []gpt3.ChatCompletionRequestMessage {
+func (this *GPT) printPrompt(prompt string) {
+	this.Printf("↑ ---\n%s\n-----\n", prompt)
+}
+
+func (this *GPT) printResponse(response string) {
+	this.Printf("↓ ---\n%s\n-----\n", response)
+}
+
+func (this *GPT) Printf(format string, args ...any) {
+	if !this.verbose {
+		return
+	}
+
+	if this.useLogging {
+		log.Printf(format, args...)
+	} else {
+		fmt.Fprintf(this.verboseWriter, format, args...)
+	}
+}
+
+func ChatCompletionRequestMessagesString(msgs []gpt3.ChatCompletionRequestMessage) string {
+	out := []string{}
+	for _, msg := range msgs {
+		line := fmt.Sprintf("%s:  %s", msg.Role, msg.Content)
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []gpt3.ChatCompletionRequestMessage {
 	out := []gpt3.ChatCompletionRequestMessage{
 		{
 			Role:    "system",
-			Content: "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and provide context and examples.",
+			Content: systemMsg,
 		},
 	}
 
@@ -111,16 +144,12 @@ func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer 
 		strBuilder.WriteString(text)
 	}
 
-	if this.verbose {
-		printPrompt(this.verboseWriter, request.Prompt)
-	}
+	this.printPrompt(request.Prompt)
 	err := this.client.CompletionStreamWithEngine(request.Ctx, engine, req, callback)
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
 	return strBuilder.String(), err
 }
-
-const chatbotSystemMessage = "You are a helpful assistant that gives people technical advince about the unix command line and writing software. Respond only in commands or code, do not wrap code in quotes."
 
 func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
 	req := gpt3.ChatCompletionRequest{
@@ -128,7 +157,7 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 		Messages: []gpt3.ChatCompletionRequestMessage{
 			{
 				Role:    "system",
-				Content: chatbotSystemMessage,
+				Content: request.SystemMessage,
 			},
 			{
 				Role:    "user",
@@ -144,7 +173,10 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 }
 
 func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
-	gptHistory := ShellHistoryBlockToGPTChat(request.HistoryBlocks)
+	if request.SystemMessage == "" {
+		return "", errors.New("system message required for full chat completion")
+	}
+	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
 	messages := append(gptHistory, gpt3.ChatCompletionRequestMessage{
 		Role:    "user",
 		Content: request.Prompt,
@@ -179,9 +211,7 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req gpt3.ChatComple
 		strBuilder.WriteString(text)
 	}
 
-	if this.verbose {
-		printPrompt(this.verboseWriter, "xxxxx TODO")
-	}
+	this.printPrompt(ChatCompletionRequestMessagesString(req.Messages))
 	err := this.client.ChatCompletionStream(ctx, req, callback)
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
@@ -197,9 +227,7 @@ func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, erro
 		Temperature: &request.Temperature,
 	}
 
-	if this.verbose {
-		printPrompt(this.verboseWriter, request.Prompt)
-	}
+	this.printPrompt(request.Prompt)
 	resp, err := this.client.CompletionWithEngine(request.Ctx, engine, req)
 	if err != nil {
 		return "", err
@@ -209,14 +237,16 @@ func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, erro
 	// clean whitespace prefix and suffix from text
 	text = strings.TrimSpace(text)
 
-	if this.verbose {
-		printResponse(this.verboseWriter, text)
-	}
+	this.printResponse(text)
 	return text, nil
 }
 
 func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, error) {
-	gptHistory := ShellHistoryBlockToGPTChat(request.HistoryBlocks)
+	if request.SystemMessage == "" {
+		return "", errors.New("system message is required for full chat completion")
+	}
+
+	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
 	messages := append(gptHistory, gpt3.ChatCompletionRequestMessage{
 		Role:    "user",
 		Content: request.Prompt,
@@ -239,7 +269,7 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, 
 		Messages: []gpt3.ChatCompletionRequestMessage{
 			{
 				Role:    "system",
-				Content: chatbotSystemMessage,
+				Content: request.SystemMessage,
 			},
 			{
 				Role:    "user",
@@ -255,9 +285,7 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, 
 }
 
 func (this *GPT) doChatCompletion(ctx context.Context, request gpt3.ChatCompletionRequest) (string, error) {
-	if this.verbose {
-		printPrompt(this.verboseWriter, "xxxxx TODO")
-	}
+	this.printPrompt(ChatCompletionRequestMessagesString(request.Messages))
 	resp, err := this.client.ChatCompletion(ctx, request)
 	if err != nil {
 		return "", err
@@ -265,14 +293,8 @@ func (this *GPT) doChatCompletion(ctx context.Context, request gpt3.ChatCompleti
 
 	responseText := resp.Choices[0].Message.Content
 
-	if this.verbose {
-		printResponse(this.verboseWriter, responseText)
-	}
+	this.printResponse(responseText)
 	return responseText, nil
-}
-
-func (this *GPT) SetVerbose(verbose bool) {
-	this.verbose = verbose
 }
 
 const GPTEmbeddingsMaxTokens = 8192
@@ -314,7 +336,7 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 			summary += s[:util.Min(20, len(s))]
 		}
 		summary += "\n]"
-		fmt.Fprintf(this.verboseWriter, "%s\n", summary)
+		this.Printf("%s\n", summary)
 	}
 
 	result := [][]float64{}
@@ -350,9 +372,7 @@ func (this *GPT) Edits(ctx context.Context,
 		Temperature: &temperature,
 	}
 
-	if this.verbose {
-		printPrompt(this.verboseWriter, fmt.Sprintf("%s\n---\n%s", instruction, content))
-	}
+	this.printPrompt(fmt.Sprintf("%s\n---\n%s", instruction, content))
 
 	resp, err := this.client.Edits(ctx, req)
 	if err != nil {

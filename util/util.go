@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,11 +20,30 @@ type CompletionRequest struct {
 	MaxTokens     int
 	Temperature   float32
 	HistoryBlocks []HistoryBlock
+	SystemMessage string
 }
 
 type HistoryBlock struct {
 	Type    int
 	Content string
+}
+
+func (this HistoryBlock) String() string {
+	// marshal HistoryBlock to JSON
+	str, err := json.Marshal(this)
+	if err != nil {
+		panic(err)
+	}
+	return string(str)
+}
+
+func HistoryBlocksToString(blocks []HistoryBlock) string {
+	// marshal HistoryBlock to JSON
+	str, err := json.Marshal(blocks)
+	if err != nil {
+		panic(err)
+	}
+	return string(str)
 }
 
 // Read a file, break into chunks of a given number of bytes, up to a maximum

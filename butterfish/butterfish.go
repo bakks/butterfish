@@ -62,6 +62,7 @@ type ButterfishConfig struct {
 	PromptLibrary PromptLibrary
 
 	// Shell mode configuration
+	ShellMode                bool
 	ShellPromptModel         string // used when the user enters an explicit prompt
 	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
 	ShellAutosuggestModel    string // used when we're autocompleting a command
@@ -989,6 +990,7 @@ func (this *ShellState) Mux() {
 				log.Printf("Error getting terminal size after SIGWINCH: %s", err)
 			}
 			log.Printf("Terminal resized to %d", termWidth)
+			this.TerminalWidth = termWidth
 			this.Prompt.SetTerminalWidth(termWidth)
 			if this.AutosuggestBuffer != nil {
 				this.AutosuggestBuffer.SetTerminalWidth(termWidth)
@@ -1103,10 +1105,18 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	// check if this is a message telling us the cursor position
 	_, col, ok := parseCursorPos(data)
 	if ok {
+		pending := this.PendingAutosuggest
+		this.PendingAutosuggest = nil
+
 		if this.State == statePrompting {
-			this.Prompt.SetPromptLength(col - 1)
+			this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
+			if pending != nil {
+				this.ShowAutosuggest(this.Prompt, pending, col-1, this.TerminalWidth)
+			}
 		} else if this.State == stateShell || this.State == stateNormal {
-			this.ApplyAutosuggest(this.PendingAutosuggest, col-1, this.TerminalWidth)
+			if pending != nil {
+				this.ShowAutosuggest(this.Command, pending, col-1, this.TerminalWidth)
+			}
 		}
 		return // don't write the data to the child
 	}
@@ -1140,19 +1150,16 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.Prompt.Write(string(data))
 			rendered := this.PromptStyle.Render(this.Prompt.String())
 
+			// Write the actual prompt start
+			this.ParentOut.Write([]byte(rendered))
+
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position
 			this.ParentOut.Write([]byte("\x1b[6n"))
 
-			// Write the actual prompt start
-			this.ParentOut.Write([]byte(rendered))
-
-		} else if hasCarriageReturn {
-			this.ChildIn.Write(data)
-
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest()
+				this.RealizeAutosuggest(this.Command, true)
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
@@ -1161,80 +1168,47 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else {
 			this.Command = NewShellBuffer()
 			this.Command.Write(string(data))
-			this.RefreshAutosuggest(data)
 
 			if this.Command.Size() > 0 {
+				this.RefreshAutosuggest(data, this.Command)
 				log.Printf("State change: normal -> shell")
 				this.State = stateShell
 				this.History.NewBlock()
-				this.ChildIn.Write(data)
 			}
+
+			this.ChildIn.Write(data)
 		}
 
 	case statePrompting:
 		// check if the input contains a newline
-		toAdd := data
 		if hasCarriageReturn {
-			toAdd = data[:bytes.Index(data, []byte{'\r'})]
-			this.State = stateNormal
-			log.Printf("State change: prompting -> normal")
-		}
+			toAdd := data[:bytes.Index(data, []byte{'\r'})]
+			toPrint := this.Prompt.Write(string(toAdd))
 
-		toPrint := this.Prompt.Write(string(toAdd))
-
-		rendered := toPrint
-		this.ParentOut.Write([]byte(rendered))
-
-		if this.Prompt.Size() == 0 {
-			this.State = stateNormal
-			// reset color
-			this.ParentOut.Write([]byte("\x1b[0m"))
-			log.Printf("State change: prompting -> normal")
-			return
-		}
-
-		// Submit this prompt if we just switched back into stateNormal
-		if this.State == stateNormal {
+			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte("\n\r"))
 
-			historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
-			requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			this.PromptResponseCancel = cancel
+			this.SendPrompt()
 
-			request := &util.CompletionRequest{
-				Ctx:           requestCtx,
-				Prompt:        this.Prompt.String(),
-				Model:         this.Butterfish.Config.ShellPromptModel,
-				MaxTokens:     512,
-				Temperature:   0.7,
-				HistoryBlocks: historyBlocks,
+		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
+			// Tab was pressed, fill in lastAutosuggest
+			if this.LastAutosuggest != "" {
+				this.RealizeAutosuggest(this.Prompt, false)
+			} else {
+				// no last autosuggest found, just forward the tab
+				this.ParentOut.Write(data)
 			}
+		} else { // otherwise user is typing a prompt
+			toPrint := this.Prompt.Write(string(data))
+			this.ParentOut.Write(toPrint)
+			this.RefreshAutosuggest(data, this.Prompt)
 
-			this.History.Add(historyTypePrompt, this.Prompt.String())
-
-			this.State = statePromptResponse
-			log.Printf("State change: prompting -> promptResponse")
-
-			// we run this in a goroutine so that we can still receive input
-			// like Ctrl-C while waiting for the response
-			go func() {
-				output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
-				if err != nil {
-					log.Printf("Error prompting in shell: %s", err)
-					if !strings.Contains(err.Error(), "context canceled") {
-						fmt.Fprintf(this.PromptAnswerWriter, "Error: %s", err)
-					}
-				}
-
-				this.History.Add(historyTypeLLMOutput, output)
-				this.ChildIn.Write([]byte("\n"))
-				this.RequestAutosuggest(true)
-
+			if this.Prompt.Size() == 0 {
 				this.State = stateNormal
-				log.Printf("State change: promptResponse -> normal")
-			}()
-
-			this.Prompt.Clear()
+				this.ParentOut.Write([]byte("\x1b[0m")) // reset color
+				log.Printf("State change: prompting -> normal")
+				return
+			}
 		}
 
 	case stateShell:
@@ -1250,14 +1224,14 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest()
+				this.RealizeAutosuggest(this.Command, true)
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
 			}
 		} else { // otherwise user is typing a command
 			this.Command.Write(string(data))
-			this.RefreshAutosuggest(data)
+			this.RefreshAutosuggest(data, this.Command)
 			this.ChildIn.Write(data)
 			if this.Command.Size() == 0 {
 				this.State = stateNormal
@@ -1271,28 +1245,85 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	}
 }
 
+func (this *ShellState) SendPrompt() {
+
+	this.State = statePromptResponse
+	log.Printf("State change: prompting -> promptResponse")
+
+	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
+	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	this.PromptResponseCancel = cancel
+
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellSystemMessage)
+	if err != nil {
+		log.Printf("Error getting system message prompt: %s", err)
+		this.State = stateNormal
+		log.Printf("State change: promptResponse -> normal")
+		return
+	}
+
+	request := &util.CompletionRequest{
+		Ctx:           requestCtx,
+		Prompt:        this.Prompt.String(),
+		Model:         this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:     512,
+		Temperature:   0.7,
+		HistoryBlocks: historyBlocks,
+		SystemMessage: sysMsg,
+	}
+
+	this.History.Add(historyTypePrompt, this.Prompt.String())
+
+	// we run this in a goroutine so that we can still receive input
+	// like Ctrl-C while waiting for the response
+	go func() {
+		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
+		if err != nil {
+			errStr := err.Error()
+			log.Printf("Error prompting in shell: %s", errStr)
+			if !strings.Contains(errStr, "context canceled") {
+				fmt.Fprintf(this.PromptAnswerWriter, "Error: %s", errStr)
+			}
+		}
+
+		this.History.Add(historyTypeLLMOutput, output)
+		this.ChildIn.Write([]byte("\n"))
+		this.RequestAutosuggest(0, "")
+
+		this.State = stateNormal
+		log.Printf("State change: promptResponse -> normal")
+	}()
+
+	this.Prompt.Clear()
+}
+
 // When the user presses tab or a similar hotkey, we want to turn the
 // autosuggest into a real command
-func (this *ShellState) RealizeAutosuggest() {
+func (this *ShellState) RealizeAutosuggest(buffer *ShellBuffer, sendToChild bool) {
 	log.Printf("Realizing autosuggest: %s", this.LastAutosuggest)
 	// Clear color
 	fmt.Fprintf(this.ParentOut, "%s", "\x1b[0m")
 
+	writer := this.ParentOut
+	if sendToChild {
+		writer = this.ChildIn
+	}
+
 	// If we're not at the end of the line, we write out the remaining command
 	// before writing the autosuggest
-	jumpforward := this.Command.Size() - this.Command.Cursor()
+	jumpforward := buffer.Size() - buffer.Cursor()
 	if jumpforward > 0 {
 		// go right for the length of the suffix
 		for i := 0; i < jumpforward; i++ {
 			// move cursor right
-			fmt.Fprintf(this.ChildIn, "\x1b[C")
-			this.Command.Write("\x1b[C")
+			fmt.Fprintf(writer, "\x1b[C")
+			buffer.Write("\x1b[C")
 		}
 	}
 
 	// Write the autosuggest
-	fmt.Fprintf(this.ChildIn, "%s", this.LastAutosuggest)
-	this.Command.Write(this.LastAutosuggest)
+	fmt.Fprintf(writer, "%s", this.LastAutosuggest)
+	buffer.Write(this.LastAutosuggest)
 
 	// clear the autosuggest now that we've used it
 	this.LastAutosuggest = ""
@@ -1301,15 +1332,15 @@ func (this *ShellState) RealizeAutosuggest() {
 // We have a pending autosuggest and we've just received the cursor location
 // from the terminal. We can now render the autosuggest (in the greyed out
 // style)
-func (this *ShellState) ApplyAutosuggest(
-	result *AutosuggestResult, cursorCol int, termWidth int) {
+func (this *ShellState) ShowAutosuggest(
+	buffer *ShellBuffer, result *AutosuggestResult, cursorCol int, termWidth int) {
 
 	if result.Suggestion == "" {
 		// no suggestion
 		return
 	}
 
-	if result.Command != this.Command.String() {
+	if result.Command != buffer.String() {
 		// this is an old result, it doesn't match the current command buffer
 		return
 	}
@@ -1329,7 +1360,7 @@ func (this *ShellState) ApplyAutosuggest(
 		return
 	}
 
-	if result.Suggestion == this.Command.String() {
+	if result.Suggestion == buffer.String() {
 		// if the suggestion is the same as the command, ignore it
 		return
 	}
@@ -1337,9 +1368,9 @@ func (this *ShellState) ApplyAutosuggest(
 	log.Printf("Autosuggest result: %s", result.Suggestion)
 
 	// Print out autocomplete suggestion
-	cmdLen := this.Command.Size()
+	cmdLen := buffer.Size()
 	suggToAdd := result.Suggestion[cmdLen:]
-	jumpForward := cmdLen - this.Command.Cursor()
+	jumpForward := cmdLen - buffer.Cursor()
 
 	this.LastAutosuggest = suggToAdd
 
@@ -1357,12 +1388,12 @@ func (this *ShellState) ApplyAutosuggest(
 }
 
 // Update autosuggest when we receive new data
-func (this *ShellState) RefreshAutosuggest(newData []byte) {
+func (this *ShellState) RefreshAutosuggest(newData []byte, buffer *ShellBuffer) {
 	// if we're typing out the exact autosuggest, and we haven't moved the cursor
 	// backwards in the buffer, then we can just append and adjust the
 	// autosuggest
-	if this.Command.Size() > 0 &&
-		this.Command.Size() == this.Command.Cursor() &&
+	if buffer.Size() > 0 &&
+		buffer.Size() == buffer.Cursor() &&
 		bytes.HasPrefix([]byte(this.LastAutosuggest), newData) {
 		this.LastAutosuggest = this.LastAutosuggest[len(newData):]
 		this.ParentOut.Write([]byte("\x1b[0m"))
@@ -1374,8 +1405,9 @@ func (this *ShellState) RefreshAutosuggest(newData []byte) {
 	this.ClearAutosuggest()
 
 	// and request a new one
-	if this.State == stateShell {
-		this.RequestAutosuggest(false)
+	if this.State == stateShell || this.State == statePrompting {
+		this.RequestAutosuggest(
+			this.Butterfish.Config.ShellAutosuggestTimeout, buffer.String())
 	}
 }
 
@@ -1390,7 +1422,7 @@ func (this *ShellState) ClearAutosuggest() {
 	this.AutosuggestBuffer = nil
 }
 
-func (this *ShellState) RequestAutosuggest(noDelay bool) {
+func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) {
 	if !this.AutosuggestEnabled {
 		return
 	}
@@ -1400,24 +1432,44 @@ func (this *ShellState) RequestAutosuggest(noDelay bool) {
 		this.AutosuggestCancel()
 	}
 	this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
-	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow))
-	//this.History.LogRecentHistory()
 
-	var delay time.Duration
-	if !noDelay {
-		delay = this.Butterfish.Config.ShellAutosuggestTimeout
+	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow))
+
+	var llmPrompt string
+	var err error
+
+	if len(command) == 0 {
+		// command completion when we haven't started a command
+		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestNewCommand,
+			"history", historyBlocks)
+	} else if !unicode.IsUpper(rune(command[0])) {
+		// command completion when we have started typing a command
+		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestCommand,
+			"history", historyBlocks,
+			"command", command)
+	} else {
+		// prompt completion, like we're asking a question
+		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestPrompt,
+			"history", historyBlocks,
+			"command", command)
+	}
+
+	if err != nil {
+		log.Printf("Error getting prompt: %s", err)
+		return
 	}
 
 	go this.RequestCancelableAutosuggest(
-		this.AutosuggestCtx, delay, this.Command.String(),
-		historyBlocks, this.Butterfish.LLMClient, this.AutosuggestChan)
+		this.AutosuggestCtx, delay,
+		command, llmPrompt,
+		this.Butterfish.LLMClient, this.AutosuggestChan)
 }
 
 func (this *ShellState) RequestCancelableAutosuggest(
 	ctx context.Context,
 	delay time.Duration,
 	currCommand string,
-	historyText string,
+	prompt string,
 	llmClient LLM,
 	autosuggestChan chan<- *AutosuggestResult) {
 
@@ -1427,22 +1479,6 @@ func (this *ShellState) RequestCancelableAutosuggest(
 	if ctx.Err() != nil {
 		return
 	}
-	var prompt string
-
-	if len(currCommand) == 0 {
-		prompt = fmt.Sprintf(`The user is using a Unix shell but hasn't yet entered anything. Suggest a unix command based on previous assistant output like an example. If the user has entered a command recently which failed, suggest a fixed version of that command. Respond with only the shell command, do not add comments or quotations. Here is the recent history:
-'''
-%s
-'''`, historyText)
-	} else {
-		prompt = fmt.Sprintf(`The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
-'''
-%s
-'''.
-If a command has resulted in an error, avoid that. This is the start of the command: '%s'.`, historyText, currCommand)
-	}
-
-	//log.Printf("Autosuggest history: %s", historyText)
 
 	request := &util.CompletionRequest{
 		Ctx:         ctx,
@@ -1476,7 +1512,11 @@ func initLLM(config *ButterfishConfig) (LLM, error) {
 		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
 	} else if config.OpenAIToken != "" {
 		verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
-		return NewGPT(config.OpenAIToken, config.Verbose, verboseWriter), nil
+		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
+		if config.ShellMode && config.Verbose {
+			gpt.SetVerboseLogging()
+		}
+		return gpt, nil
 	} else {
 		return config.LLMClient, nil
 	}

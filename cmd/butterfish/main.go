@@ -166,6 +166,7 @@ func main() {
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow
+		config.ShellMode = true
 
 		bf.RunShell(ctx, config, shell)
 
