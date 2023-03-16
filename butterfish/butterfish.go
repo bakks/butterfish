@@ -1158,6 +1158,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
 				if err != nil {
 					log.Printf("Error prompting in shell: %s", err)
+					if !strings.Contains(err.Error(), "context canceled") {
+						fmt.Fprintf(this.PromptAnswerWriter, "Error: %s", err)
+					}
 				}
 
 				this.History.Add(historyTypeLLMOutput, output)
