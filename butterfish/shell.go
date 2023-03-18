@@ -60,9 +60,18 @@ func (this *ShellBuffer) SetColor(r int, g int, b int) {
 	this.color = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
 }
 
-func (this *ShellBuffer) Clear() {
-	this.buffer = []rune{}
+func (this *ShellBuffer) Clear() []byte {
+	for i := 0; i < len(this.buffer); i++ {
+		this.buffer[i] = ' '
+	}
+
+	originalCursor := this.cursor
 	this.cursor = 0
+	update := this.calculateShellUpdate(originalCursor)
+
+	this.buffer = make([]rune, 0)
+
+	return update
 }
 
 func (this *ShellBuffer) SetPromptLength(promptLength int) {
@@ -761,14 +770,20 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				// no last autosuggest found, just forward the tab
 				this.ParentOut.Write(data)
 			}
+		} else if data[0] == 0x03 { // Ctrl-C
+			toPrint := this.Prompt.Clear()
+			this.ParentOut.Write(toPrint)
+			this.State = stateNormal
+			log.Printf("State change: prompting -> normal")
+
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
 			this.ParentOut.Write(toPrint)
 			this.RefreshAutosuggest(data, this.Prompt, this.CommandColorString)
 
 			if this.Prompt.Size() == 0 {
-				this.State = stateNormal
 				this.ParentOut.Write([]byte("\x1b[0m")) // reset color
+				this.State = stateNormal
 				log.Printf("State change: prompting -> normal")
 				return
 			}
