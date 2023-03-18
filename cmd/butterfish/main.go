@@ -53,14 +53,19 @@ type CliConfig struct {
 
 // Open a log file named butterfish.log in a temporary directory
 func initLogging(ctx context.Context) string {
-	// Create a temporary directory to hold the log file
-	tempDir, err := ioutil.TempDir("", "butterfish")
+	// Check if the /var/log dir exists
+	logDir := "/var/tmp"
+	_, err := os.Stat(logDir)
 	if err != nil {
-		log.Fatal(err)
+		// Create a temporary directory to hold the log file
+		logDir, err = ioutil.TempDir("", "butterfish")
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	// Create a log file in the temporary directory
-	filename := filepath.Join(tempDir, "butterfish.log")
+	filename := filepath.Join(logDir, "butterfish.log")
 	logFile, err := os.OpenFile(filename,
 		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
