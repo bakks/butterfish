@@ -529,11 +529,15 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.Prompt.SetTerminalWidth(termWidth)
 	r, g, b, _ := shellState.PromptStyle.GetForeground().RGBA()
 	shellState.Prompt.SetColor(int(r/255), int(g/255), int(b/255))
-	shellState.PromptColorString = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+	shellState.PromptColorString = rgbaToColorString(r, g, b)
 	shellState.CommandColorString = fmt.Sprintf("\x1b[0m")
 
 	// start
 	shellState.Mux()
+}
+
+func rgbaToColorString(r, g, b uint32) string {
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r/255, g/255, b/255)
 }
 
 // TODO add a diagram of streams here
@@ -880,7 +884,7 @@ func (this *ShellState) RealizeAutosuggest(buffer *ShellBuffer, sendToChild bool
 
 	// set color
 	if colorStr != "" {
-		fmt.Fprintf(this.ParentOut, "%s", colorStr)
+		fmt.Fprintf(writer, "%s", colorStr)
 	}
 
 	// Write the autosuggest
@@ -897,8 +901,6 @@ func (this *ShellState) RealizeAutosuggest(buffer *ShellBuffer, sendToChild bool
 func (this *ShellState) ShowAutosuggest(
 	buffer *ShellBuffer, result *AutosuggestResult, cursorCol int, termWidth int) {
 
-	log.Printf("ShowAutosuggest: %s", result.Suggestion)
-
 	if result.Suggestion == "" {
 		// no suggestion
 		return
@@ -906,6 +908,7 @@ func (this *ShellState) ShowAutosuggest(
 
 	if result.Command != buffer.String() {
 		// this is an old result, it doesn't match the current command buffer
+		log.Printf("Autosuggest result is old, ignoring")
 		return
 	}
 
@@ -921,6 +924,7 @@ func (this *ShellState) ShowAutosuggest(
 
 	if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
 		// test that the command is equal to the beginning of the suggestion
+		log.Printf("Autosuggest result is invalid, ignoring")
 		return
 	}
 
@@ -928,8 +932,6 @@ func (this *ShellState) ShowAutosuggest(
 		// if the suggestion is the same as the command, ignore it
 		return
 	}
-
-	log.Printf("Autosuggest result: %s", result.Suggestion)
 
 	// Print out autocomplete suggestion
 	cmdLen := buffer.Size()
@@ -1021,7 +1023,7 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 	}
 
 	if err != nil {
-		log.Printf("Error getting prompt: %s", err)
+		log.Printf("Error getting prompt from library: %s", err)
 		return
 	}
 
@@ -1054,15 +1056,21 @@ func (this *ShellState) RequestCancelableAutosuggest(
 		Temperature: 0.7,
 	}
 
-	//log.Printf("Autosuggesting: %s %x\n%s", currCommand, []byte(currCommand), request.Prompt)
-	log.Printf("Autosuggesting: %s", currCommand)
-
 	output, err := llmClient.Completion(request)
 	if err != nil {
 		return
 	}
 
-	log.Printf("Autosuggest result: %s", output)
+	// Clean up wrapping whitespace
+	output = strings.TrimSpace(output)
+
+	// if output is wrapped in quotes, remove quotes
+	if len(output) > 1 && output[0] == '"' && output[len(output)-1] == '"' {
+		output = output[1 : len(output)-1]
+	}
+
+	// Clean up wrapping whitespace
+	output = strings.TrimSpace(output)
 
 	autoSuggest := &AutosuggestResult{
 		Command:    currCommand,
