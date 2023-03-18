@@ -472,6 +472,7 @@ type ShellState struct {
 	State                int
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
+	PromptOutputChan     chan *byteMsg
 	AutosuggestChan      chan *AutosuggestResult
 	History              *ShellHistory
 	PromptAnswerWriter   io.Writer
@@ -481,8 +482,9 @@ type ShellState struct {
 	Command              *ShellBuffer
 	TerminalWidth        int
 
-	PromptColorString  string
-	CommandColorString string
+	PromptColorString      string
+	CommandColorString     string
+	AutosuggestColorString string
 
 	AutosuggestEnabled bool
 	LastAutosuggest    string
@@ -525,6 +527,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		ChildOutReader:     childOutReader,
 		ParentInReader:     parentInReader,
 		History:            NewShellHistory(),
+		PromptOutputChan:   make(chan *byteMsg),
 		PromptAnswerWriter: cleanedWriter,
 		PromptStyle:        this.Config.Styles.Question,
 		Command:            NewShellBuffer(),
@@ -538,14 +541,15 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.Prompt.SetTerminalWidth(termWidth)
 	r, g, b, _ := shellState.PromptStyle.GetForeground().RGBA()
 	shellState.Prompt.SetColor(int(r/255), int(g/255), int(b/255))
-	shellState.PromptColorString = rgbaToColorString(r, g, b)
+	shellState.PromptColorString = rgbaToColorString(shellState.PromptStyle.GetForeground().RGBA())
+	shellState.AutosuggestColorString = rgbaToColorString(shellState.AutosuggestStyle.GetForeground().RGBA())
 	shellState.CommandColorString = fmt.Sprintf("\x1b[0m")
 
 	// start
 	shellState.Mux()
 }
 
-func rgbaToColorString(r, g, b uint32) string {
+func rgbaToColorString(r, g, b, _ uint32) string {
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r/255, g/255, b/255)
 }
 
@@ -575,6 +579,14 @@ func (this *ShellState) Mux() {
 			this.PendingAutosuggest = result
 			// request cursor position
 			this.ParentOut.Write([]byte("\x1b[6n"))
+
+		case output := <-this.PromptOutputChan:
+			this.History.Add(historyTypeLLMOutput, string(output.Data))
+			this.ChildIn.Write([]byte("\n"))
+			this.RequestAutosuggest(0, "")
+
+			this.State = stateNormal
+			log.Printf("State change: promptResponse -> normal")
 
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
@@ -824,7 +836,6 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 }
 
 func (this *ShellState) SendPrompt() {
-
 	this.State = statePromptResponse
 	log.Printf("State change: prompting -> promptResponse")
 
@@ -864,12 +875,7 @@ func (this *ShellState) SendPrompt() {
 			}
 		}
 
-		this.History.Add(historyTypeLLMOutput, output)
-		this.ChildIn.Write([]byte("\n"))
-		this.RequestAutosuggest(0, "")
-
-		this.State = stateNormal
-		log.Printf("State change: promptResponse -> normal")
+		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
 	}()
 
 	this.Prompt.Clear()
@@ -956,14 +962,12 @@ func (this *ShellState) ShowAutosuggest(
 	this.LastAutosuggest = suggToAdd
 
 	this.AutosuggestBuffer = NewShellBuffer()
-	r, g, b, _ := this.AutosuggestStyle.GetForeground().RGBA()
-	this.AutosuggestBuffer.SetColor(int(r/255), int(g/255), int(b/255))
 	this.AutosuggestBuffer.SetPromptLength(cursorCol)
 	this.AutosuggestBuffer.SetTerminalWidth(termWidth)
 
 	// Use autosuggest buffer to get the bytes to write the greyed out
 	// autosuggestion and then move the cursor back to the original position
-	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, "")
+	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, this.AutosuggestColorString)
 
 	this.ParentOut.Write([]byte(buf))
 }
