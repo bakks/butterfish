@@ -67,7 +67,7 @@ func initLogging(ctx context.Context) string {
 	// Create a log file in the temporary directory
 	filename := filepath.Join(logDir, "butterfish.log")
 	logFile, err := os.OpenFile(filename,
-		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 	if err != nil {
 		panic(err)
 	}

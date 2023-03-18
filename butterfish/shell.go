@@ -628,61 +628,6 @@ func parseCursorPos(data []byte) (int, int, bool) {
 	return row, col, true
 }
 
-// Given a PID, this function identifies all the child PIDs of the given PID
-// and returns them as a slice of ints.
-func countChildPids(pid int) (int, error) {
-	// Get all the processes
-	processes, err := ps.Processes()
-	if err != nil {
-		return -1, err
-	}
-
-	// Keep a set of pids, loop through and add children to the set, keep
-	// looping until the set stops growing.
-	pids := make(map[int]bool)
-	pids[pid] = true
-	for {
-		// Keep track of how many pids we've added in this iteration
-		added := 0
-
-		// Loop through all the processes
-		for _, p := range processes {
-			// If the process is a child of one of the pids we're tracking,
-			// add it to the set.
-			if pids[p.PPid()] && !pids[p.Pid()] {
-				pids[p.Pid()] = true
-				added++
-			}
-		}
-
-		// If we didn't add any new pids, we're done.
-		if added == 0 {
-			break
-		}
-	}
-
-	// subtract 1 because we don't want to count the parent pid
-	return len(pids) - 1, nil
-}
-
-func HasRunningChildren() bool {
-	// get this process's pid
-	pid := os.Getpid()
-
-	// get the number of child processes
-	count, err := countChildPids(pid)
-	if err != nil {
-		log.Printf("Error counting child processes: %s", err)
-		return false
-	}
-
-	// we expect 1 child because the shell is running
-	if count > 1 {
-		return true
-	}
-	return false
-}
-
 func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
@@ -785,6 +730,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else if data[0] == 0x03 { // Ctrl-C
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
+			this.ParentOut.Write([]byte(this.CommandColorString))
 			this.State = stateNormal
 			log.Printf("State change: prompting -> normal")
 
@@ -905,7 +851,7 @@ func (this *ShellState) RealizeAutosuggest(buffer *ShellBuffer, sendToChild bool
 
 	// set color
 	if colorStr != "" {
-		fmt.Fprintf(writer, "%s", colorStr)
+		this.ParentOut.Write([]byte(colorStr))
 	}
 
 	// Write the autosuggest
@@ -1101,4 +1047,59 @@ func (this *ShellState) RequestCancelableAutosuggest(
 		Suggestion: output,
 	}
 	autosuggestChan <- autoSuggest
+}
+
+// Given a PID, this function identifies all the child PIDs of the given PID
+// and returns them as a slice of ints.
+func countChildPids(pid int) (int, error) {
+	// Get all the processes
+	processes, err := ps.Processes()
+	if err != nil {
+		return -1, err
+	}
+
+	// Keep a set of pids, loop through and add children to the set, keep
+	// looping until the set stops growing.
+	pids := make(map[int]bool)
+	pids[pid] = true
+	for {
+		// Keep track of how many pids we've added in this iteration
+		added := 0
+
+		// Loop through all the processes
+		for _, p := range processes {
+			// If the process is a child of one of the pids we're tracking,
+			// add it to the set.
+			if pids[p.PPid()] && !pids[p.Pid()] {
+				pids[p.Pid()] = true
+				added++
+			}
+		}
+
+		// If we didn't add any new pids, we're done.
+		if added == 0 {
+			break
+		}
+	}
+
+	// subtract 1 because we don't want to count the parent pid
+	return len(pids) - 1, nil
+}
+
+func HasRunningChildren() bool {
+	// get this process's pid
+	pid := os.Getpid()
+
+	// get the number of child processes
+	count, err := countChildPids(pid)
+	if err != nil {
+		log.Printf("Error counting child processes: %s", err)
+		return false
+	}
+
+	// we expect 1 child because the shell is running
+	if count > 1 {
+		return true
+	}
+	return false
 }
