@@ -927,6 +927,8 @@ func (this *ShellState) ShowAutosuggest(
 		return
 	}
 
+	//log.Printf("ShowAutosuggest: %s", result.Suggestion)
+
 	if result.Command != buffer.String() {
 		// this is an old result, it doesn't match the current command buffer
 		log.Printf("Autosuggest result is old, ignoring")
@@ -943,7 +945,10 @@ func (this *ShellState) ShowAutosuggest(
 		return
 	}
 
-	if result.Command != "" && !strings.HasPrefix(result.Suggestion, result.Command) {
+	if result.Command != "" &&
+		!strings.HasPrefix(
+			strings.ToLower(result.Suggestion),
+			strings.ToLower(result.Command)) {
 		// test that the command is equal to the beginning of the suggestion
 		log.Printf("Autosuggest result is invalid, ignoring")
 		return
