@@ -16,7 +16,7 @@ const (
 
 // These are the default prompts used for Butterfish, they will be written
 // to the prompts.yaml file every time Butterfish is loaded, unless the
-// OkToReplace field is false.
+// OkToReplace field (in the yaml file) is false.
 
 var DefaultPrompts []Prompt = []Prompt{
 
@@ -48,7 +48,7 @@ If a command has resulted in an error, avoid that. This is the start of the comm
 	{
 		Name:        PromptShellAutosuggestPrompt,
 		OkToReplace: true,
-		Prompt: `The user is asking a natural language question likely related to a unix shell command or to programming. Make the best guess as to what the user is asking and include the start of the question in the answer. Here is some recent context and history:
+		Prompt: `The user is asking a natural language question likely related to a unix shell command or to programming. Complete what the user is asking and include the start of the question in the answer, do include quotation marks in the answer, answer only with the predicted question. Here is some recent context and history from the user's shell:
 '''
 {history}
 '''.
