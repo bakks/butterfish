@@ -634,13 +634,24 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	// check if this is a message telling us the cursor position
 	_, col, ok := parseCursorPos(data)
 	if ok {
+		// This is wonky and probably needs to be reworked.
+		// Finding the cursor position is done by writing \x1b[6n to the terminal
+		// (printing on parentOut), and then looking for the response that looks
+		// like \x1b[%d;%dR. We request cursor position in 2 cases:
+		// 1. When we start a prompt, so that we can wrap the prompt correctly
+		// 2. When we get an autosuggest result, so that we can wrap the autosuggest
+		// There are almost certainly some race conditions here though, since
+		// we request cursor position and then go back to the Mux loop.
 		pending := this.PendingAutosuggest
 		this.PendingAutosuggest = nil
 
 		if this.State == statePrompting {
-			this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
 			if pending != nil {
+				// if we have a pending autosuggest, use it
 				this.ShowAutosuggest(this.Prompt, pending, col-1, this.TerminalWidth)
+			} else {
+				// otherwise we're in a situation where we've just started a prompt
+				this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
 			}
 		} else if this.State == stateShell || this.State == stateNormal {
 			if pending != nil {
