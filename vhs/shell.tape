@@ -11,49 +11,44 @@ Set Padding 10
 
 Hide Sleep 2s Show
 
-Type "../bin/butterfish shell"
+Type "butterfish shell"
 Sleep 1s
 Enter
+Sleep 2s
 
 Type "cd ~/butterfish"
 Sleep 1s
 Enter
+Sleep 2s
 
-Sleep 3.5s
 Type "ls"
 Enter
-Sleep 5s
-Type "What ar ethes"
-Backspace 6
-Type "e these files?"
-Enter
-Sleep 15s
-Type "Gow"
-Backspace 3
-Type "How do I c"
-Backspace
-Type "clean up a golang project depencde"
-Backspace 2
-Type "d"
-Backspace 2
-Type "dencies?"
+Sleep 4s
+
+Type "What does the first column mean for the readme file?"
 Enter
 Sleep 10s
+
+Type "How do I make the readme file read-only?"
+Enter
+Sleep 6s
 
 Tab
 Sleep 1s
 Enter
 Sleep 5s
 
-Type "git status"
+Type "Give me a command to add the date to the end of the readme file"
 Sleep 1s
 Enter
 Sleep 5s
 
-Type "git commit"
+Type "echo"
+Sleep 2s
+Tab
 Sleep 1s
 Enter
-Sleep 10s
+Sleep 5s
 
 Type "What happened?"
 Sleep 1s

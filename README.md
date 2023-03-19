@@ -17,6 +17,7 @@ Solution:
 
 - This is an experimental MacOS/Linux command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
 - What can you do with it?
+  - _Ask questions in your shell with recent history_
   - Run raw GPT prompts.
   - Semantically summarize local content.
   - Generate and run shell commands.
@@ -24,10 +25,9 @@ Solution:
   - Edit your prompts in a YAML file.
   - Generate and cache embeddings for text files.
   - Search and ask GPT questions based on those embeddings.
-- Experimenting with several modes of LLM invocation:
+- Experimenting with different modes of LLM invocation:
   - Command Line: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
-  - Persistent Console: The butterfish console, a persistent window for talking to LLMs.
-  - Wrapped Shell: Wrap a local command and control it from the console, e.g. run a shell, another shell solves the error you just saw.
+  - Wrapped Shell: start with a Capital letter to prompt the LLM, prompts and autocomplete see recent history.
 - External contribution and feedback highly encouraged. Submit a PR!
 
 ## Installation / Authentication
@@ -60,7 +60,63 @@ It may also be useful to alias the `butterfish` command to something shorter. If
 alias bf="butterfish"
 ```
 
-## Examples
+## Shell Mode
+
+You might use your local terminal for lots of everyday tasks - building code, using git, logging into remote machines, etc. Do you remember off the top of your head how to unpackage a .tar.gz file? No one does!
+
+Shell mode is an attempt to tightly integrate language models into your shell. Think Github Copilot for shell. The goals here are:
+
+- Make the user faster and more effective
+- Be unobtrusive, don't break current shell workflows
+- Don't require another window or using mouse
+- Use the recent shell history
+
+How does this work? Shell mode _wraps_ your shell rather than replacing it.
+
+- You run `butterfish shell` and get a transparent layer on top of your normal shell.
+- You start a command with a capital letter to prompt the LLM, e.g. "How do I do..."
+- You can autocomplete commands and prompt questions
+- Prompts and autocomplete use local context for answers, like ChatGPT
+
+This pattern is shockingly effective - you can ask the LLM to solve the error that just printed, and if it suggests a command then autocomplete that command.
+
+This is also very new code and there are likely bugs, please log issues in github.
+
+```bash
+> butterfish shell --help
+Usage: butterfish shell
+
+Start the Butterfish shell wrapper. Wrap your existing shell, giving you access
+to LLM prompting by starting your command with a capital letter. Autosuggest
+shell commands. LLM calls include prior shell context.
+
+Flags:
+  -h, --help                       Show context-sensitive help.
+  -v, --verbose                    Verbose mode, prints full LLM prompts.
+
+  -b, --bin=STRING                 Shell to use (e.g. /bin/zsh), defaults to
+                                   $SHELL.
+  -m, --prompt-model="gpt-3.5-turbo"
+                                   Model for when the user manually enters a
+                                   prompt.
+  -h, --prompt-history-window=3000
+                                   Number of bytes of history to include when
+                                   prompting.
+  -a, --autosuggest-model="text-davinci-003"
+                                   Model for autosuggest
+  -t, --autosuggest-timeout=500    Time between when the user stops typing
+                                   and an autosuggest is requested (lower
+                                   values trigger more calls and are thus more
+                                   expensive).
+  -H, --autosuggest-history-window=3000
+                                   Number of bytes of history to include when
+                                   autosuggesting.
+
+```
+
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell.gif" alt="Butterfish" width="500px" height="250px" />
+
+## CLI Examples
 
 ### `prompt` - Straightforward LLM prompt
 
@@ -233,7 +289,7 @@ Here's the command help:
 Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. v0.0.19 darwin amd64 (commit 336665f) (built 2023-03-02T07:04:41Z)
+engineering. v0.0.20 darwin amd64 (commit 0bbbf72) (built 2023-03-19T00:34:52Z)
 MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
@@ -241,11 +297,10 @@ Flags:
   -v, --verbose    Verbose mode, prints full LLM prompts.
 
 Commands:
-  wrap <cmd>
-    Wrap a command (e.g. zsh) to expose to Butterfish.
-
-  console
-    Start a Butterfish console and server.
+  shell
+    Start the Butterfish shell wrapper. Wrap your existing shell, giving you
+    access to LLM prompting by starting your command with a capital letter.
+    Autosuggest shell commands. LLM calls include prior shell context.
 
   prompt [<prompt> ...]
     Run an LLM prompt without wrapping, stream results back. This is a

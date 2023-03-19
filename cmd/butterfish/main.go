@@ -40,10 +40,10 @@ type CliConfig struct {
 	Shell struct {
 		Bin                      string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		PromptModel              string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
-		PromptHistoryWindow      int    `short:"h" default:"3000" help:"Number of bytes of history to include when prompting."`
+		PromptHistoryWindow      int    `short:"w" default:"3000" help:"Number of bytes of history to include when prompting."`
 		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
 		AutosuggestTimeout       int    `short:"t" default:"500" help:"Time between when the user stops typing and an autosuggest is requested (lower values trigger more calls and are thus more expensive)."`
-		AutosuggestHistoryWindow int    `short:"H" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
+		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. Wrap your existing shell, giving you access to LLM prompting by starting your command with a capital letter. Autosuggest shell commands. LLM calls include prior shell context."`
 
 	// We include the cliConsole options here so that we can parse them and hand them
