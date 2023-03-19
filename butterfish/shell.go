@@ -196,7 +196,7 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 
 	// set the terminal color
 	if this.color != "" {
-		fmt.Fprintf(w, "%s", this.color)
+		w.Write([]byte(this.color))
 	}
 
 	// write the full new buffer
@@ -283,9 +283,9 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 
 	// handle color
 	if colorStr != "" {
-		fmt.Fprintf(w, "%s", colorStr)
+		w.Write([]byte(colorStr))
 	} else if this.color != "" {
-		fmt.Fprintf(w, "%s", this.color)
+		w.Write([]byte(this.color))
 	}
 
 	// write the autosuggest text
