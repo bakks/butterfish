@@ -99,7 +99,7 @@ Flags:
   -m, --prompt-model="gpt-3.5-turbo"
                                    Model for when the user manually enters a
                                    prompt.
-  -h, --prompt-history-window=3000
+  -w, --prompt-history-window=3000
                                    Number of bytes of history to include when
                                    prompting.
   -a, --autosuggest-model="text-davinci-003"
@@ -108,10 +108,16 @@ Flags:
                                    and an autosuggest is requested (lower
                                    values trigger more calls and are thus more
                                    expensive).
-  -H, --autosuggest-history-window=3000
+  -W, --autosuggest-history-window=3000
                                    Number of bytes of history to include when
                                    autosuggesting.
 
+```
+
+Shell mode defaults to using `gpt-3.5-turbo` for prompting, if you have access to GPT-4 you can use it with:
+
+```bash
+butterfish shell -m 'gpt-4' -w 6000
 ```
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell.gif" alt="Butterfish" width="500px" height="250px" />
@@ -289,7 +295,7 @@ Here's the command help:
 Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. v0.0.20 darwin amd64 (commit 0bbbf72) (built 2023-03-19T00:34:52Z)
+engineering. v0.0.22 darwin amd64 (commit 87baf41) (built 2023-03-19T01:52:20Z)
 MIT License - Copyright (c) 2023 Peter Bakkum
 
 Flags:
