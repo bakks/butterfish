@@ -584,6 +584,7 @@ func (this *ShellState) Mux() {
 			this.History.Add(historyTypeLLMOutput, string(output.Data))
 			this.ChildIn.Write([]byte("\n"))
 			this.RequestAutosuggest(0, "")
+			this.ParentOut.Write([]byte(this.CommandColorString))
 
 			this.State = stateNormal
 			log.Printf("State change: promptResponse -> normal")
