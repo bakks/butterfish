@@ -560,6 +560,7 @@ func (this *ShellState) Mux() {
 		case <-this.Butterfish.Ctx.Done():
 			return
 
+		// the terminal window resized and we got a SIGWINCH
 		case <-this.Sigwinch:
 			termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 			if err != nil {
@@ -575,16 +576,17 @@ func (this *ShellState) Mux() {
 				this.Command.SetTerminalWidth(termWidth)
 			}
 
+		// We received an autosuggest result from the autosuggest goroutine
 		case result := <-this.AutosuggestChan:
 			this.PendingAutosuggest = result
 			// request cursor position
 			this.ParentOut.Write([]byte("\x1b[6n"))
 
+		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
 			this.History.Add(historyTypeLLMOutput, string(output.Data))
 			this.ChildIn.Write([]byte("\n"))
 			this.RequestAutosuggest(0, "")
-			this.ParentOut.Write([]byte(this.CommandColorString))
 
 			this.State = stateNormal
 			log.Printf("State change: promptResponse -> normal")
@@ -714,12 +716,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.Command.Write(string(data))
 
 			if this.Command.Size() > 0 {
-				this.RefreshAutosuggest(data, this.Command, this.PromptColorString)
+				this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
 				log.Printf("State change: normal -> shell")
 				this.State = stateShell
 				this.History.NewBlock()
 			}
 
+			this.ParentOut.Write([]byte(this.CommandColorString))
 			this.ChildIn.Write(data)
 		}
 
