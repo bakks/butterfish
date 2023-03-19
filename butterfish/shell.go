@@ -701,6 +701,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
 				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
+				this.State = stateShell
+				log.Printf("State change: normal -> shell")
+				return
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
