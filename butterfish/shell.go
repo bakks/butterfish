@@ -129,10 +129,6 @@ func (this *ShellBuffer) Write(data string) []byte {
 		r := rune(runes[i])
 
 		switch r {
-		// newline or carriage return
-		case 0x0a, 0x0d:
-			continue
-
 		case 0x08, 0x7f: // backspace
 			if this.cursor > 0 && len(this.buffer) > 0 {
 				this.buffer = append(this.buffer[:this.cursor-1], this.buffer[this.cursor:]...)
@@ -715,6 +711,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				this.ChildIn.Write(data)
 			}
 
+		} else if data[0] == '\r' {
+			this.ChildIn.Write(data)
+
 		} else {
 			this.Command = NewShellBuffer()
 			this.Command.Write(string(data))
@@ -994,7 +993,7 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 	this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
 
 	// if command is only whitespace, don't bother sending it
-	if strings.TrimSpace(command) == "" {
+	if len(command) > 0 && strings.TrimSpace(command) == "" {
 		return
 	}
 
@@ -1024,18 +1023,21 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		return
 	}
 
-	go this.RequestCancelableAutosuggest(
+	go RequestCancelableAutosuggest(
 		this.AutosuggestCtx, delay,
 		command, llmPrompt,
-		this.Butterfish.LLMClient, this.AutosuggestChan)
+		this.Butterfish.LLMClient,
+		this.Butterfish.Config.ShellAutosuggestModel,
+		this.AutosuggestChan)
 }
 
-func (this *ShellState) RequestCancelableAutosuggest(
+func RequestCancelableAutosuggest(
 	ctx context.Context,
 	delay time.Duration,
 	currCommand string,
 	prompt string,
 	llmClient LLM,
+	model string,
 	autosuggestChan chan<- *AutosuggestResult) {
 
 	if delay > 0 {
@@ -1048,7 +1050,7 @@ func (this *ShellState) RequestCancelableAutosuggest(
 	request := &util.CompletionRequest{
 		Ctx:         ctx,
 		Prompt:      prompt,
-		Model:       this.Butterfish.Config.ShellAutosuggestModel,
+		Model:       model,
 		MaxTokens:   256,
 		Temperature: 0.7,
 	}
