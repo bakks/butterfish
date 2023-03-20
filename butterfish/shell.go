@@ -129,6 +129,10 @@ func (this *ShellBuffer) Write(data string) []byte {
 		r := rune(runes[i])
 
 		switch r {
+		// newline or carriage return
+		case 0x0a, 0x0d:
+			continue
+
 		case 0x08, 0x7f: // backspace
 			if this.cursor > 0 && len(this.buffer) > 0 {
 				this.buffer = append(this.buffer[:this.cursor-1], this.buffer[this.cursor:]...)
@@ -988,6 +992,11 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		this.AutosuggestCancel()
 	}
 	this.AutosuggestCtx, this.AutosuggestCancel = context.WithCancel(context.Background())
+
+	// if command is only whitespace, don't bother sending it
+	if strings.TrimSpace(command) == "" {
+		return
+	}
 
 	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow))
 
