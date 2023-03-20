@@ -1,6 +1,7 @@
 package butterfish
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -223,11 +224,23 @@ func readerToChannel(input io.Reader, c chan<- *byteMsg) {
 			break
 		}
 
+		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
+			log.Printf("got escape sequence: %x", buf)
+			panic("Got incomplete escape sequence")
+		}
+
 		c <- NewByteMsg(buf[:n])
 	}
 
 	// Close the channel
 	close(c)
+}
+
+// For Control Sequence Introducer, or CSI, commands, the ESC [ (written as \e[ or \033[ in several programming and scripting languages) is followed by any number (including none) of "parameter bytes" in the range 0x30–0x3F (ASCII 0–9:;<=>?), then by any number of "intermediate bytes" in the range 0x20–0x2F (ASCII space and !"#$%&'()*+,-./), then finally by a single "final byte" in the range 0x40–0x7E (ASCII @A–Z[\]^_`a–z{|}~)
+var ansiCsiPattern = regexp.MustCompile("\x1b\\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]")
+
+func incompleteAnsiSequence(buf []byte) bool {
+	return bytes.Index(buf, []byte{0x1b, 0x5b}) != -1 && !ansiCsiPattern.Match(buf)
 }
 
 // from https://github.com/acarl005/stripansi/blob/master/stripansi.go

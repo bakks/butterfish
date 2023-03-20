@@ -22,7 +22,29 @@ import (
 	"golang.org/x/term"
 )
 
-var cursorLeft []byte = []byte{27, 91, 68}
+// compile a regex that matches \x1b[%d;%dR
+var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
+
+// Search for an ANSI cursor position sequence, e.g. \x1b[4;14R, and return:
+// - row
+// - column
+// - length of the sequence
+// - whether the sequence was found
+func parseCursorPos(data []byte) (int, int, int, bool) {
+	matches := cursorPosRegex.FindSubmatch(data)
+	if len(matches) != 3 {
+		return -1, -1, -1, false
+	}
+	row, err := strconv.Atoi(string(matches[1]))
+	if err != nil {
+		return -1, -1, -1, false
+	}
+	col, err := strconv.Atoi(string(matches[2]))
+	if err != nil {
+		return -1, -1, -1, false
+	}
+	return row, col, len(matches[0]), true
+}
 
 func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
 	ptmx, ptyCleanup, err := ptyCommand(ctx, []string{shell})
@@ -544,6 +566,8 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.PromptColorString = rgbaToColorString(shellState.PromptStyle.GetForeground().RGBA())
 	shellState.AutosuggestColorString = rgbaToColorString(shellState.AutosuggestStyle.GetForeground().RGBA())
 	shellState.CommandColorString = fmt.Sprintf("\x1b[0m")
+	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
+	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
 
 	// start
 	shellState.Mux()
@@ -555,6 +579,8 @@ func rgbaToColorString(r, g, b, _ uint32) string {
 
 // TODO add a diagram of streams here
 func (this *ShellState) Mux() {
+	parentInBuffer := []byte{}
+
 	for {
 		select {
 		case <-this.Butterfish.Ctx.Done():
@@ -606,36 +632,45 @@ func (this *ShellState) Mux() {
 				this.Butterfish.Cancel()
 				return
 			}
+
 			data := parentInMsg.Data
-			this.InputFromParent(this.Butterfish.Ctx, data)
+
+			// include any cached data
+			if len(parentInBuffer) > 0 {
+				data = append(parentInBuffer, data...)
+				parentInBuffer = []byte{}
+			}
+
+			// If we've started an ANSI escape sequence, it might not be complete
+			// yet, so we need to cache it and wait for the next message
+			if incompleteAnsiSequence(data) {
+				parentInBuffer = append(parentInBuffer, data...)
+				continue
+			}
+
+			for {
+				leftover := this.InputFromParent(this.Butterfish.Ctx, data)
+
+				if leftover == nil || len(leftover) == 0 {
+					break
+				}
+				if len(leftover) == len(data) {
+					parentInBuffer = append(parentInBuffer, leftover...)
+					break
+				}
+
+				// go again with the leftover data
+				data = leftover
+			}
 		}
 	}
 }
 
-// compile a regex that matches \x1b[%d;%dR
-var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
-
-func parseCursorPos(data []byte) (int, int, bool) {
-	matches := cursorPosRegex.FindSubmatch(data)
-	if len(matches) != 3 {
-		return -1, -1, false
-	}
-	row, err := strconv.Atoi(string(matches[1]))
-	if err != nil {
-		return -1, -1, false
-	}
-	col, err := strconv.Atoi(string(matches[2]))
-	if err != nil {
-		return -1, -1, false
-	}
-	return row, col, true
-}
-
-func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
+func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
 	// check if this is a message telling us the cursor position
-	_, col, ok := parseCursorPos(data)
+	_, col, cursorPosLen, ok := parseCursorPos(data)
 	if ok {
 		// This is wonky and probably needs to be reworked.
 		// Finding the cursor position is done by writing \x1b[6n to the terminal
@@ -661,27 +696,27 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				this.ShowAutosuggest(this.Command, pending, col-1, this.TerminalWidth)
 			}
 		}
-		return // don't write the data to the child
+		return data[cursorPosLen:] // don't write the data to the child
 	}
 
 	switch this.State {
 	case statePromptResponse:
 		// Ctrl-C while receiving prompt
-		if bytes.Equal(data, []byte{'\x03'}) {
+		if data[0] == 0x03 {
 			this.PromptResponseCancel()
 			this.PromptResponseCancel = nil
-			return
+			return data[1:]
 		}
 
 		// If we're in the middle of a prompt response we ignore all other input
-		return
+		return data
 
 	case stateNormal:
 		if HasRunningChildren() {
 			// If we have running children then the shell is running something,
 			// so just forward the input.
 			this.ChildIn.Write(data)
-			return
+			return nil
 		}
 
 		// check if the first character is uppercase
@@ -705,7 +740,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
 				this.State = stateShell
 				log.Printf("State change: normal -> shell")
-				return
+				return data[1:]
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
@@ -732,13 +767,16 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 	case statePrompting:
 		// check if the input contains a newline
 		if hasCarriageReturn {
-			toAdd := data[:bytes.Index(data, []byte{'\r'})]
+			this.ClearAutosuggest(this.CommandColorString)
+			index := bytes.Index(data, []byte{'\r'})
+			toAdd := data[:index]
 			toPrint := this.Prompt.Write(string(toAdd))
 
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte("\n\r"))
 
 			this.SendPrompt()
+			return data[index+1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
@@ -761,10 +799,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.RefreshAutosuggest(data, this.Prompt, this.CommandColorString)
 
 			if this.Prompt.Size() == 0 {
-				this.ParentOut.Write([]byte("\x1b[0m")) // reset color
+				this.ParentOut.Write([]byte(this.CommandColorString)) // reset color
 				this.State = stateNormal
 				log.Printf("State change: prompting -> normal")
-				return
 			}
 		}
 
@@ -775,9 +812,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			this.State = stateNormal
 			log.Printf("State change: shell -> normal")
 
-			this.ChildIn.Write(data)
+			index := bytes.Index(data, []byte{'\r'})
+			this.ChildIn.Write(data[:index+1])
 			this.Command = NewShellBuffer()
 			this.History.NewBlock()
+
+			return data[index+1:]
+
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
@@ -786,6 +827,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
 			}
+			return data[1:]
+
 		} else { // otherwise user is typing a command
 			this.Command.Write(string(data))
 			this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
@@ -793,13 +836,14 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) {
 			if this.Command.Size() == 0 {
 				this.State = stateNormal
 				log.Printf("State change: shell -> normal")
-				return
 			}
 		}
 
 	default:
 		panic("Unknown state")
 	}
+
+	return nil
 }
 
 func (this *ShellState) SendPrompt() {

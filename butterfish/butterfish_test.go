@@ -66,3 +66,13 @@ func TestShellHistory(t *testing.T) {
 	output = HistoryBlocksToString(history.GetLastNBytes(24))
 	assert.Equal(t, "llm2more llm ᐅ", output)
 }
+
+// A test case for incompleteAnsiSequence()
+func TestIncompleteAnsiSequence(t *testing.T) {
+	// incomplete sequence
+	assert.True(t, incompleteAnsiSequence([]byte{0x1b, 0x5b, 0x30, 0x3b}))
+	assert.True(t, incompleteAnsiSequence([]byte{0x20, 0x1b, 0x5b, 0x30, 0x3b}))
+	// complete sequence
+	assert.False(t, incompleteAnsiSequence([]byte{0x1b, 0x5b, 0x30, 0x3b, 0x31, 0x3b, 0x32, 0x6d, 0x1b, 0x5b, 0x30, 0x6d}))
+	assert.False(t, incompleteAnsiSequence([]byte{0x20, 0x20, 0x1b, 0x5b, 0x30, 0x3b, 0x31, 0x3b, 0x32, 0x6d, 0x1b, 0x5b, 0x30, 0x6d}))
+}
