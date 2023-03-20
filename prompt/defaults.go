@@ -22,7 +22,7 @@ var DefaultPrompts []Prompt = []Prompt{
 
 	{
 		Name:        PromptShellSystemMessage,
-		Prompt:      "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and provide context and examples.",
+		Prompt:      "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and examples but keep your answers succinct.",
 		OkToReplace: true,
 	},
 
@@ -33,7 +33,7 @@ var DefaultPrompts []Prompt = []Prompt{
 '''
 {history}
 '''.
-If a command has resulted in an error, avoid that. This is the start of the command: '{command}'.`,
+If there are specific commands mentioned in history, especially with quotation marks, bias towards those commands. This is the start of the command: '{command}'.`,
 	},
 
 	{
@@ -42,7 +42,8 @@ If a command has resulted in an error, avoid that. This is the start of the comm
 		Prompt: `The user is using a Unix shell but hasn't yet entered anything. Suggest a unix command based on previous assistant output like an example. If the user has entered a command recently which failed, suggest a fixed version of that command. Respond with only the shell command, do not add comments or quotations. Here is the recent history:
 '''
 {history}
-'''`,
+'''
+If there are specific commands mentioned in history, especially with quotation marks, bias towards those commands.`,
 	},
 
 	{
