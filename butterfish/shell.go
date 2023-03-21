@@ -600,7 +600,7 @@ func (this *ShellState) Mux() {
 			if err != nil {
 				log.Printf("Error getting terminal size after SIGWINCH: %s", err)
 			}
-			log.Printf("Terminal resized to %d", termWidth)
+			log.Printf("Got SIGWINCH with new width %d", termWidth)
 			this.TerminalWidth = termWidth
 			this.Prompt.SetTerminalWidth(termWidth)
 			if this.AutosuggestBuffer != nil {
@@ -640,7 +640,6 @@ func (this *ShellState) Mux() {
 
 			// If we're actively printing a response we buffer child output
 			if this.State == statePromptResponse {
-				log.Printf("Buffering child output: %s", stripANSI(string(childOutMsg.Data)))
 				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
 				continue
 			}
