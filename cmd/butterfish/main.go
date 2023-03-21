@@ -26,7 +26,15 @@ var ( // these are filled in at build time
 	BuildTimestamp string
 )
 
-const description = `Do useful things with LLMs from the command line, with a bent towards software engineering.`
+const description = `Do useful things with LLMs from the command line, with a bent towards software engineering.
+
+Butterfish is a command line tool for working with LLMs. It has two modes: CLI command mode, used to prompt LLMs, summarize files, and manage embeddings, and Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
+
+Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml.
+
+To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
+
+`
 const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 const defaultEnvPath = "~/.config/butterfish/butterfish.env"
 const defaultPromptPath = "~/.config/butterfish/prompts.yaml"
