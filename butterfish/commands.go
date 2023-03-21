@@ -81,10 +81,6 @@ type CliCommandConfig struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
 	} `cmd:"" help:"Execute a command and try to debug problems. The command can either passed in or in the command register (if you have run gencmd in Console Mode)."`
 
-	Execremote struct {
-		Command []string `arg:"" help:"Command to execute." optional:""`
-	} `cmd:"" help:"Execute a command in a wrapped shell, either passed in or in command register. This is specifically for Console Mode after you have run gencmd when you have a wrapped terminal open."`
-
 	Index struct {
 		Paths     []string `arg:"" help:"Paths to index." optional:""`
 		Force     bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
@@ -260,18 +256,6 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			}
 		}
 		return nil
-
-	case "execremote <command>":
-		input := this.cleanInput(options.Execremote.Command)
-		if input == "" {
-			input = this.CommandRegister
-		}
-
-		if input == "" {
-			return errors.New("No command to execute")
-		}
-
-		return this.execremoteCommand(input)
 
 	case "exec", "exec <command>":
 		input := this.cleanInput(options.Exec.Command)
@@ -711,26 +695,6 @@ func (this *ButterfishCtx) SummarizePath(path string, chunkSize, maxChunks int) 
 	}
 
 	return this.SummarizeChunks(chunks)
-}
-
-// Execute the command stored in commandRegister on the remote host,
-// either from the command register or from a command string
-func (this *ButterfishCtx) execremoteCommand(cmd string) error {
-	if cmd == "" && this.CommandRegister == "" {
-		return errors.New("No command to execute")
-	}
-	if cmd == "" {
-		cmd = this.CommandRegister
-	}
-	cmd += "\n"
-
-	fmt.Fprintf(this.Out, "Executing: %s\n", cmd)
-	client := this.ClientController.GetClientWithOpenCmdLike("sh")
-	if client == -1 {
-		return errors.New("No wrapped clients with open command like 'sh' found")
-	}
-
-	return this.ClientController.Write(client, cmd)
 }
 
 func (this *ButterfishCtx) updateCommandRegister(cmd string) {
