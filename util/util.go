@@ -215,6 +215,22 @@ func NewReplaceWriter(writer io.Writer, from string, to string) *ReplaceWriter {
 	}
 }
 
+type ColorWriter struct {
+	Color  string
+	Writer io.Writer
+}
+
+func NewColorWriter(writer io.Writer, color string) *ColorWriter {
+	return &ColorWriter{
+		Color:  color,
+		Writer: writer,
+	}
+}
+
+func (this *ColorWriter) Write(p []byte) (n int, err error) {
+	return this.Writer.Write([]byte(this.Color + string(p) + "\x1b[0m"))
+}
+
 // An implementation of io.Writer that renders output with a lipgloss style
 // and filters out the special token "NOOP". This is specially handled -
 // we seem to get "NO" as a separate token from GPT.

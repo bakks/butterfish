@@ -78,8 +78,8 @@ type ShellBuffer struct {
 	lastJumpForward    int
 }
 
-func (this *ShellBuffer) SetColor(r int, g int, b int) {
-	this.color = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+func (this *ShellBuffer) SetColor(color string) {
+	this.color = color
 }
 
 func (this *ShellBuffer) Clear() []byte {
@@ -507,6 +507,7 @@ type ShellState struct {
 	PromptColorString      string
 	CommandColorString     string
 	AutosuggestColorString string
+	AnswerColorString      string
 
 	AutosuggestEnabled bool
 	LastAutosuggest    string
@@ -521,6 +522,11 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
 
+	promptColor := "\x1b[38;5;154m"
+	commandColor := "\x1b[0m"
+	autosuggestColor := "\x1b[38;5;241m"
+	answerColor := "\x1b[38;5;214m"
+
 	log.Printf("Starting shell multiplexer")
 
 	childOutReader := make(chan *byteMsg)
@@ -529,7 +535,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	go readerToChannel(childOut, childOutReader)
 	go readerToChannel(parentIn, parentInReader)
 
-	promptOutputWriter := util.NewStyledWriter(parentOut, this.Config.Styles.Answer)
+	promptOutputWriter := util.NewColorWriter(parentOut, answerColor)
 	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
 
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
@@ -558,14 +564,15 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		AutosuggestEnabled: true,
 		AutosuggestChan:    make(chan *AutosuggestResult),
 		AutosuggestStyle:   this.Config.Styles.Grey,
+
+		PromptColorString:      promptColor,
+		CommandColorString:     commandColor,
+		AutosuggestColorString: autosuggestColor,
+		AnswerColorString:      answerColor,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
-	r, g, b, _ := shellState.PromptStyle.GetForeground().RGBA()
-	shellState.Prompt.SetColor(int(r/255), int(g/255), int(b/255))
-	shellState.PromptColorString = rgbaToColorString(shellState.PromptStyle.GetForeground().RGBA())
-	shellState.AutosuggestColorString = rgbaToColorString(shellState.AutosuggestStyle.GetForeground().RGBA())
-	shellState.CommandColorString = fmt.Sprintf("\x1b[0m")
+	shellState.Prompt.SetColor(promptColor)
 	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
 	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
 
@@ -726,10 +733,10 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			log.Printf("State change: normal -> prompting")
 			this.Prompt.Clear()
 			this.Prompt.Write(string(data))
-			rendered := this.PromptStyle.Render(this.Prompt.String())
 
 			// Write the actual prompt start
-			this.ParentOut.Write([]byte(rendered))
+			this.ParentOut.Write([]byte(this.PromptColorString))
+			this.ParentOut.Write(data)
 
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position

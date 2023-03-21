@@ -33,7 +33,7 @@ var DefaultPrompts []Prompt = []Prompt{
 '''
 {history}
 '''.
-If there are specific commands mentioned in history, especially with quotation marks, bias towards those commands. This is the start of the command: '{command}'.`,
+If there are specific commands mentioned by the assistant, especially with quotation marks, bias towards those commands. This is the start of the command: '{command}'.`,
 	},
 
 	{
@@ -43,13 +43,13 @@ If there are specific commands mentioned in history, especially with quotation m
 '''
 {history}
 '''
-If there are specific commands mentioned in history, especially with quotation marks, bias towards those commands.`,
+If there are specific commands mentioned by the assistant, especially with quotation marks, bias towards those commands.`,
 	},
 
 	{
 		Name:        PromptShellAutosuggestPrompt,
 		OkToReplace: true,
-		Prompt: `The user is asking a natural language question likely related to a unix shell command or to programming. Complete what the user is asking and include the start of the question in the answer. Respond only with the completion. Here is some recent context and history from the user's shell:
+		Prompt: `The user is asking a natural language question likely related to a unix shell command or to programming. Complete the question and include the start of the question in the answer. Do not answer the question. Respond only with the completion. Here is some recent context and history from the user's shell:
 '''
 {history}
 '''.
