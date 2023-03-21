@@ -587,6 +587,7 @@ func rgbaToColorString(r, g, b, _ uint32) string {
 // TODO add a diagram of streams here
 func (this *ShellState) Mux() {
 	parentInBuffer := []byte{}
+	childOutBuffer := []byte{}
 
 	for {
 		select {
@@ -621,6 +622,12 @@ func (this *ShellState) Mux() {
 			this.ChildIn.Write([]byte("\n"))
 			this.RequestAutosuggest(0, "")
 
+			if len(childOutBuffer) > 0 {
+				this.ParentOut.Write(childOutBuffer)
+				this.History.Append(historyTypeShellOutput, string(childOutBuffer))
+				childOutBuffer = []byte{}
+			}
+
 			this.State = stateNormal
 			log.Printf("State change: promptResponse -> normal")
 
@@ -630,6 +637,14 @@ func (this *ShellState) Mux() {
 				this.Butterfish.Cancel()
 				return
 			}
+
+			// If we're actively printing a response we buffer child output
+			if this.State == statePromptResponse {
+				log.Printf("Buffering child output: %s", stripANSI(string(childOutMsg.Data)))
+				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
+				continue
+			}
+
 			this.History.Append(historyTypeShellOutput, string(childOutMsg.Data))
 			this.ParentOut.Write(childOutMsg.Data)
 
