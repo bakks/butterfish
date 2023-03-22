@@ -125,10 +125,6 @@ type ButterfishCtx struct {
 	CommandRegister string
 	// embedding index for searching local files
 	VectorIndex embedding.FileEmbeddingIndex
-
-	// TODO remove these
-	ConsoleCmdChan   <-chan string    // channel for console commands
-	ClientController ClientController // client controller
 }
 
 type ColorScheme struct {
@@ -326,34 +322,6 @@ func ptyCommand(ctx context.Context, command []string) (*os.File, func() error, 
 	}
 
 	return ptmx, cleanup, nil
-}
-
-// Based on example at https://github.com/creack/pty
-// Apparently you can't start a shell like zsh without
-// this more complex command execution
-func wrapCommand(ctx context.Context, cancel context.CancelFunc, command []string, client *IPCClient) error {
-	ptmx, cleanup, err := ptyCommand(ctx, command)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-
-	parentIn := make(chan *byteMsg)
-	childOut := make(chan *byteMsg)
-	remoteIn := make(chan *byteMsg)
-
-	// Read from this process Stdin and write to stdinChannel
-	go readerToChannel(os.Stdin, parentIn)
-	// Read from pty Stdout and write to stdoutChannel
-	go readerToChannel(ptmx, childOut)
-	// Read from remote
-	go packageRPCStream(client, remoteIn)
-
-	client.SendWrappedCommand(strings.Join(command, " "))
-
-	wrappingMultiplexer(ctx, cancel, client, ptmx, parentIn, remoteIn, childOut)
-
-	return nil
 }
 
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {

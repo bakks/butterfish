@@ -2,38 +2,6 @@ syntax = "proto3";
 
 option go_package = "github.com/teglon/butterfish/proto";
 
-// Define the butterfish client/server bidirectional streaming interface.
-// This allows a client to send a stream of messages about a wrapped command,
-// e.g. the client wraps a shell, the user types commands, the client sends
-// information about how they've started the shell, and its stdin/stdout/stderr.
-service Butterfish {
-  rpc StreamsForWrapping(stream ClientPush) returns (stream ServerPush) {}
-}
-
-message ClientPush {
-  oneof msg {
-    ClientOpen client_open = 1;
-    ClientInput client_input = 2;
-    ClientOutput client_output = 3;
-  }
-}
-
-message ClientOutput {
-  bytes data = 1;
-}
-
-message ClientOpen {
-  string wrappedCommand = 1;
-}
-
-message ClientInput {
-  bytes data = 1;
-}
-
-message ServerPush {
-  bytes data = 1;
-}
-
 // A format for serializing indexes of vector embeddings for a directory
 // and its constituent files.
 

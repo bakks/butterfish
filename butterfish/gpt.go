@@ -165,7 +165,7 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 			},
 		},
 		MaxTokens:   request.MaxTokens,
-		Temperature: request.Temperature,
+		Temperature: &request.Temperature,
 		N:           1,
 	}
 
@@ -186,7 +186,7 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		Model:       request.Model,
 		Messages:    messages,
 		MaxTokens:   request.MaxTokens,
-		Temperature: request.Temperature,
+		Temperature: &request.Temperature,
 		N:           1,
 	}
 
@@ -256,7 +256,7 @@ func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, er
 		Model:       request.Model,
 		Messages:    messages,
 		MaxTokens:   request.MaxTokens,
-		Temperature: request.Temperature,
+		Temperature: &request.Temperature,
 		N:           1,
 	}
 
@@ -277,7 +277,7 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, 
 			},
 		},
 		MaxTokens:   request.MaxTokens,
-		Temperature: request.Temperature,
+		Temperature: &request.Temperature,
 		N:           1,
 	}
 

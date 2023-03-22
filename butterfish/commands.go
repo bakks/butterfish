@@ -765,38 +765,3 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	_, err = this.LLMClient.CompletionStream(req, writer)
 	return err
 }
-
-func (this *ButterfishCtx) checkClientOutputForError(client int, openCmd string, output []byte) {
-	// Find the client's last command, i.e. what they entered into the shell
-	// It's normal for this to error if the client has not entered anything yet,
-	// in that case we just return without action
-	lastCmd, err := this.ClientController.GetClientLastCommand(client)
-	if err != nil {
-		return
-	}
-
-	// interpolate the prompt to ask if there's an error in the output and
-	// call GPT, the response will be streamed (but filter the special token
-	// combo "NOOP")
-	prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptWatchShellOutput,
-		"shell_name", openCmd,
-		"command", lastCmd,
-		"output", string(output))
-	if err != nil {
-		this.printError(err)
-	}
-
-	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Error)
-	req := &util.CompletionRequest{
-		Ctx:         this.Ctx,
-		Prompt:      prompt,
-		Model:       "gpt-3.5-turbo",
-		MaxTokens:   1024,
-		Temperature: 0.7,
-	}
-	_, err = this.LLMClient.CompletionStream(req, writer)
-	if err != nil {
-		this.printError(err)
-		return
-	}
-}
