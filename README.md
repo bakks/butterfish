@@ -42,7 +42,7 @@ butterfish prompt "Is this thing working?"
 You can also install with `go install`, which is recommended for Linux:
 
 ```bash
-go install github.com/bakks/butterfish/cmd/butterfish
+go install github.com/bakks/butterfish/cmd/butterfish@v0.0.29
 $(go env GOPATH)/bin/butterfish prompt "Is this thing working?"
 ```
 
