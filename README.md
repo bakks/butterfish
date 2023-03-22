@@ -39,7 +39,7 @@ brew install bakks/bakks/butterfish
 butterfish prompt "Is this thing working?"
 ```
 
-You can also install with `go get`, which is recommended for Linux:
+You can also install with `go install`, which is recommended for Linux:
 
 ```bash
 go install github.com/bakks/butterfish/cmd/butterfish
