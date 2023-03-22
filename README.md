@@ -42,8 +42,8 @@ butterfish prompt "Is this thing working?"
 You can also install with `go get`, which is recommended for Linux:
 
 ```bash
-go get github.com/bakks/butterfish/cmd/butterfish
-butterfish prompt "Is this thing working?"
+go install github.com/bakks/butterfish/cmd/butterfish
+$(go env GOPATH)/bin/butterfish prompt "Is this thing working?"
 ```
 
 The first invocation will prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
