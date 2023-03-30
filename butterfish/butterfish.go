@@ -61,6 +61,7 @@ type ButterfishConfig struct {
 
 	// Shell mode configuration
 	ShellMode                bool
+	ShellPluginMode          bool
 	ShellPromptModel         string // used when the user enters an explicit prompt
 	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
 	ShellAutosuggestModel    string // used when we're autocompleting a command

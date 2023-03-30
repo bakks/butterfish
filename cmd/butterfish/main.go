@@ -52,7 +52,14 @@ type CliConfig struct {
 		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
 		AutosuggestTimeout       int    `short:"t" default:"500" help:"Time between when the user stops typing and an autosuggest is requested (lower values trigger more calls and are thus more expensive)."`
 		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
+		Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. Wrap your existing shell, giving you access to LLM prompting by starting your command with a capital letter. Autosuggest shell commands. LLM calls include prior shell context."`
+
+	Plugin struct {
+		NoPrompt bool   `short:"f" default:"false" help:"Execute remote commands without manual confirmation."`
+		Hostname string `short:"H" default:"butterfi.sh" help:"Hostname of the Butterfish plugin server."`
+		Port     int    `short:"p" default:"443" help:"Port of the Butterfish plugin server."`
+	} `cmd:"" help:"Run a ChatGPT Plugin client that allows remote command execution on the local machine."`
 
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
@@ -200,8 +207,32 @@ func main() {
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow
 		config.ShellMode = true
+		config.ShellPluginMode = cli.Shell.Plugin
 
 		bf.RunShell(ctx, config, shell)
+
+	case "plugin":
+		logfileName := initLogging(ctx)
+		fmt.Printf("Logging to %s\n", logfileName)
+
+		butterfishCtx, err := bf.NewButterfish(ctx, config)
+		if err != nil {
+			fmt.Fprintf(errorWriter, err.Error())
+			os.Exit(5)
+		}
+		//butterfishCtx.Config.Styles.PrintTestColors()
+
+		hostname := cli.Plugin.Hostname
+		port := cli.Plugin.Port
+
+		client, err := butterfishCtx.StartPluginClient(hostname, port)
+		if err != nil {
+			fmt.Fprintf(errorWriter, err.Error())
+			os.Exit(6)
+		}
+
+		go client.Mux(ctx)
+		butterfishCtx.PluginFrontend(client)
 
 	default:
 		butterfishCtx, err := bf.NewButterfish(ctx, config)
