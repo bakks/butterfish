@@ -129,6 +129,8 @@ If you're looking for a way to accidentally delete your files, Plugin Mode is a 
 - What files are in my home directory?
 - Create a new Python project in ~/project using pip dependencies, provide a hello world script.
 
+<img src="https://github.com/bakks/butterfish/raw/plugin/assets/plugin.png" alt="Plugin Demo" width="500px" height="250px" />
+
 This works by starting a local plugin client that connects to the Butterfish server and provides a session-specific token. You give the token to ChatGPT, which then is capable of executing commands on your local machine in response to a chat prompt.
 
 This is brand new and should be used with _extreme caution_. Everything is done over TLS but this probably insecure in ways I haven't considered and is basically an RCE by design.
