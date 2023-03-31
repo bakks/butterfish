@@ -57,7 +57,7 @@ type CliConfig struct {
 
 	Plugin struct {
 		NoPrompt bool   `short:"f" default:"false" help:"Execute remote commands without manual confirmation."`
-		Hostname string `short:"H" default:"butterfi.sh" help:"Hostname of the Butterfish plugin server."`
+		Hostname string `short:"H" default:"grpc.butterfi.sh" help:"Hostname of the Butterfish plugin server."`
 		Port     int    `short:"p" default:"443" help:"Port of the Butterfish plugin server."`
 	} `cmd:"" help:"Run a ChatGPT Plugin client that allows remote command execution on the local machine."`
 
@@ -231,7 +231,13 @@ func main() {
 			os.Exit(6)
 		}
 
-		go client.Mux(ctx)
+		go func() {
+			err := client.Mux(ctx)
+			if err != nil {
+				fmt.Fprintf(errorWriter, err.Error())
+				os.Exit(10)
+			}
+		}()
 		butterfishCtx.PluginFrontend(client)
 
 	default:

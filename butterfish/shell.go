@@ -651,15 +651,15 @@ func (this *PluginClient) HandleCommandExecution(ctx context.Context, id string)
 	}
 }
 
-func (this *PluginClient) Mux(ctx context.Context) {
+func (this *PluginClient) Mux(ctx context.Context) error {
 	for {
 		msg, err := this.streamClient.Recv()
 		if err == io.EOF {
-			log.Fatalf("Plugin stream closed")
-			break
+			log.Printf("Plugin stream closed")
+			return err
 		} else if err != nil {
-			log.Fatalf("Error reading from plugin stream: %s", err)
-			break
+			log.Printf("Error reading from plugin stream: %s", err)
+			return err
 		}
 
 		log.Printf("Plugin message: %s", msg.Command)
@@ -671,6 +671,7 @@ func (this *PluginClient) Mux(ctx context.Context) {
 
 func (this *ButterfishCtx) PluginFrontend(pluginClient *PluginClient) {
 	output := os.Stdout
+	log.Printf("Starting plugin frontend")
 
 	for {
 		select {
@@ -679,12 +680,15 @@ func (this *ButterfishCtx) PluginFrontend(pluginClient *PluginClient) {
 			return
 
 		case cmd := <-pluginClient.CommandChan:
+			log.Printf("Plugin command: %s", cmd)
 			fmt.Fprintf(output, "> %s\n", cmd)
 
 			result, err := executeCommand(this.Ctx, cmd, output)
 			if err != nil {
 				log.Printf("Error executing command: %s", err)
+				continue
 			}
+			log.Printf("Command finished with exit code %d", result.Status)
 
 			pluginClient.CommandExecutionChan <- &commandExecution{
 				Done:   false,
@@ -711,12 +715,11 @@ func (this *ButterfishCtx) StartPluginClient(hostname string, port int) (*Plugin
 	opts = append(opts, grpc.WithBlock())
 	opts = append(opts, grpc.WithTimeout(5*time.Second))
 
-	/////////////////
 	if hostname != "" {
 		opts = append(opts, grpc.WithAuthority(hostname))
 	}
 
-	if false {
+	if hostname == "localhost" || hostname == "0.0.0.0" {
 		opts = append(opts, grpc.WithInsecure())
 	} else {
 		systemRoots, err := x509.SystemCertPool()
@@ -729,14 +732,10 @@ func (this *ButterfishCtx) StartPluginClient(hostname string, port int) (*Plugin
 		opts = append(opts, grpc.WithTransportCredentials(cred))
 	}
 
-	///////////////////
-
 	var conn grpc.ClientConnInterface
 	var err error
 
-	//host := "butterfi.sh:50051"
 	host := fmt.Sprintf("%s:%d", hostname, port)
-	//host := fmt.Sprintf("https://%s", hostname)
 	this.Printf("Connecting to server at %s...\n", host)
 	log.Printf("Connecting to server at %s...", host)
 
@@ -784,8 +783,14 @@ func (this *ButterfishCtx) StartPluginClient(hostname string, port int) (*Plugin
 	}
 
 	log.Printf("Hello message sent")
+	this.Printf("Connected.\n")
 
-	return &PluginClient{streamClient: streamClient}, nil
+	pluginClient := &PluginClient{
+		streamClient:         streamClient,
+		CommandChan:          make(chan string),
+		CommandExecutionChan: make(chan *commandExecution),
+	}
+	return pluginClient, nil
 }
 
 func rgbaToColorString(r, g, b, _ uint32) string {

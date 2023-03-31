@@ -642,7 +642,7 @@ func executeCommand(ctx context.Context, cmd string, out io.Writer) (*executeRes
 		}
 	}
 
-	return nil, err
+	return &executeResult{LastOutput: cacheWriter.GetCache(), Status: 0}, err
 }
 
 // Execute the command as a child of this process (rather than a remote
