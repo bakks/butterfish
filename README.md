@@ -133,10 +133,9 @@ This works by starting a local plugin client that connects to the Butterfish ser
 
 This is brand new and should be used with _extreme caution_. Everything is done over TLS but this probably insecure in ways I haven't considered and is basically an RCE by design.
 
-Here are local setup instructions:
+Here are local MacOS setup instructions:
 
 ```bash
-# Brew dependencies:
 brew install git go protoc protoc-gen-go protoc-gen-go-grpc
 git clone https://github.com/bakks/butterfish
 cd butterfish
