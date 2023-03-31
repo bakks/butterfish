@@ -154,7 +154,7 @@ This should connect to the Butterfish server and give you a session specific tok
 1. Go to [https://chat.openai.com/chat](https://chat.openai.com/chat)
 1. Open the plugin menu > plugin store. _You must be gated into plugins_.
 1. Click "Install an unverified plugin" in the bottom right corner
-1. For the plugin domain, enter "butterfi.sh"
+1. For the plugin domain, enter `butterfi.sh`
 1. Approve unverified plugin - this is unverified
 1. When it asks for your HTTP token, enter the copied session token. You will need to reinstall and paste in a new token for _each_ time you start the local plugin process.
 1. You should now see the ChatGPT interface. ChatGPT will use its judgement for when to execute commands on your machine, which will be displayed in the output of the `butterfish plugin` command.
