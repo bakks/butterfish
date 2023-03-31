@@ -150,7 +150,7 @@ This should connect to the Butterfish server and give you a session specific tok
 
 1. Copy your session token, it is a UUID printed when the above runs
 1. Go to [https://chat.openai.com/chat](https://chat.openai.com/chat)
-1. Open the plugin menu > plugin store. _You must be gate into plugins_
+1. Open the plugin menu > plugin store. _You must be gated into plugins_.
 1. Click "Install an unverified plugin" in the bottom right corner
 1. For the plugin domain, enter "butterfi.sh"
 1. Approve unverified plugin - this is unverified
