@@ -49,8 +49,9 @@ type CliConfig struct {
 		Bin                      string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		PromptModel              string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
 		PromptHistoryWindow      int    `short:"w" default:"3000" help:"Number of bytes of history to include when prompting."`
+		AutosuggestDisabled      bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
-		AutosuggestTimeout       int    `short:"t" default:"500" help:"Time between when the user stops typing and an autosuggest is requested (lower values trigger more calls and are thus more expensive)."`
+		AutosuggestTimeout       int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
 		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. Wrap your existing shell, giving you access to LLM prompting by starting your command with a capital letter. Autosuggest shell commands. LLM calls include prior shell context."`
 
@@ -196,6 +197,7 @@ func main() {
 
 		config.ShellPromptModel = cli.Shell.PromptModel
 		config.ShellPromptHistoryWindow = cli.Shell.PromptHistoryWindow
+		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow

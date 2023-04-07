@@ -561,7 +561,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		Command:            NewShellBuffer(),
 		Prompt:             NewShellBuffer(),
 		TerminalWidth:      termWidth,
-		AutosuggestEnabled: true,
+		AutosuggestEnabled: this.Config.ShellAutosuggestEnabled,
 		AutosuggestChan:    make(chan *AutosuggestResult),
 		AutosuggestStyle:   this.Config.Styles.Grey,
 
