@@ -50,7 +50,9 @@ func parseCursorPos(data []byte) (int, int, int, bool) {
 }
 
 func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
-	ptmx, ptyCleanup, err := ptyCommand(ctx, []string{shell})
+	envVars := []string{"BUTTERFISH_SHELL=1"}
+
+	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{shell})
 	if err != nil {
 		return err
 	}

@@ -274,13 +274,19 @@ func sanitizeTTYString(data string) string {
 	return filterNonPrintable(stripANSI(data))
 }
 
-func ptyCommand(ctx context.Context, command []string) (*os.File, func() error, error) {
+func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.File, func() error, error) {
 	// Create arbitrary command.
 	var cmd *exec.Cmd
+
 	if len(command) > 1 {
 		cmd = exec.CommandContext(ctx, command[0], command[1:]...)
 	} else {
 		cmd = exec.CommandContext(ctx, command[0])
+	}
+
+	cmd.Env = os.Environ()
+	if len(envVars) > 0 {
+		cmd.Env = append(cmd.Env, envVars...)
 	}
 
 	// Start the command with a pty.

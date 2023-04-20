@@ -193,12 +193,18 @@ func main() {
 		logfileName := initLogging(ctx)
 		fmt.Printf("Logging to %s\n", logfileName)
 
+		alreadyRunning := os.Getenv("BUTTERFISH_SHELL")
+		if alreadyRunning != "" {
+			fmt.Fprintf(errorWriter, "Butterfish shell is already running, cannot wrap shell again (detected with BUTTERFISH_SHELL env var).\n")
+			os.Exit(8)
+		}
+
 		shell := os.Getenv("SHELL")
 		if cli.Shell.Bin != "" {
 			shell = cli.Shell.Bin
 		}
 		if shell == "" {
-			fmt.Fprintf(errorWriter, "No shell found, please specify one with -b or $SHELL")
+			fmt.Fprintf(errorWriter, "No shell found, please specify one with -b or $SHELL\n")
 			os.Exit(7)
 		}
 
