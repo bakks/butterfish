@@ -34,6 +34,7 @@ Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env an
 
 To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
 
+If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `
 const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 const defaultEnvPath = "~/.config/butterfish/butterfish.env"
@@ -53,7 +54,13 @@ type CliConfig struct {
 		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
 		AutosuggestTimeout       int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
 		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
-	} `cmd:"" help:"Start the Butterfish shell wrapper. Wrap your existing shell, giving you access to LLM prompting by starting your command with a capital letter. Autosuggest shell commands. LLM calls include prior shell context."`
+	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
+
+Use:
+- Start a command with a capital letter to write a prompt and get a response.
+- Autosuggest will attempt to complete your command based on your history.
+
+If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000)."`
 
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here

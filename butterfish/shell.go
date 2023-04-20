@@ -22,6 +22,9 @@ import (
 	"golang.org/x/term"
 )
 
+const ERR_429 = "429:insufficient_quota"
+const ERR_429_HELP = "You are likely using a free OpenAI account without a subscription activated, this error means you are out of credits. To resolve it, set up a subscription at https://platform.openai.com/account/billing/overview. This requires a credit card and payment, run `butterfish help` for guidance on managing cost."
+
 // compile a regex that matches \x1b[%d;%dR
 var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
 
@@ -807,6 +810,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				// no last autosuggest found, just forward the tab
 				this.ParentOut.Write(data)
 			}
+
+			return data[1:]
+
 		} else if data[0] == 0x03 { // Ctrl-C
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
@@ -900,10 +906,17 @@ func (this *ShellState) SendPrompt() {
 	go func() {
 		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
 		if err != nil {
-			errStr := err.Error()
-			log.Printf("Error prompting in shell: %s", errStr)
+			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
+
+			// This error means the user needs to set up a subscription, give advice
+			if strings.Contains(errStr, ERR_429) {
+				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
+			}
+
+			log.Printf("%s", errStr)
+
 			if !strings.Contains(errStr, "context canceled") {
-				fmt.Fprintf(this.PromptAnswerWriter, "Error: %s", errStr)
+				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
 			}
 		}
 
@@ -1121,7 +1134,11 @@ func RequestCancelableAutosuggest(
 	}
 
 	output, err := llmClient.Completion(request)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "context canceled") {
+		log.Printf("Autosuggest error: %s", err)
+		if strings.Contains(err.Error(), ERR_429) {
+			log.Printf(ERR_429_HELP)
+		}
 		return
 	}
 
