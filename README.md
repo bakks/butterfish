@@ -2,7 +2,7 @@
 
 Let's do useful things with LLMs from the command line, with a bent towards software engineering.
 
-[![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish)
+[![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) | Updates at [@pbbakkum](https://twitter.com/pbbakkum)
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/summarize.gif" alt="Butterfish" width="500px" height="250px" />
 
