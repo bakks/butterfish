@@ -523,9 +523,27 @@ type ShellState struct {
 	PendingAutosuggest *AutosuggestResult
 }
 
+func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
+	for {
+		select {
+		case <-time.After(timeout):
+			return
+		case <-r:
+			continue
+		}
+	}
+}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
+
+	//string that goes back 2 characters in terminal then prints fish emoji
+	clearChildOut := false
+	if this.Config.ShellCommandPrompt != "" {
+		fmt.Fprintf(childIn, "export PS1=\"$PS1%s\"\n", this.Config.ShellCommandPrompt)
+		clearChildOut = true
+	}
 
 	promptColor := "\x1b[38;5;154m"
 	commandColor := "\x1b[0m"
@@ -580,6 +598,12 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.Prompt.SetColor(promptColor)
 	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
 	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
+
+	if clearChildOut {
+		// clear out any existing output to hide the PS1 export stuff
+		clearByteChan(childOutReader, 100*time.Millisecond)
+		fmt.Fprintf(childIn, "\n")
+	}
 
 	// start
 	shellState.Mux()

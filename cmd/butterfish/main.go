@@ -54,6 +54,7 @@ type CliConfig struct {
 		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
 		AutosuggestTimeout       int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
 		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
+		CommandPrompt            string `short:"p" default:"🐠 " help:"Command prompt replacement, set to '' for no replacement"`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
 
 Use:
@@ -215,6 +216,7 @@ func main() {
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow
 		config.ShellMode = true
+		config.ShellCommandPrompt = cli.Shell.CommandPrompt
 
 		bf.RunShell(ctx, config, shell)
 

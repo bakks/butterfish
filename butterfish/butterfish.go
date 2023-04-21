@@ -63,6 +63,7 @@ type ButterfishConfig struct {
 	ShellMode                bool
 	ShellPromptModel         string // used when the user enters an explicit prompt
 	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
+	ShellCommandPrompt       string // replace the default command prompt (eg >) with this
 	ShellAutosuggestEnabled  bool   // whether to use autosuggest
 	ShellAutosuggestModel    string // used when we're autocompleting a command
 	// how long to wait between when the user stos typing and we ask for an
