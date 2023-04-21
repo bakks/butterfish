@@ -1,7 +1,6 @@
 package prompt
 
 const (
-	PromptWatchShellOutput           = "watch_shell_output"
 	PromptFixCommand                 = "fix_command"
 	PromptSummarize                  = "summarize"
 	PromptSummarizeFacts             = "summarize_facts"
@@ -54,13 +53,6 @@ If there are specific commands mentioned by the assistant, especially with quota
 {history}
 '''.
 This is the start of the question: '{command}'.`,
-	},
-
-	// PromptWatchShellOutput is a prompt for watching shell output
-	{
-		Name:        PromptWatchShellOutput,
-		OkToReplace: true,
-		Prompt:      `The following is output from a user inside a "{shell_name}" shell, the user ran the command "{command}", if the output contains an error then print the specific segment that is an error and explain briefly how to solve the error, otherwise respond with only "NOOP". "{output}"`,
 	},
 
 	// PromptFixCommand is a prompt for fixing a command

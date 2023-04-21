@@ -409,6 +409,18 @@ find all go files
 ...
 ```
 
+#### Example
+
+The `butterfish summarize` command gives you a semantic summary of a file. For example you can run `butterfish summarize ./go.mod`, and it will open that file and give you an English-language summary of what's in it.
+
+When `summarize` runs, it wraps the file contents in the prompt (also there's some functionality for when it won't fit, but let's ignore that). In other words, it says something like "this is a raw text file, summarize it: '{content}'". But maybe this prompt isn't working well for you, or you want it to assume more things about the file, or you want the output to be different than a completely generic summary.
+
+In that case, you can open `~/.config/butterfish/prompts.yaml`, find the prompt named `summarize`, and edit it. Once you edit you should set `oktoreplace` to `false`.
+
+Let's try it - change the `summarize` prompt to say something like "Summarize in spanish", set `oktoreplace`, and then run `butterfish summarize [file]`.
+
+Remember that if you run Butterfish in verbose mode (with `-v`), you will see the prompt when you run it!
+
 ### Embeddings
 
 Example:
@@ -430,6 +442,25 @@ The `.butterfish_index` cache files are binary files written using the protobuf 
 ```
 protoc --decode DirectoryIndex butterfish/proto/butterfish.proto < .butterfish_index
 ```
+
+#### Example
+
+Let's say you have a software project repository that you want to embed, we'll call this project `helloworld`. First we can index it:
+
+```
+butterfish index /path/to/helloworld
+```
+
+That will run recursively, and you should see output as it calculates embeddings. Once those embeddings exist, go to the directory and check if you can use them:
+
+```
+cd /path/to/helloworld
+butterfish indexsearch "printf 'hello world'"
+```
+
+This will search for embeddings that match the string you hand it. Hopefully these are relevant results!
+
+Often you want to not only do that index search, but hand the results into a GPT prompt so that you can ask a question. In that case `butterfish indexquestion` uses the prompt both to search the embeddings, as a prompt to GPT to ask a question.
 
 ## Dev Setup
 
