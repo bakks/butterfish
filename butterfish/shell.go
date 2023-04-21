@@ -908,7 +908,7 @@ func (this *ShellState) PrintStatus() {
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
-	text += fmt.Sprintf("Autosuggest history:   %d\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
+	text += fmt.Sprintf("Autosuggest history:   %d bytes\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
 	fmt.Fprintf(this.PromptAnswerWriter, text)
 
 	go func() {

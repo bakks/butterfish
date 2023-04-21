@@ -86,9 +86,36 @@ This is also very new code and there are likely bugs, please log issues in githu
 > butterfish shell --help
 Usage: butterfish shell
 
-Start the Butterfish shell wrapper. Wrap your existing shell, giving you access
-to LLM prompting by starting your command with a capital letter. Autosuggest
-shell commands. LLM calls include prior shell context.
+Start the Butterfish shell wrapper. This wraps your existing shell, giving
+you access to LLM prompting by starting your command with a capital letter.
+LLM calls include prior shell context. This is great for keeping a chat-like
+terminal open, sending written prompts, debugging commands, and iterating on
+past actions.
+
+Use:
+
+  - Type a normal command, like 'ls -l' and press enter to execute it
+
+  - Start a command with a capital letter to send it to GPT, like 'How do I find
+    local .py files?'
+
+  - Autosuggest will print command completions, press tab to fill them in
+
+  - Type 'Status' to show the current Butterfish configuration
+
+  - GPT will be able to see your shell history, so you can ask contextual
+    questions like 'why didn't my last command work?'
+
+    Here are special Butterfish commands:
+
+  - Status : Show the current Butterfish configuration
+
+  - Help : Give hints about usage
+
+If you don't have OpenAI free credits then you'll need a subscription and you'll
+need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will
+probably be the most expensive part. You can reduce spend here by disabling
+shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).
 
 Flags:
   -h, --help                       Show context-sensitive help.
@@ -102,15 +129,17 @@ Flags:
   -w, --prompt-history-window=3000
                                    Number of bytes of history to include when
                                    prompting.
+  -A, --autosuggest-disabled       Disable autosuggest.
   -a, --autosuggest-model="text-davinci-003"
                                    Model for autosuggest
-  -t, --autosuggest-timeout=500    Time between when the user stops typing
-                                   and an autosuggest is requested (lower
-                                   values trigger more calls and are thus more
+  -t, --autosuggest-timeout=500    Delay after typing before autosuggest (lower
+                                   values trigger more calls and are more
                                    expensive).
   -W, --autosuggest-history-window=3000
                                    Number of bytes of history to include when
                                    autosuggesting.
+  -p, --command-prompt="🐠 "        Command prompt replacement, set to ” for no
+                                   replacement
 
 ```
 
@@ -295,8 +324,26 @@ Here's the command help:
 Usage: butterfish <command>
 
 Do useful things with LLMs from the command line, with a bent towards software
-engineering. v0.0.22 darwin amd64 (commit 87baf41) (built 2023-03-19T01:52:20Z)
-MIT License - Copyright (c) 2023 Peter Bakkum
+engineering.
+
+Butterfish is a command line tool for working with LLMs. It has two modes: CLI
+command mode, used to prompt LLMs, summarize files, and manage embeddings, and
+Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
+
+Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env
+and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml.
+
+To print the full prompts and responses from the OpenAI API, use the --verbose
+flag. Support can be found at https://github.com/bakks/butterfish.
+
+If you don't have OpenAI free credits then you'll need a subscription and you'll
+need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will
+probably be the most expensive part. You can reduce spend here by disabling
+shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).
+See "butterfish shell --help".
+
+v0.0.31 darwin amd64 (commit 8cc7f94) (built 2023-04-21T02:11:22Z) MIT License -
+Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.
@@ -304,9 +351,37 @@ Flags:
 
 Commands:
   shell
-    Start the Butterfish shell wrapper. Wrap your existing shell, giving you
-    access to LLM prompting by starting your command with a capital letter.
-    Autosuggest shell commands. LLM calls include prior shell context.
+    Start the Butterfish shell wrapper. This wraps your existing shell, giving
+    you access to LLM prompting by starting your command with a capital letter.
+    LLM calls include prior shell context. This is great for keeping a chat-like
+    terminal open, sending written prompts, debugging commands, and iterating on
+    past actions.
+
+    Use:
+
+      - Type a normal command, like 'ls -l' and press enter to execute it
+
+      - Start a command with a capital letter to send it to GPT, like 'How do I
+        find local .py files?'
+
+      - Autosuggest will print command completions, press tab to fill them in
+
+      - Type 'Status' to show the current Butterfish configuration
+
+      - GPT will be able to see your shell history, so you can ask contextual
+        questions like 'why didn't my last command work?'
+
+        Here are special Butterfish commands:
+
+      - Status : Show the current Butterfish configuration
+
+      - Help : Give hints about usage
+
+    If you don't have OpenAI free credits then you'll need a subscription
+    and you'll need to pay for OpenAI API use. If you're using Shell Mode,
+    autosuggest will probably be the most expensive part. You can reduce spend
+    here by disabling shell autosuggest (-A) or increasing the autosuggest
+    timeout (e.g. -t 2000).
 
   prompt [<prompt> ...]
     Run an LLM prompt without wrapping, stream results back. This is a
@@ -336,11 +411,6 @@ Commands:
   exec [<command> ...]
     Execute a command and try to debug problems. The command can either passed
     in or in the command register (if you have run gencmd in Console Mode).
-
-  execremote [<command> ...]
-    Execute a command in a wrapped shell, either passed in or in command
-    register. This is specifically for Console Mode after you have run gencmd
-    when you have a wrapped terminal open.
 
   index [<paths> ...]
     Recursively index the current directory using embeddings. This will
@@ -385,14 +455,14 @@ A goal of Butterfish is to make prompts transparent and easily editable. Butterf
 
 ```
 > head -n 8 ~/.config/butterfish/prompts.yaml
-- name: watch_shell_output
-  prompt: The following is output from a user inside a "{shell_name}" shell, the user
-    ran the command "{command}", if the output contains an error then print the specific
-    segment that is an error and explain briefly how to solve the error, otherwise
-    respond with only "NOOP". "{output}"
+- name: shell_system_message
+  prompt: You are an assistant that helps the user with a Unix shell. Give advice
+    about commands that can be run and examples but keep your answers succinct.
   oktoreplace: true
-- name: summarize
+- name: shell_autocomplete_command
   prompt: |-
+    The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
+    '''
 
 ```
 
