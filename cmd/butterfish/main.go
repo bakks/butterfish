@@ -58,8 +58,15 @@ type CliConfig struct {
 	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
 
 Use:
-- Start a command with a capital letter to write a prompt and get a response.
-- Autosuggest will attempt to complete your command based on your history.
+	- Type a normal command, like "ls -l" and press enter to execute it
+	- Start a command with a capital letter to send it to GPT, like "How do I find local .py files?"
+	- Autosuggest will print command completions, press tab to fill them in
+	- Type "Status" to show the current Butterfish configuration
+	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
+
+There are special Butterfish commands:
+	- Status : Show the current Butterfish configuration
+	- Help :   Give hints about usage
 
 If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000)."`
 
@@ -185,6 +192,7 @@ func main() {
 	cliParser.FatalIfErrorf(err)
 
 	config := makeButterfishConfig(cli)
+	config.BuildInfo = fmt.Sprintf("%s %s %s %s %s", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp)
 	ctx := context.Background()
 
 	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)

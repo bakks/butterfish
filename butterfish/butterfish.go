@@ -37,6 +37,9 @@ type ButterfishConfig struct {
 	// Verbose mode, prints out more information like raw OpenAI communication
 	Verbose bool
 
+	// build variables
+	BuildInfo string
+
 	// OpenAI private token, should start with "sk-".
 	// Found at https://platform.openai.com/account/api-keys
 	OpenAIToken string

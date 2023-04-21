@@ -899,9 +899,54 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 	return nil
 }
 
+func (this *ShellState) PrintStatus() {
+	text := fmt.Sprintf("You're using Butterfish Shell Mode\n%s\n\n", this.Butterfish.Config.BuildInfo)
+
+	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
+	text += fmt.Sprintf("Prompt history window: %d bytes\n", this.Butterfish.Config.ShellPromptHistoryWindow)
+	text += fmt.Sprintf("Command prompt:        %s\n", this.Butterfish.Config.ShellCommandPrompt)
+	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
+	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
+	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
+	text += fmt.Sprintf("Autosuggest history:   %d\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
+	fmt.Fprintf(this.PromptAnswerWriter, text)
+
+	go func() {
+		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
+	}()
+}
+
+func (this *ShellState) PrintHelp() {
+	text := `You're using the Butterfish Shell Mode, which means you have a Butterfish wrapper around your normal shell. Here's how you use it:
+
+	- Type a normal command, like "ls -l" and press enter to execute it
+	- Start a command with a capital letter to send it to GPT, like "How do I find local .py files?"
+	- Autosuggest will print command completions, press tab to fill them in
+	- Type "Status" to show the current Butterfish configuration
+	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
+`
+	fmt.Fprintf(this.PromptAnswerWriter, text)
+
+	go func() {
+		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
+	}()
+}
+
 func (this *ShellState) SendPrompt() {
 	this.State = statePromptResponse
 	log.Printf("State change: prompting -> promptResponse")
+
+	promptStr := strings.ToLower(this.Prompt.String())
+	promptStr = strings.TrimSpace(promptStr)
+
+	if promptStr == "status" {
+		this.PrintStatus()
+		return
+	}
+	if promptStr == "help" {
+		this.PrintHelp()
+		return
+	}
 
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
