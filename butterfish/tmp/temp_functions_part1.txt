@@ -1,0 +1,55 @@
+
+type commandExecution struct {
+	Done     bool
+	Output   []byte
+	ExitCode int
+}
+
+type PluginClient struct {
+	streamClient         proto.Ibodai_StreamClient
+	CommandChan          chan string
+	CommandExecutionChan chan *commandExecution
+}
+
+func (this *PluginClient) HandleCommandExecution(ctx context.Context, id string) {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Plugin mux context done")
+			return
+
+		case ex := <-this.CommandExecutionChan:
+			var newMsg *proto.ClientMessage
+
+			if ex.Done {
+				newMsg = &proto.ClientMessage{
+					Payload: &proto.ClientMessage_CommandDone{
+						CommandDone: &proto.CommandDone{
+							CommandId: id,
+							ExitCode:  0,
+						},
+					},
+				}
+			} else {
+				newMsg = &proto.ClientMessage{
+					Payload: &proto.ClientMessage_CommandOutput{
+						CommandOutput: &proto.CommandOutput{
+							CommandId:     id,
+							ResponseChunk: ex.Output,
+						},
+					},
+				}
+			}
+
+			err := this.streamClient.Send(newMsg)
+			if err != nil {
+				log.Fatalf("Error sending to plugin stream: %s", err)
+				break
+			}
+
+			if ex.Done {
+				return
+			}
+		}
+	}
+}
