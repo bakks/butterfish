@@ -34,6 +34,7 @@ Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env an
 
 To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
 
+If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `
 const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 const defaultEnvPath = "~/.config/butterfish/butterfish.env"
@@ -49,11 +50,26 @@ type CliConfig struct {
 		Bin                      string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		PromptModel              string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
 		PromptHistoryWindow      int    `short:"w" default:"3000" help:"Number of bytes of history to include when prompting."`
+		AutosuggestDisabled      bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
-		AutosuggestTimeout       int    `short:"t" default:"500" help:"Time between when the user stops typing and an autosuggest is requested (lower values trigger more calls and are thus more expensive)."`
+		AutosuggestTimeout       int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
 		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
-		Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
-	} `cmd:"" help:"Start the Butterfish shell wrapper. Wrap your existing shell, giving you access to LLM prompting by starting your command with a capital letter. Autosuggest shell commands. LLM calls include prior shell context."`
+		//Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
+		CommandPrompt string `short:"p" default:"🐠 " help:"Command prompt replacement, set to '' for no replacement"`
+	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
+
+Use:
+  - Type a normal command, like 'ls -l' and press enter to execute it
+  - Start a command with a capital letter to send it to GPT, like 'How do I find local .py files?'
+  - Autosuggest will print command completions, press tab to fill them in
+  - Type 'Status' to show the current Butterfish configuration
+  - GPT will be able to see your shell history, so you can ask contextual questions like 'why didn't my last command work?'
+
+  Here are special Butterfish commands:
+  - Status : Show the current Butterfish configuration
+  - Help :   Give hints about usage
+
+If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000)."`
 
 	Plugin struct {
 		NoPrompt bool   `short:"f" default:"false" help:"Execute remote commands without manual confirmation."`
@@ -183,6 +199,7 @@ func main() {
 	cliParser.FatalIfErrorf(err)
 
 	config := makeButterfishConfig(cli)
+	config.BuildInfo = fmt.Sprintf("%s %s %s %s %s", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp)
 	ctx := context.Background()
 
 	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
@@ -192,22 +209,30 @@ func main() {
 		logfileName := initLogging(ctx)
 		fmt.Printf("Logging to %s\n", logfileName)
 
+		alreadyRunning := os.Getenv("BUTTERFISH_SHELL")
+		if alreadyRunning != "" {
+			fmt.Fprintf(errorWriter, "Butterfish shell is already running, cannot wrap shell again (detected with BUTTERFISH_SHELL env var).\n")
+			os.Exit(8)
+		}
+
 		shell := os.Getenv("SHELL")
 		if cli.Shell.Bin != "" {
 			shell = cli.Shell.Bin
 		}
 		if shell == "" {
-			fmt.Fprintf(errorWriter, "No shell found, please specify one with -b or $SHELL")
+			fmt.Fprintf(errorWriter, "No shell found, please specify one with -b or $SHELL\n")
 			os.Exit(7)
 		}
 
 		config.ShellPromptModel = cli.Shell.PromptModel
 		config.ShellPromptHistoryWindow = cli.Shell.PromptHistoryWindow
+		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow
 		config.ShellMode = true
-		config.ShellPluginMode = cli.Shell.Plugin
+		//config.ShellPluginMode = cli.Shell.Plugin
+		config.ShellCommandPrompt = cli.Shell.CommandPrompt
 
 		bf.RunShell(ctx, config, shell)
 

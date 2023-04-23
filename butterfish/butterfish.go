@@ -37,6 +37,9 @@ type ButterfishConfig struct {
 	// Verbose mode, prints out more information like raw OpenAI communication
 	Verbose bool
 
+	// build variables
+	BuildInfo string
+
 	// OpenAI private token, should start with "sk-".
 	// Found at https://platform.openai.com/account/api-keys
 	OpenAIToken string
@@ -64,6 +67,8 @@ type ButterfishConfig struct {
 	ShellPluginMode          bool
 	ShellPromptModel         string // used when the user enters an explicit prompt
 	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
+	ShellCommandPrompt       string // replace the default command prompt (eg >) with this
+	ShellAutosuggestEnabled  bool   // whether to use autosuggest
 	ShellAutosuggestModel    string // used when we're autocompleting a command
 	// how long to wait between when the user stos typing and we ask for an
 	// autosuggest
@@ -274,13 +279,19 @@ func sanitizeTTYString(data string) string {
 	return filterNonPrintable(stripANSI(data))
 }
 
-func ptyCommand(ctx context.Context, command []string) (*os.File, func() error, error) {
+func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.File, func() error, error) {
 	// Create arbitrary command.
 	var cmd *exec.Cmd
+
 	if len(command) > 1 {
 		cmd = exec.CommandContext(ctx, command[0], command[1:]...)
 	} else {
 		cmd = exec.CommandContext(ctx, command[0])
+	}
+
+	cmd.Env = os.Environ()
+	if len(envVars) > 0 {
+		cmd.Env = append(cmd.Env, envVars...)
 	}
 
 	// Start the command with a pty.

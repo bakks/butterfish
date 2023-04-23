@@ -29,6 +29,9 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+const ERR_429 = "429:insufficient_quota"
+const ERR_429_HELP = "You are likely using a free OpenAI account without a subscription activated, this error means you are out of credits. To resolve it, set up a subscription at https://platform.openai.com/account/billing/overview. This requires a credit card and payment, run `butterfish help` for guidance on managing cost."
+
 // compile a regex that matches \x1b[%d;%dR
 var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
 
@@ -54,7 +57,9 @@ func parseCursorPos(data []byte) (int, int, int, bool) {
 }
 
 func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
-	ptmx, ptyCleanup, err := ptyCommand(ctx, []string{shell})
+	envVars := []string{"BUTTERFISH_SHELL=1"}
+
+	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{shell})
 	if err != nil {
 		return err
 	}
@@ -525,9 +530,27 @@ type ShellState struct {
 	PendingAutosuggest *AutosuggestResult
 }
 
+func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
+	for {
+		select {
+		case <-time.After(timeout):
+			return
+		case <-r:
+			continue
+		}
+	}
+}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
+
+	//string that goes back 2 characters in terminal then prints fish emoji
+	clearChildOut := false
+	if this.Config.ShellCommandPrompt != "" {
+		fmt.Fprintf(childIn, "export PS1=\"$PS1%s\"\n", this.Config.ShellCommandPrompt)
+		clearChildOut = true
+	}
 
 	promptColor := "\x1b[38;5;154m"
 	commandColor := "\x1b[0m"
@@ -577,7 +600,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		Command:            NewShellBuffer(),
 		Prompt:             NewShellBuffer(),
 		TerminalWidth:      termWidth,
-		AutosuggestEnabled: true,
+		AutosuggestEnabled: this.Config.ShellAutosuggestEnabled,
 		AutosuggestChan:    make(chan *AutosuggestResult),
 		AutosuggestStyle:   this.Config.Styles.Grey,
 
@@ -591,6 +614,12 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.Prompt.SetColor(promptColor)
 	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
 	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
+
+	if clearChildOut {
+		// clear out any existing output to hide the PS1 export stuff
+		clearByteChan(childOutReader, 100*time.Millisecond)
+		fmt.Fprintf(childIn, "\n")
+	}
 
 	// start
 	shellState.Mux()
@@ -1020,6 +1049,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				// no last autosuggest found, just forward the tab
 				this.ParentOut.Write(data)
 			}
+
+			return data[1:]
+
 		} else if data[0] == 0x03 { // Ctrl-C
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
@@ -1080,9 +1112,54 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 	return nil
 }
 
+func (this *ShellState) PrintStatus() {
+	text := fmt.Sprintf("You're using Butterfish Shell Mode\n%s\n\n", this.Butterfish.Config.BuildInfo)
+
+	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
+	text += fmt.Sprintf("Prompt history window: %d bytes\n", this.Butterfish.Config.ShellPromptHistoryWindow)
+	text += fmt.Sprintf("Command prompt:        %s\n", this.Butterfish.Config.ShellCommandPrompt)
+	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
+	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
+	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
+	text += fmt.Sprintf("Autosuggest history:   %d bytes\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
+	fmt.Fprintf(this.PromptAnswerWriter, text)
+
+	go func() {
+		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
+	}()
+}
+
+func (this *ShellState) PrintHelp() {
+	text := `You're using the Butterfish Shell Mode, which means you have a Butterfish wrapper around your normal shell. Here's how you use it:
+
+	- Type a normal command, like "ls -l" and press enter to execute it
+	- Start a command with a capital letter to send it to GPT, like "How do I find local .py files?"
+	- Autosuggest will print command completions, press tab to fill them in
+	- Type "Status" to show the current Butterfish configuration
+	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
+`
+	fmt.Fprintf(this.PromptAnswerWriter, text)
+
+	go func() {
+		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
+	}()
+}
+
 func (this *ShellState) SendPrompt() {
 	this.State = statePromptResponse
 	log.Printf("State change: prompting -> promptResponse")
+
+	promptStr := strings.ToLower(this.Prompt.String())
+	promptStr = strings.TrimSpace(promptStr)
+
+	if promptStr == "status" {
+		this.PrintStatus()
+		return
+	}
+	if promptStr == "help" {
+		this.PrintHelp()
+		return
+	}
 
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -1113,10 +1190,17 @@ func (this *ShellState) SendPrompt() {
 	go func() {
 		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
 		if err != nil {
-			errStr := err.Error()
-			log.Printf("Error prompting in shell: %s", errStr)
+			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
+
+			// This error means the user needs to set up a subscription, give advice
+			if strings.Contains(errStr, ERR_429) {
+				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
+			}
+
+			log.Printf("%s", errStr)
+
 			if !strings.Contains(errStr, "context canceled") {
-				fmt.Fprintf(this.PromptAnswerWriter, "Error: %s", errStr)
+				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
 			}
 		}
 
@@ -1334,7 +1418,11 @@ func RequestCancelableAutosuggest(
 	}
 
 	output, err := llmClient.Completion(request)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "context canceled") {
+		log.Printf("Autosuggest error: %s", err)
+		if strings.Contains(err.Error(), ERR_429) {
+			log.Printf(ERR_429_HELP)
+		}
 		return
 	}
 
