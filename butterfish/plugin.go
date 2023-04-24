@@ -40,21 +40,15 @@ func (this *PluginClient) HandleCommandExecution(ctx context.Context, id string)
 
 			if ex.Done {
 				newMsg = &proto.ClientMessage{
-					Payload: &proto.ClientMessage_CommandDone{
-						CommandDone: &proto.CommandDone{
-							CommandId: id,
-							ExitCode:  0,
-						},
-					},
+					Type:      proto.ClientMessageType_DONE,
+					CommandId: id,
+					ExitCode:  0,
 				}
 			} else {
 				newMsg = &proto.ClientMessage{
-					Payload: &proto.ClientMessage_CommandOutput{
-						CommandOutput: &proto.CommandOutput{
-							CommandId:     id,
-							ResponseChunk: ex.Output,
-						},
-					},
+					Type:      proto.ClientMessageType_OUTPUT,
+					CommandId: id,
+					Data:      ex.Output,
 				}
 			}
 
@@ -190,11 +184,8 @@ func (this *ButterfishCtx) StartPluginClient(hostname string, port int) (*Plugin
 	}
 
 	helloMsg := proto.ClientMessage{
-		Payload: &proto.ClientMessage_ClientHello{
-			ClientHello: &proto.ClientHello{
-				ClientToken: token,
-			},
-		},
+		Type:        proto.ClientMessageType_HELLO,
+		ClientToken: token,
 	}
 
 	err = streamClient.Send(&helloMsg)
