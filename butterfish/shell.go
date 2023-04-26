@@ -485,6 +485,13 @@ const (
 	statePromptResponse
 )
 
+var stateNames = []string{
+	"Normal",
+	"Shell",
+	"Prompting",
+	"PromptResponse",
+}
+
 type AutosuggestResult struct {
 	Command    string
 	Suggestion string
@@ -522,6 +529,11 @@ type ShellState struct {
 	AutosuggestStyle   lipgloss.Style
 	AutosuggestBuffer  *ShellBuffer
 	PendingAutosuggest *AutosuggestResult
+}
+
+func (this *ShellState) setState(state int) {
+	log.Printf("State change: %s -> %s", stateNames[this.State], stateNames[state])
+	this.State = state
 }
 
 func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
@@ -667,8 +679,7 @@ func (this *ShellState) Mux() {
 				childOutBuffer = []byte{}
 			}
 
-			this.State = stateNormal
-			log.Printf("State change: promptResponse -> normal")
+			this.setState(stateNormal)
 
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
@@ -782,8 +793,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		// check if the first character is uppercase
 		// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
 		if unicode.IsUpper(rune(data[0])) {
-			this.State = statePrompting
-			log.Printf("State change: normal -> prompting")
+			this.setState(statePrompting)
 			this.Prompt.Clear()
 			this.Prompt.Write(string(data))
 
@@ -798,8 +808,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
 				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
-				this.State = stateShell
-				log.Printf("State change: normal -> shell")
+				this.setState(stateShell)
 				return data[1:]
 			} else {
 				// no last autosuggest found, just forward the tab
@@ -815,8 +824,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 			if this.Command.Size() > 0 {
 				this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
-				log.Printf("State change: normal -> shell")
-				this.State = stateShell
+				this.setState(stateShell)
 				this.History.NewBlock()
 			}
 
@@ -853,8 +861,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte(this.CommandColorString))
-			this.State = stateNormal
-			log.Printf("State change: prompting -> normal")
+			this.setState(stateNormal)
 
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
@@ -863,8 +870,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 			if this.Prompt.Size() == 0 {
 				this.ParentOut.Write([]byte(this.CommandColorString)) // reset color
-				this.State = stateNormal
-				log.Printf("State change: prompting -> normal")
+				this.setState(stateNormal)
 			}
 		}
 
@@ -872,8 +878,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		if hasCarriageReturn { // user is submitting a command
 			this.ClearAutosuggest(this.CommandColorString)
 
-			this.State = stateNormal
-			log.Printf("State change: shell -> normal")
+			this.setState(stateNormal)
 
 			index := bytes.Index(data, []byte{'\r'})
 			this.ChildIn.Write(data[:index+1])
@@ -897,8 +902,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
 			this.ChildIn.Write(data)
 			if this.Command.Size() == 0 {
-				this.State = stateNormal
-				log.Printf("State change: shell -> normal")
+				this.setState(stateNormal)
 			}
 		}
 
@@ -943,8 +947,7 @@ func (this *ShellState) PrintHelp() {
 }
 
 func (this *ShellState) SendPrompt() {
-	this.State = statePromptResponse
-	log.Printf("State change: prompting -> promptResponse")
+	this.setState(statePromptResponse)
 
 	promptStr := strings.ToLower(this.Prompt.String())
 	promptStr = strings.TrimSpace(promptStr)
@@ -965,8 +968,7 @@ func (this *ShellState) SendPrompt() {
 	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellSystemMessage)
 	if err != nil {
 		log.Printf("Error getting system message prompt: %s", err)
-		this.State = stateNormal
-		log.Printf("State change: promptResponse -> normal")
+		this.setState(stateNormal)
 		return
 	}
 
