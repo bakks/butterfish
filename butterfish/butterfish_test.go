@@ -53,17 +53,17 @@ func TestShellHistory(t *testing.T) {
 	history.Append(historyTypeShellOutput, "output1")
 	history.Append(historyTypeLLMOutput, "llm1")
 
-	output := HistoryBlocksToString(history.GetLastNBytes(256))
+	output := HistoryBlocksToString(history.GetLastNBytes(256, 512))
 	assert.Equal(t, "prompt1\nshell1\noutput1\nllm1", output)
 
 	history.Append(historyTypePrompt, "prompt2 xxxxxxxxxxxxxxxxxxxxxxxxxxxxx       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx             xxxxxxxxxxxxxxxxxxxxxxxxxxxxx         xxxxxxxxxx         xxxxxxxxxxxxxxxxxxx               xxxxxxxxxxxxxxxxxxxxx")
 	history.Append(historyTypeLLMOutput, "llm2")
 
-	output = HistoryBlocksToString(history.GetLastNBytes(14))
+	output = HistoryBlocksToString(history.GetLastNBytes(14, 512))
 	assert.Equal(t, "llm2", output)
 
 	history.Append(historyTypeLLMOutput, "more llm ᐅ")
-	output = HistoryBlocksToString(history.GetLastNBytes(24))
+	output = HistoryBlocksToString(history.GetLastNBytes(24, 512))
 	assert.Equal(t, "llm2more llm ᐅ", output)
 }
 

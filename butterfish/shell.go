@@ -373,14 +373,12 @@ type HistoryBuffer struct {
 // the last block, and get the the last n bytes of the history as an array of
 // HistoryBlocks.
 type ShellHistory struct {
-	Blocks         []HistoryBuffer
-	TruncateLength int
+	Blocks []HistoryBuffer
 }
 
 func NewShellHistory() *ShellHistory {
 	return &ShellHistory{
-		Blocks:         make([]HistoryBuffer, 0),
-		TruncateLength: 512,
+		Blocks: make([]HistoryBuffer, 0),
 	}
 }
 
@@ -400,11 +398,7 @@ func (this *ShellHistory) Append(historyType int, data string) {
 		lastBlock := this.Blocks[len(this.Blocks)-1]
 
 		if lastBlock.Type == historyType {
-			if lastBlock.Content.Size() < this.TruncateLength {
-				// we append to the last block if we haven't hit the truncation length
-				this.Blocks[length-1].Content.Write(data)
-			}
-			// if we hit the truncation length we drop the data
+			this.Blocks[length-1].Content.Write(data)
 			return
 		}
 	}
@@ -422,14 +416,14 @@ func (this *ShellHistory) NewBlock() {
 
 // Go back in history for a certain number of bytes.
 // This truncates each block content to a maximum of 512 bytes.
-func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
+func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util.HistoryBlock {
 	var blocks []util.HistoryBlock
 
 	for i := len(this.Blocks) - 1; i >= 0 && numBytes > 0; i-- {
 		block := this.Blocks[i]
 		content := sanitizeTTYString(block.Content.String())
-		if len(content) > this.TruncateLength {
-			content = content[:this.TruncateLength]
+		if len(content) > truncateLength {
+			content = content[:truncateLength]
 		}
 		if len(content) > numBytes {
 			break // we don't want a weird partial line so we bail out here
@@ -451,7 +445,7 @@ func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 }
 
 func (this *ShellHistory) LogRecentHistory() {
-	blocks := this.GetLastNBytes(2000)
+	blocks := this.GetLastNBytes(2000, 512)
 	log.Printf("Recent history: =======================================")
 	for _, block := range blocks {
 		if block.Type == historyTypePrompt {
@@ -483,6 +477,7 @@ const (
 	stateShell
 	statePrompting
 	statePromptResponse
+	stateAquariumPrompting
 )
 
 var stateNames = []string{
@@ -490,6 +485,7 @@ var stateNames = []string{
 	"Shell",
 	"Prompting",
 	"PromptResponse",
+	"AquariumPrompting",
 }
 
 type AutosuggestResult struct {
@@ -508,9 +504,11 @@ type ShellState struct {
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
 	PromptOutputChan     chan *byteMsg
+	AquariumOutputChan   chan *byteMsg
 	AutosuggestChan      chan *AutosuggestResult
 	History              *ShellHistory
 	PromptAnswerWriter   io.Writer
+	DefaultOutWriter     io.Writer
 	Prompt               *ShellBuffer
 	PromptStyle          lipgloss.Style
 	PromptResponseCancel context.CancelFunc
@@ -573,6 +571,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	promptOutputWriter := util.NewColorWriter(parentOut, answerColor)
 	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
+	defaultOutWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
 
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -601,7 +600,9 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		ParentInReader:     parentInReader,
 		History:            NewShellHistory(),
 		PromptOutputChan:   make(chan *byteMsg),
+		AquariumOutputChan: make(chan *byteMsg),
 		PromptAnswerWriter: cleanedWriter,
+		DefaultOutWriter:   defaultOutWriter,
 		PromptStyle:        this.Config.Styles.Question,
 		Command:            NewShellBuffer(),
 		Prompt:             NewShellBuffer(),
@@ -633,6 +634,22 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 func rgbaToColorString(r, g, b, _ uint32) string {
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r/255, g/255, b/255)
+}
+
+// We expect the input string to end with a line containing "RUN: " followed by
+// the command to run. If no command is found we return ""
+func parseAquariumCommand(input string) string {
+	lines := strings.Split(input, "\n")
+	if len(lines) < 1 {
+		return ""
+	}
+
+	lastLine := lines[len(lines)-1]
+	if !strings.HasPrefix(lastLine, "RUN: ") {
+		return ""
+	}
+
+	return lastLine[5:]
 }
 
 // TODO add a diagram of streams here
@@ -681,6 +698,26 @@ func (this *ShellState) Mux() {
 
 			this.setState(stateNormal)
 
+		// We finished with aquarium prompting, check LLM output
+		case output := <-this.AquariumOutputChan:
+			this.History.Add(historyTypeLLMOutput, string(output.Data))
+			log.Printf("Aquarium output: %s", string(output.Data))
+
+			llmAsk := string(output.Data)
+			if strings.Contains(llmAsk, "GOAL ACHIEVED") {
+				this.setState(stateNormal)
+				this.ChildIn.Write([]byte("\n"))
+				continue
+			}
+
+			aquariumCmd := parseAquariumCommand(llmAsk)
+			if aquariumCmd != "" {
+				output := this.RunAquariumCommand(aquariumCmd)
+				this.RespondAquarium(output)
+			} else {
+				log.Printf("No aquarium command found in LLM output: %s", llmAsk)
+			}
+
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
 				log.Println("Child out reader closed")
@@ -689,7 +726,7 @@ func (this *ShellState) Mux() {
 			}
 
 			// If we're actively printing a response we buffer child output
-			if this.State == statePromptResponse {
+			if this.State == statePromptResponse || this.State == stateAquariumPrompting {
 				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
 				continue
 			}
@@ -790,9 +827,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			return nil
 		}
 
-		// check if the first character is uppercase
+		// Check if the first character is uppercase or a bang
 		// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
-		if unicode.IsUpper(rune(data[0])) {
+		if unicode.IsUpper(rune(data[0])) || data[0] == '!' {
 			this.setState(statePrompting)
 			this.Prompt.Clear()
 			this.Prompt.Write(string(data))
@@ -804,6 +841,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position
 			this.ParentOut.Write([]byte("\x1b[6n"))
+			return data[1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
@@ -814,9 +852,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
 			}
+			return data[1:]
 
 		} else if data[0] == '\r' {
 			this.ChildIn.Write(data)
+			return data[1:]
 
 		} else {
 			this.Command = NewShellBuffer()
@@ -843,7 +883,12 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte("\n\r"))
 
-			this.SendPrompt()
+			promptStr := this.Prompt.String()
+			if promptStr[0] == '!' {
+				this.StartAquarium()
+			} else {
+				this.SendPrompt()
+			}
 			return data[index+1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
@@ -923,7 +968,7 @@ func (this *ShellState) PrintStatus() {
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
 	text += fmt.Sprintf("Autosuggest history:   %d bytes\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
-	fmt.Fprintf(this.PromptAnswerWriter, text)
+	this.PromptAnswerWriter.Write([]byte(text))
 
 	go func() {
 		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
@@ -939,11 +984,130 @@ func (this *ShellState) PrintHelp() {
 	- Type "Status" to show the current Butterfish configuration
 	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
 `
-	fmt.Fprintf(this.PromptAnswerWriter, text)
+	this.PromptAnswerWriter.Write([]byte(text))
 
 	go func() {
 		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
 	}()
+}
+
+const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will then give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. You must verify that the goal is achieved. When finished, respond with simply GOAL ACHIEVED."
+
+func (this *ShellState) StartAquarium() {
+	this.setState(stateAquariumPrompting)
+
+	// Get the prompt after the bang
+	prompt := this.Prompt.String()[1:]
+	prompt = fmt.Sprintf("This is your goal: %s", prompt)
+	this.Prompt.Clear()
+
+	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
+	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	this.PromptResponseCancel = cancel
+
+	request := &util.CompletionRequest{
+		Ctx:           requestCtx,
+		Prompt:        prompt,
+		Model:         this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:     2048,
+		Temperature:   0.7,
+		HistoryBlocks: historyBlocks,
+		SystemMessage: aquariumSystemMessage,
+	}
+
+	this.History.Add(historyTypePrompt, prompt)
+	log.Printf("Aquarium prompt: %s\n", prompt)
+
+	// we run this in a goroutine so that we can still receive input
+	// like Ctrl-C while waiting for the response
+	go func() {
+		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
+		if err != nil {
+			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
+
+			// This error means the user needs to set up a subscription, give advice
+			if strings.Contains(errStr, ERR_429) {
+				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
+			}
+
+			log.Printf("%s", errStr)
+
+			if !strings.Contains(errStr, "context canceled") {
+				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
+			}
+		}
+
+		this.AquariumOutputChan <- &byteMsg{Data: []byte(output)}
+	}()
+}
+
+func (this *ShellState) RespondAquarium(output string) {
+	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
+	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	this.PromptResponseCancel = cancel
+
+	request := &util.CompletionRequest{
+		Ctx:           requestCtx,
+		Prompt:        output,
+		Model:         this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:     2048,
+		Temperature:   0.7,
+		HistoryBlocks: historyBlocks,
+		SystemMessage: aquariumSystemMessage,
+	}
+
+	// we run this in a goroutine so that we can still receive input
+	// like Ctrl-C while waiting for the response
+	go func() {
+		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
+		if err != nil {
+			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
+
+			// This error means the user needs to set up a subscription, give advice
+			if strings.Contains(errStr, ERR_429) {
+				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
+			}
+
+			log.Printf("%s", errStr)
+
+			if !strings.Contains(errStr, "context canceled") {
+				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
+			}
+		}
+
+		this.AquariumOutputChan <- &byteMsg{Data: []byte(output)}
+	}()
+}
+
+func (this *ShellState) RunAquariumCommand(command string) string {
+	promptColor := "\x1b[38;5;154m"
+	commandColor := "\x1b[38;5;141m"
+	doneColor := "\x1b[38;5;33m"
+	errorColor := "\x1b[38;5;196m"
+
+	outWriter := this.DefaultOutWriter
+
+	log.Printf("Aquarium command: %s", command)
+	fmt.Fprintf(this.DefaultOutWriter, "%s> %s%s\n", promptColor, commandColor, command)
+	this.History.Add(historyTypeShellOutput, "> ")
+	this.History.Add(historyTypeShellInput, command)
+
+	result, err := executeCommand(this.Butterfish.Ctx, command, outWriter)
+	if err != nil {
+		log.Printf("Error executing command: %s", err)
+	}
+	log.Printf("Command finished with exit code %d", result.Status)
+
+	this.History.Add(historyTypeShellOutput, string(result.LastOutput))
+
+	if result.Status == 0 {
+		fmt.Fprintf(this.DefaultOutWriter, "%sExit %d\n", doneColor, result.Status)
+	} else {
+		fmt.Fprintf(this.DefaultOutWriter, "%sExit %d\n", errorColor, result.Status)
+	}
+
+	returnStr := fmt.Sprintf("%s\nExit %d\n", string(result.LastOutput), result.Status)
+	return returnStr
 }
 
 func (this *ShellState) SendPrompt() {
@@ -961,7 +1125,7 @@ func (this *ShellState) SendPrompt() {
 		return
 	}
 
-	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
+	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 512)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
@@ -1158,7 +1322,7 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		return
 	}
 
-	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow))
+	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow, 2048))
 
 	var llmPrompt string
 	var err error
