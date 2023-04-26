@@ -631,18 +631,20 @@ func executeCommand(ctx context.Context, cmd string, out io.Writer) (*executeRes
 
 	err := c.Run()
 
+	result := &executeResult{LastOutput: cacheWriter.GetCache(), Status: 0}
+
 	// check for a non-zero exit code
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
-				status := status.ExitStatus()
-				result := &executeResult{LastOutput: cacheWriter.GetLastN(512), Status: status}
-				return result, err
+				result.Status = status.ExitStatus()
+				// this is OK in this context so set err to nil
+				return result, nil
 			}
 		}
 	}
 
-	return &executeResult{LastOutput: cacheWriter.GetCache(), Status: 0}, err
+	return result, err
 }
 
 // Execute the command as a child of this process (rather than a remote

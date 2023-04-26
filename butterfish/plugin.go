@@ -83,9 +83,29 @@ func (this *PluginClient) Mux(ctx context.Context) error {
 	}
 }
 
+// A io.writer implementation that adds a color prefix before each print
+type colorWriter struct {
+	color string
+}
+
+func (this *colorWriter) Write(p []byte) (int, error) {
+	_, err := fmt.Printf("%s%s", this.color, p)
+	return len(p), err
+}
+
 func (this *ButterfishCtx) PluginFrontend(pluginClient *PluginClient) {
 	output := os.Stdout
 	log.Printf("Starting plugin frontend")
+
+	promptColor := "\x1b[38;5;154m"
+	commandColor := "\x1b[38;5;141m"
+	answerColor := "\x1b[38;5;214m"
+	// blue
+	doneColor := "\x1b[38;5;33m"
+	// red
+	errorColor := "\x1b[38;5;196m"
+
+	outWriter := &colorWriter{color: answerColor}
 
 	for {
 		select {
@@ -95,14 +115,20 @@ func (this *ButterfishCtx) PluginFrontend(pluginClient *PluginClient) {
 
 		case cmd := <-pluginClient.CommandChan:
 			log.Printf("Plugin command: %s", cmd)
-			fmt.Fprintf(output, "> %s\n", cmd)
+			fmt.Fprintf(output, "%s> %s%s\n", promptColor, commandColor, cmd)
 
-			result, err := executeCommand(this.Ctx, cmd, output)
+			result, err := executeCommand(this.Ctx, cmd, outWriter)
 			if err != nil {
 				log.Printf("Error executing command: %s", err)
 				continue
 			}
 			log.Printf("Command finished with exit code %d", result.Status)
+
+			if result.Status == 0 {
+				fmt.Fprintf(output, "%sExit %d\n", doneColor, result.Status)
+			} else {
+				fmt.Fprintf(output, "%sExit %d\n", errorColor, result.Status)
+			}
 
 			pluginClient.CommandExecutionChan <- &commandExecution{
 				Done:   false,
