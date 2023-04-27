@@ -14,6 +14,27 @@ import (
 	"github.com/bakks/butterfish/util"
 )
 
+const ERR_429 = "429:insufficient_quota"
+const ERR_429_HELP = "You are likely using a free OpenAI account without a subscription activated, this error means you are out of credits. To resolve it, set up a subscription at https://platform.openai.com/account/billing/overview. This requires a credit card and payment, run `butterfish help` for guidance on managing cost. Once you have a subscription set up you must issue a NEW OpenAI token, your previous token will not reflect the subscription."
+
+var LegacyModelTypes = []string{
+	gpt3.TextAda001Engine,
+	gpt3.TextBabbage001Engine,
+	gpt3.TextCurie001Engine,
+	gpt3.TextDavinci001Engine,
+	gpt3.TextDavinci002Engine,
+	gpt3.TextDavinci003Engine,
+}
+
+func IsLegacyModel(model string) bool {
+	for _, legacyModel := range LegacyModelTypes {
+		if model == legacyModel {
+			return true
+		}
+	}
+	return false
+}
+
 type GPT struct {
 	client        gpt3.Client
 	verbose       bool
@@ -100,28 +121,45 @@ func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []
 // We're doing completions through the chat API by default, this routes
 // to the legacy completion API if the model is the legacy model.
 func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
-	if request.Model == gpt3.TextDavinci003Engine {
-		return this.LegacyCompletion(request)
+	var result string
+	var err error
+
+	if IsLegacyModel(request.Model) {
+		result, err = this.LegacyCompletion(request)
+	} else if request.HistoryBlocks == nil {
+		result, err = this.SimpleChatCompletion(request)
+	} else {
+		result, err = this.FullChatCompletion(request)
 	}
 
-	if request.HistoryBlocks == nil {
-		return this.SimpleChatCompletion(request)
+	// This error means the user needs to set up a subscription, give advice
+	if err != nil && strings.Contains(err.Error(), ERR_429) {
+		err = fmt.Errorf("%s\n\n%s", err.Error(), ERR_429_HELP)
 	}
-	return this.FullChatCompletion(request)
 
+	return result, err
 }
 
 // We're doing completions through the chat API by default, this routes
 // to the legacy completion API if the model is the legacy model.
 func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
-	if request.Model == gpt3.TextDavinci003Engine {
-		return this.LegacyCompletionStream(request, writer)
+	var result string
+	var err error
+
+	if IsLegacyModel(request.Model) {
+		result, err = this.LegacyCompletionStream(request, writer)
+	} else if request.HistoryBlocks == nil {
+		result, err = this.SimpleChatCompletionStream(request, writer)
+	} else {
+		result, err = this.FullChatCompletionStream(request, writer)
 	}
 
-	if request.HistoryBlocks == nil {
-		return this.SimpleChatCompletionStream(request, writer)
+	// This error means the user needs to set up a subscription, give advice
+	if err != nil && strings.Contains(err.Error(), ERR_429) {
+		err = fmt.Errorf("%s\n\n%s", err.Error(), ERR_429_HELP)
 	}
-	return this.FullChatCompletionStream(request, writer)
+
+	return result, err
 }
 
 func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
