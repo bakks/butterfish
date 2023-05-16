@@ -23,30 +23,6 @@ import (
 	"golang.org/x/term"
 )
 
-// compile a regex that matches \x1b[%d;%dR
-var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
-
-// Search for an ANSI cursor position sequence, e.g. \x1b[4;14R, and return:
-// - row
-// - column
-// - length of the sequence
-// - whether the sequence was found
-func parseCursorPos(data []byte) (int, int, int, bool) {
-	matches := cursorPosRegex.FindSubmatch(data)
-	if len(matches) != 3 {
-		return -1, -1, -1, false
-	}
-	row, err := strconv.Atoi(string(matches[1]))
-	if err != nil {
-		return -1, -1, -1, false
-	}
-	col, err := strconv.Atoi(string(matches[2]))
-	if err != nil {
-		return -1, -1, -1, false
-	}
-	return row, col, len(matches[0]), true
-}
-
 func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
 	envVars := []string{"BUTTERFISH_SHELL=1"}
 
@@ -501,6 +477,7 @@ type ShellState struct {
 	PromptSuffixCounter  int
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
+	CursorPosChan        chan *cursorPosition
 	PromptOutputChan     chan *byteMsg
 	AutosuggestChan      chan *AutosuggestResult
 	History              *ShellHistory
@@ -523,7 +500,6 @@ type ShellState struct {
 	AutosuggestCancel  context.CancelFunc
 	AutosuggestStyle   lipgloss.Style
 	AutosuggestBuffer  *ShellBuffer
-	PendingAutosuggest *AutosuggestResult
 }
 
 func (this *ShellState) setState(state int) {
@@ -538,6 +514,33 @@ func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
 			return
 		case <-r:
 			continue
+		}
+	}
+}
+
+func (this *ShellState) GetCursorPosition() (int, int) {
+	// send the cursor position request
+	this.ParentOut.Write([]byte("\x1b[6n"))
+	timeout := time.After(100 * time.Millisecond)
+	var pos *cursorPosition
+
+	// the parent in reader watches for these responses, set timeout and
+	// panic if we don't get a response
+	select {
+	case <-timeout:
+		panic("Timeout waiting for cursor position response, this probably means that you're using a terminal emulator that doesn't work well with butterfish. Please submit an issue to https://github.com/bakks/butterfish.")
+
+	case pos = <-this.CursorPosChan:
+	}
+
+	// it's possible that we have a stale response, so we loop on the channel
+	// until we get the most recent one
+	for {
+		select {
+		case pos = <-this.CursorPosChan:
+			continue
+		default:
+			return pos.Row, pos.Column
 		}
 	}
 }
@@ -590,9 +593,10 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	childOutReader := make(chan *byteMsg)
 	parentInReader := make(chan *byteMsg)
+	parentPositionChan := make(chan *cursorPosition)
 
 	go readerToChannel(childOut, childOutReader)
-	go readerToChannel(parentIn, parentInReader)
+	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
 
 	promptOutputWriter := util.NewColorWriter(parentOut, answerColor)
 	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
@@ -623,6 +627,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		State:              stateNormal,
 		ChildOutReader:     childOutReader,
 		ParentInReader:     parentInReader,
+		CursorPosChan:      parentPositionChan,
 		History:            NewShellHistory(),
 		PromptOutputChan:   make(chan *byteMsg),
 		PromptAnswerWriter: cleanedWriter,
@@ -702,9 +707,9 @@ func (this *ShellState) Mux() {
 
 		// We received an autosuggest result from the autosuggest goroutine
 		case result := <-this.AutosuggestChan:
-			this.PendingAutosuggest = result
 			// request cursor position
-			this.ParentOut.Write([]byte("\x1b[6n"))
+			_, col := this.GetCursorPosition()
+			this.ShowAutosuggest(this.Prompt, result, col-1, this.TerminalWidth)
 
 		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
@@ -818,36 +823,6 @@ func (this *ShellState) Mux() {
 func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
-	// check if this is a message telling us the cursor position
-	_, col, cursorPosLen, ok := parseCursorPos(data)
-	if ok {
-		// This is wonky and probably needs to be reworked.
-		// Finding the cursor position is done by writing \x1b[6n to the terminal
-		// (printing on parentOut), and then looking for the response that looks
-		// like \x1b[%d;%dR. We request cursor position in 2 cases:
-		// 1. When we start a prompt, so that we can wrap the prompt correctly
-		// 2. When we get an autosuggest result, so that we can wrap the autosuggest
-		// There are almost certainly some race conditions here though, since
-		// we request cursor position and then go back to the Mux loop.
-		pending := this.PendingAutosuggest
-		this.PendingAutosuggest = nil
-
-		if this.State == statePrompting {
-			if pending != nil {
-				// if we have a pending autosuggest, use it
-				this.ShowAutosuggest(this.Prompt, pending, col-1, this.TerminalWidth)
-			} else {
-				// otherwise we're in a situation where we've just started a prompt
-				this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
-			}
-		} else if this.State == stateShell || this.State == stateNormal {
-			if pending != nil {
-				this.ShowAutosuggest(this.Command, pending, col-1, this.TerminalWidth)
-			}
-		}
-		return data[cursorPosLen:] // don't write the data to the child
-	}
-
 	switch this.State {
 	case statePromptResponse:
 		// Ctrl-C while receiving prompt
@@ -881,7 +856,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position
-			this.ParentOut.Write([]byte("\x1b[6n"))
+			_, col := this.GetCursorPosition()
+			this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
 			return data[1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest

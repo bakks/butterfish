@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -201,6 +202,11 @@ type byteMsg struct {
 	Data []byte
 }
 
+type cursorPosition struct {
+	Row    int
+	Column int
+}
+
 func NewByteMsg(data []byte) *byteMsg {
 	buf := make([]byte, len(data))
 	copy(buf, data)
@@ -228,6 +234,82 @@ func readerToChannel(input io.Reader, c chan<- *byteMsg) {
 
 		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
 			log.Printf("got escape sequence: %x", buf)
+			// We have downstream code that assumes full ANSI sequences, so we validate
+			// here, I've never seen this fire
+			panic("Got incomplete escape sequence")
+		}
+
+		c <- NewByteMsg(buf[:n])
+	}
+
+	// Close the channel
+	close(c)
+}
+
+// compile a regex that matches \x1b[%d;%dR
+var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
+
+// Search for an ANSI cursor position sequence, e.g. \x1b[4;14R, and return:
+// - row
+// - column
+// - length of the sequence
+// - whether the sequence was found
+func parseCursorPos(data []byte) (int, int, bool) {
+	matches := cursorPosRegex.FindSubmatch(data)
+	if len(matches) != 3 {
+		return -1, -1, false
+	}
+	row, err := strconv.Atoi(string(matches[1]))
+	if err != nil {
+		return -1, -1, false
+	}
+	col, err := strconv.Atoi(string(matches[2]))
+	if err != nil {
+		return -1, -1, false
+	}
+	return row, col, true
+}
+
+// Given an io.Reader we write byte chunks to a channel
+// This is a modified version with a separate channel for cursor position
+func readerToChannelWithPosition(input io.Reader, c chan<- *byteMsg, pos chan<- *cursorPosition) {
+	buf := make([]byte, 1024*16)
+
+	// Loop indefinitely
+	for {
+		// Read from stream
+		n, err := input.Read(buf)
+
+		// Check for error
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Error reading from file: %s\n", err)
+			}
+			break
+		}
+
+		// if we find a cursor position, send it to the pos channel but leave it in
+		row, col, found := parseCursorPos(buf[:n])
+		if found {
+			pos <- &cursorPosition{
+				Row:    row,
+				Column: col,
+			}
+		}
+
+		if found {
+			cleaned := cursorPosRegex.ReplaceAll(buf[:n], []byte{})
+			copy(buf, cleaned)
+			n = len(cleaned)
+			if n == 0 {
+				continue
+			}
+		}
+
+		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
+			log.Printf("got escape sequence: %x", buf)
+			// We have downstream code that assumes full ANSI sequences, so we validate
+			// here, I've never seen this fire
 			panic("Got incomplete escape sequence")
 		}
 
