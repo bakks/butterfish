@@ -23,9 +23,6 @@ import (
 	"golang.org/x/term"
 )
 
-const ERR_429 = "429:insufficient_quota"
-const ERR_429_HELP = "You are likely using a free OpenAI account without a subscription activated, this error means you are out of credits. To resolve it, set up a subscription at https://platform.openai.com/account/billing/overview. This requires a credit card and payment, run `butterfish help` for guidance on managing cost."
-
 // compile a regex that matches \x1b[%d;%dR
 var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
 
@@ -477,7 +474,6 @@ const (
 	stateShell
 	statePrompting
 	statePromptResponse
-	stateAquariumPrompting
 )
 
 var stateNames = []string{
@@ -485,7 +481,6 @@ var stateNames = []string{
 	"Shell",
 	"Prompting",
 	"PromptResponse",
-	"AquariumPrompting",
 }
 
 type AutosuggestResult struct {
@@ -501,10 +496,12 @@ type ShellState struct {
 
 	// The current state of the shell
 	State                int
+	AquariumMode         bool
+	AquariumBuffer       string
+	PromptSuffixCounter  int
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
 	PromptOutputChan     chan *byteMsg
-	AquariumOutputChan   chan *byteMsg
 	AutosuggestChan      chan *AutosuggestResult
 	History              *ShellHistory
 	PromptAnswerWriter   io.Writer
@@ -550,11 +547,9 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	parentIn io.Reader, parentOut io.Writer) {
 
 	//string that goes back 2 characters in terminal then prints fish emoji
-	clearChildOut := false
-	if this.Config.ShellCommandPrompt != "" {
-		fmt.Fprintf(childIn, "export PS1=\"$PS1%s\"\n", this.Config.ShellCommandPrompt)
-		clearChildOut = true
-	}
+	shellCmdPrompt := this.Config.ShellCommandPrompt
+	shellCmdPrompt += "\u2067$?\u2066"
+	fmt.Fprintf(childIn, "export PS1=\"$PS1%s\"\n", shellCmdPrompt)
 
 	promptColor := "\x1b[38;5;154m"
 	commandColor := "\x1b[0m"
@@ -600,7 +595,6 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		ParentInReader:     parentInReader,
 		History:            NewShellHistory(),
 		PromptOutputChan:   make(chan *byteMsg),
-		AquariumOutputChan: make(chan *byteMsg),
 		PromptAnswerWriter: cleanedWriter,
 		DefaultOutWriter:   defaultOutWriter,
 		PromptStyle:        this.Config.Styles.Question,
@@ -622,11 +616,9 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
 	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
 
-	if clearChildOut {
-		// clear out any existing output to hide the PS1 export stuff
-		clearByteChan(childOutReader, 100*time.Millisecond)
-		fmt.Fprintf(childIn, "\n")
-	}
+	// clear out any existing output to hide the PS1 export stuff
+	clearByteChan(childOutReader, 100*time.Millisecond)
+	fmt.Fprintf(childIn, "\n")
 
 	// start
 	shellState.Mux()
@@ -687,36 +679,41 @@ func (this *ShellState) Mux() {
 		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
 			this.History.Add(historyTypeLLMOutput, string(output.Data))
-			this.ChildIn.Write([]byte("\n"))
-			this.RequestAutosuggest(0, "")
 
+			// If there is child output waiting to be printed, print that now
 			if len(childOutBuffer) > 0 {
 				this.ParentOut.Write(childOutBuffer)
 				this.History.Append(historyTypeShellOutput, string(childOutBuffer))
 				childOutBuffer = []byte{}
 			}
 
+			if this.AquariumMode {
+				llmAsk := string(output.Data)
+				if strings.Contains(llmAsk, "GOAL ACHIEVED") {
+					log.Printf("Aquarium mode: goal achieved, exiting")
+					this.AquariumMode = false
+					this.setState(stateNormal)
+					this.ChildIn.Write([]byte("\n"))
+					continue
+				}
+
+				aquariumCmd := parseAquariumCommand(llmAsk)
+				if aquariumCmd != "" {
+					// Execute the given aquarium command on the local shell
+					log.Printf("Aquarium mode: running command: %s", aquariumCmd)
+					this.AquariumBuffer = ""
+					this.PromptSuffixCounter = 0
+					this.setState(stateNormal)
+					this.ChildIn.Write([]byte("\n"))
+					this.ChildIn.Write([]byte(aquariumCmd))
+					this.ChildIn.Write([]byte("\n"))
+					continue
+				}
+			}
+
+			this.ChildIn.Write([]byte("\n"))
+			this.RequestAutosuggest(0, "")
 			this.setState(stateNormal)
-
-		// We finished with aquarium prompting, check LLM output
-		case output := <-this.AquariumOutputChan:
-			this.History.Add(historyTypeLLMOutput, string(output.Data))
-			log.Printf("Aquarium output: %s", string(output.Data))
-
-			llmAsk := string(output.Data)
-			if strings.Contains(llmAsk, "GOAL ACHIEVED") {
-				this.setState(stateNormal)
-				this.ChildIn.Write([]byte("\n"))
-				continue
-			}
-
-			aquariumCmd := parseAquariumCommand(llmAsk)
-			if aquariumCmd != "" {
-				output := this.RunAquariumCommand(aquariumCmd)
-				this.RespondAquarium(output)
-			} else {
-				log.Printf("No aquarium command found in LLM output: %s", llmAsk)
-			}
 
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
@@ -725,14 +722,41 @@ func (this *ShellState) Mux() {
 				return
 			}
 
+			// locate, remove, and parse all cases of the pattern
+			// "\u2067[0-9]+\u2066"
+
+			childOutStr := string(childOutMsg.Data)
+			re := regexp.MustCompile("\u2067[0-9]+\u2066")
+			matches := re.FindAllString(childOutStr, -1)
+			lastStatus := 0
+			for _, match := range matches {
+				// remove the unicode control characters
+				match := match[1 : len(match)-1]
+				lastStatus, _ = strconv.Atoi(match)
+				this.PromptSuffixCounter++
+			}
+			// Remove matches from childOutStr
+			childOutStr = re.ReplaceAllString(childOutStr, "")
+
 			// If we're actively printing a response we buffer child output
-			if this.State == statePromptResponse || this.State == stateAquariumPrompting {
+			if this.State == statePromptResponse {
 				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
 				continue
 			}
 
-			this.History.Append(historyTypeShellOutput, string(childOutMsg.Data))
-			this.ParentOut.Write(childOutMsg.Data)
+			if this.AquariumMode {
+				this.AquariumBuffer += childOutStr
+			}
+			this.History.Append(historyTypeShellOutput, childOutStr)
+			this.ParentOut.Write([]byte(childOutStr))
+
+			if this.AquariumMode && this.PromptSuffixCounter >= 2 {
+				// move cursor to the beginning of the line and clear the line
+				this.ParentOut.Write([]byte("\r\x1b[K"))
+				this.RespondAquarium(lastStatus, this.AquariumBuffer)
+				this.AquariumBuffer = ""
+				this.PromptSuffixCounter = 0
+			}
 
 		case parentInMsg := <-this.ParentInReader:
 			if parentInMsg == nil {
@@ -994,11 +1018,12 @@ func (this *ShellState) PrintHelp() {
 const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will then give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. You must verify that the goal is achieved. When finished, respond with simply GOAL ACHIEVED."
 
 func (this *ShellState) StartAquarium() {
-	this.setState(stateAquariumPrompting)
+	this.AquariumMode = true
 
 	// Get the prompt after the bang
 	prompt := this.Prompt.String()[1:]
 	prompt = fmt.Sprintf("This is your goal: %s", prompt)
+	log.Printf("Starting Aquarium mode: %s", prompt)
 	this.Prompt.Clear()
 
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
@@ -1025,11 +1050,6 @@ func (this *ShellState) StartAquarium() {
 		if err != nil {
 			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
 
-			// This error means the user needs to set up a subscription, give advice
-			if strings.Contains(errStr, ERR_429) {
-				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
-			}
-
 			log.Printf("%s", errStr)
 
 			if !strings.Contains(errStr, "context canceled") {
@@ -1037,18 +1057,21 @@ func (this *ShellState) StartAquarium() {
 			}
 		}
 
-		this.AquariumOutputChan <- &byteMsg{Data: []byte(output)}
+		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
 	}()
 }
 
-func (this *ShellState) RespondAquarium(output string) {
+func (this *ShellState) RespondAquarium(status int, output string) {
+	log.Printf("Aquarium response: %d\n", status)
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
+	prompt := fmt.Sprintf("%s\nExit code: %d\n", output, status)
+
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
-		Prompt:        output,
+		Prompt:        prompt,
 		Model:         this.Butterfish.Config.ShellPromptModel,
 		MaxTokens:     2048,
 		Temperature:   0.7,
@@ -1075,39 +1098,8 @@ func (this *ShellState) RespondAquarium(output string) {
 			}
 		}
 
-		this.AquariumOutputChan <- &byteMsg{Data: []byte(output)}
+		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
 	}()
-}
-
-func (this *ShellState) RunAquariumCommand(command string) string {
-	promptColor := "\x1b[38;5;154m"
-	commandColor := "\x1b[38;5;141m"
-	doneColor := "\x1b[38;5;33m"
-	errorColor := "\x1b[38;5;196m"
-
-	outWriter := this.DefaultOutWriter
-
-	log.Printf("Aquarium command: %s", command)
-	fmt.Fprintf(this.DefaultOutWriter, "%s> %s%s\n", promptColor, commandColor, command)
-	this.History.Add(historyTypeShellOutput, "> ")
-	this.History.Add(historyTypeShellInput, command)
-
-	result, err := executeCommand(this.Butterfish.Ctx, command, outWriter)
-	if err != nil {
-		log.Printf("Error executing command: %s", err)
-	}
-	log.Printf("Command finished with exit code %d", result.Status)
-
-	this.History.Add(historyTypeShellOutput, string(result.LastOutput))
-
-	if result.Status == 0 {
-		fmt.Fprintf(this.DefaultOutWriter, "%sExit %d\n", doneColor, result.Status)
-	} else {
-		fmt.Fprintf(this.DefaultOutWriter, "%sExit %d\n", errorColor, result.Status)
-	}
-
-	returnStr := fmt.Sprintf("%s\nExit %d\n", string(result.LastOutput), result.Status)
-	return returnStr
 }
 
 func (this *ShellState) SendPrompt() {
