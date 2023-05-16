@@ -709,7 +709,20 @@ func (this *ShellState) Mux() {
 		case result := <-this.AutosuggestChan:
 			// request cursor position
 			_, col := this.GetCursorPosition()
-			this.ShowAutosuggest(this.Prompt, result, col-1, this.TerminalWidth)
+			var buffer *ShellBuffer
+
+			// figure out which buffer we're autocompleting
+			switch this.State {
+			case statePrompting:
+				buffer = this.Prompt
+			case stateShell, stateNormal:
+				buffer = this.Command
+			default:
+				log.Printf("Got autosuggest result in unexpected state %d", this.State)
+				continue
+			}
+
+			this.ShowAutosuggest(buffer, result, col-1, this.TerminalWidth)
 
 		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
@@ -1208,7 +1221,7 @@ func (this *ShellState) ShowAutosuggest(
 
 	if result.Command != buffer.String() {
 		// this is an old result, it doesn't match the current command buffer
-		log.Printf("Autosuggest result is old, ignoring")
+		log.Printf("Autosuggest result is old, ignoring. Expected: %s, got: %s", buffer.String(), result.Command)
 		return
 	}
 
