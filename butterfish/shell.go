@@ -542,14 +542,44 @@ func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
 	}
 }
 
+// We need to be able to parse the child shell's PS1 prompt to determine where
+// it starts, ends, exit code, and allow customization to show the user that
+// we're inside butterfish shell:
+// PS1 := \u2067 $PS1 ShellCommandPrompt $? \u2066
+func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
+	prefix := "\u2067" // use special char for start of prompt
+	// use configured text (a fish emoji by default), space, exit code,
+	// and special char for end of prompt
+	suffix := this.Config.ShellCommandPrompt + " $?\u2066"
+
+	fmt.Fprintf(childIn, "export PS1=\"%s$PS1%s\"\n", prefix, suffix)
+}
+
+var ps1Regex = regexp.MustCompile(" [0-9]+\u2066")
+
+func ParsePS1(data string) (int, int, string) {
+	matches := ps1Regex.FindAllString(data, -1)
+	lastStatus := 0
+	prompts := 0
+
+	for _, match := range matches {
+		// remove the unicode control characters
+		match := match[1 : len(match)-1]
+		lastStatus, _ = strconv.Atoi(match)
+		prompts++
+	}
+	// Remove matches from childOutStr
+	cleaned := ps1Regex.ReplaceAllString(data, "")
+	cleaned = strings.ReplaceAll(cleaned, "\u2067", "")
+
+	return lastStatus, prompts, cleaned
+}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
 
-	//string that goes back 2 characters in terminal then prints fish emoji
-	shellCmdPrompt := this.Config.ShellCommandPrompt
-	shellCmdPrompt += "\u2067$?\u2066"
-	fmt.Fprintf(childIn, "export PS1=\"$PS1%s\"\n", shellCmdPrompt)
+	this.SetPS1(childIn)
 
 	promptColor := "\x1b[38;5;154m"
 	commandColor := "\x1b[0m"
@@ -722,21 +752,8 @@ func (this *ShellState) Mux() {
 				return
 			}
 
-			// locate, remove, and parse all cases of the pattern
-			// "\u2067[0-9]+\u2066"
-
-			childOutStr := string(childOutMsg.Data)
-			re := regexp.MustCompile("\u2067[0-9]+\u2066")
-			matches := re.FindAllString(childOutStr, -1)
-			lastStatus := 0
-			for _, match := range matches {
-				// remove the unicode control characters
-				match := match[1 : len(match)-1]
-				lastStatus, _ = strconv.Atoi(match)
-				this.PromptSuffixCounter++
-			}
-			// Remove matches from childOutStr
-			childOutStr = re.ReplaceAllString(childOutStr, "")
+			lastStatus, prompts, childOutStr := ParsePS1(string(childOutMsg.Data))
+			this.PromptSuffixCounter += prompts
 
 			// If we're actively printing a response we buffer child output
 			if this.State == statePromptResponse {
