@@ -23,6 +23,12 @@ import (
 	"golang.org/x/term"
 )
 
+const ESC_CUP = "\x1b[6n" // Request the cursor position
+const ESC_UP = "\x1b[%dA"
+const ESC_RIGHT = "\x1b[%dC"
+const ESC_LEFT = "\x1b[%dD"
+const ESC_CLEAR = "\x1b[0K"
+
 func RunShell(ctx context.Context, config *ButterfishConfig) error {
 	envVars := []string{"BUTTERFISH_SHELL=1"}
 
@@ -168,11 +174,11 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 	// if we have no termwidth we just print out, don't worry about wrapping
 	if this.termWidth == 0 {
 		// go left from the starting cursor
-		fmt.Fprintf(w, "\x1b[%dD", startingCursor)
+		fmt.Fprintf(w, ESC_LEFT, startingCursor)
 		// print the buffer
 		fmt.Fprintf(w, "%s", string(this.buffer))
 		// go back to the ending cursor
-		fmt.Fprintf(w, "\x1b[%dD", len(this.buffer)-this.cursor)
+		fmt.Fprintf(w, ESC_LEFT, len(this.buffer)-this.cursor)
 
 		return buf.Bytes()
 	}
@@ -189,12 +195,12 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 	// go up for the number of lines
 	if oldCursorLine > 0 {
 		// in this case we clear out the final old line
-		fmt.Fprintf(w, "\x1b[0K")
-		fmt.Fprintf(w, "\x1b[%dA", oldCursorLine)
+		fmt.Fprintf(w, ESC_CLEAR)
+		fmt.Fprintf(w, ESC_UP, oldCursorLine)
 	}
 	// go right for the prompt length
 	if this.promptLength > 0 {
-		fmt.Fprintf(w, "\x1b[%dC", this.promptLength)
+		fmt.Fprintf(w, ESC_RIGHT, this.promptLength)
 	}
 
 	// set the terminal color
@@ -212,7 +218,7 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 	}
 
 	// clear to end of line
-	w.Write([]byte("\x1b[0K"))
+	w.Write([]byte(ESC_CLEAR))
 
 	// if the cursor is not at the end of the buffer we need to adjust it because
 	// we rewrote the entire buffer
@@ -221,11 +227,11 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 		w.Write([]byte{'\r'})
 		// go up for the number of lines
 		if newNumLines-newCursorLine > 0 {
-			fmt.Fprintf(w, "\x1b[%dA", newNumLines-newCursorLine)
+			fmt.Fprintf(w, ESC_UP, newNumLines-newCursorLine)
 		}
 		// go right to the new cursor column
 		if newColumn > 0 {
-			fmt.Fprintf(w, "\x1b[%dC", newColumn)
+			fmt.Fprintf(w, ESC_RIGHT, newColumn)
 		}
 	}
 
@@ -274,7 +280,7 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 
 	// go right to the jumpForward position
 	if jumpForward > 0 {
-		fmt.Fprintf(w, "\x1b[%dC", jumpForward)
+		fmt.Fprintf(w, ESC_RIGHT, jumpForward)
 	}
 
 	// handle color
@@ -294,12 +300,12 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 
 	// go up for the number of lines
 	if numLines > 0 {
-		fmt.Fprintf(w, "\x1b[%dA", numLines)
+		fmt.Fprintf(w, ESC_UP, numLines)
 	}
 
 	// go right for the prompt length
 	if this.promptLength > 0 {
-		fmt.Fprintf(w, "\x1b[%dC", this.promptLength)
+		fmt.Fprintf(w, ESC_RIGHT, this.promptLength)
 	}
 
 	return buf.Bytes()
@@ -515,7 +521,7 @@ func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
 
 func (this *ShellState) GetCursorPosition() (int, int) {
 	// send the cursor position request
-	this.ParentOut.Write([]byte("\x1b[6n"))
+	this.ParentOut.Write([]byte(ESC_CUP))
 	timeout := time.After(100 * time.Millisecond)
 	var pos *cursorPosition
 
