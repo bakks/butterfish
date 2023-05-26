@@ -550,7 +550,7 @@ const promptSuffix = "\001\033R\002"
 const promptPrefixEscaped = "\\001\\033Q\\002"
 const promptSuffixEscaped = "\\001\\033R\\002"
 
-var ps1Regex = regexp.MustCompile(" [0-9]+" + promptSuffix + "")
+var ps1Regex = regexp.MustCompile(" [0-9]+" + promptSuffix)
 
 // This sets the PS1 shell variable, which is the prompt that the shell
 // displays before each command.
