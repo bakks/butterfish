@@ -23,10 +23,10 @@ import (
 	"golang.org/x/term"
 )
 
-func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
+func RunShell(ctx context.Context, config *ButterfishConfig) error {
 	envVars := []string{"BUTTERFISH_SHELL=1"}
 
-	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{shell})
+	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{config.ShellBinary})
 	if err != nil {
 		return err
 	}
@@ -102,10 +102,12 @@ func (this *ShellBuffer) Write(data string) []byte {
 	for i := 0; i < len(runes); i++ {
 
 		if len(runes) >= i+3 && runes[i] == 0x1b && runes[i+1] == 0x5b {
-			lastRune := runes[i+2]
-			switch lastRune {
+			// we have an escape sequence
+
+			switch runes[i+2] {
 			case 0x41, 0x42:
 				// up or down arrow, ignore these because they will break the editing line
+				log.Printf("Ignoring up/down arrow")
 				i += 2
 				continue
 
@@ -153,7 +155,7 @@ func (this *ShellBuffer) Write(data string) []byte {
 }
 
 func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
-	// Ok, we've updated the buffer. Now we need to figure out what to print.
+	// We've updated the buffer. Now we need to figure out what to print.
 	// The assumption here is that we need to print new stuff, that might fill
 	// multiple lines, might start with a prompt (i.e. not at column 0), and
 	// the cursor might be in the middle of the buffer.
@@ -228,13 +230,6 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 	}
 
 	return buf.Bytes()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func (this *ShellBuffer) String() string {
@@ -545,20 +540,39 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 	}
 }
 
-// We need to be able to parse the child shell's PS1 prompt to determine where
+// Special characters that we wrap the shell's command prompt in (PS1) so
+// that we can detect where it starts and ends
+const promptPrefix = "\033Q"
+const promptSuffix = "\033R"
+const promptPrefixEscaped = "\\033Q"
+const promptSuffixEscaped = "\\033R"
+
+var ps1Regex = regexp.MustCompile(" [0-9]+\001" + promptSuffix + "\002")
+
+// This sets the PS1 shell variable, which is the prompt that the shell
+// displays before each command.
+// We need to be able to parse the child shell's prompt to determine where
 // it starts, ends, exit code, and allow customization to show the user that
-// we're inside butterfish shell:
-// PS1 := \u2067 $PS1 ShellCommandPrompt $? \u2066
+// we're inside butterfish shell. The PS1 is roughly the following:
+// PS1 := promptPrefix $PS1 ShellCommandPrompt $? promptSuffix
 func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
-	prefix := "\u2067" // use special char for start of prompt
-	// use configured text (a fish emoji by default), space, exit code,
-	// and special char for end of prompt
-	suffix := this.Config.ShellCommandPrompt + " $?\u2066"
+	exitCode := "$?"
+	if this.Config.IsZsh() {
+		exitCode = "%?"
+	}
 
-	fmt.Fprintf(childIn, "export PS1=\"%s$PS1%s\"\n", prefix, suffix)
+	// Notes:
+	// - We put echos in PS1 so that the escaped characters will print correctly
+	// - We wrap the prefix and suffix in \001 and \002 so that the shell knows
+	//   that they're non-printing characters, otherwise the cursor position
+	//   will be wrong
+	fmt.Fprintf(childIn,
+		"PS1=\"$(echo '\\001%s\\002')$PS1%s %s$(echo '\\001%s\\002')\"\n",
+		promptPrefixEscaped,
+		this.Config.ShellCommandPrompt,
+		exitCode,
+		promptSuffixEscaped)
 }
-
-var ps1Regex = regexp.MustCompile(" [0-9]+\u2066")
 
 func ParsePS1(data string) (int, int, string) {
 	matches := ps1Regex.FindAllString(data, -1)
@@ -573,7 +587,8 @@ func ParsePS1(data string) (int, int, string) {
 	}
 	// Remove matches from childOutStr
 	cleaned := ps1Regex.ReplaceAllString(data, "")
-	cleaned = strings.ReplaceAll(cleaned, "\u2067", "")
+	// Remove the promptPrefix
+	cleaned = strings.ReplaceAll(cleaned, promptPrefix, "")
 
 	return lastStatus, prompts, cleaned
 }
@@ -681,6 +696,7 @@ func parseAquariumCommand(input string) string {
 
 // TODO add a diagram of streams here
 func (this *ShellState) Mux() {
+	log.Printf("Started shell mux")
 	parentInBuffer := []byte{}
 	childOutBuffer := []byte{}
 
@@ -770,6 +786,8 @@ func (this *ShellState) Mux() {
 				return
 			}
 
+			//log.Printf("Got child output:\n%s", prettyHex(childOutMsg.Data))
+
 			lastStatus, prompts, childOutStr := ParsePS1(string(childOutMsg.Data))
 			this.PromptSuffixCounter += prompts
 
@@ -782,7 +800,13 @@ func (this *ShellState) Mux() {
 			if this.AquariumMode {
 				this.AquariumBuffer += childOutStr
 			}
-			this.History.Append(historyTypeShellOutput, childOutStr)
+
+			// If we're getting child output while typing in a shell command, this
+			// could mean the user is paging through old, or doing a shell tab
+			// completion, or something unknown, so we don't want to add to history.
+			if this.State != stateShell {
+				this.History.Append(historyTypeShellOutput, childOutStr)
+			}
 			this.ParentOut.Write([]byte(childOutStr))
 
 			if this.AquariumMode && this.PromptSuffixCounter >= 2 {
@@ -801,6 +825,7 @@ func (this *ShellState) Mux() {
 			}
 
 			data := parentInMsg.Data
+			//log.Printf("Got child output:\n%s", prettyHex(data))
 
 			// include any cached data
 			if len(parentInBuffer) > 0 {
@@ -822,6 +847,7 @@ func (this *ShellState) Mux() {
 					break
 				}
 				if len(leftover) == len(data) {
+					// nothing was consumed, we buffer and try again later
 					parentInBuffer = append(parentInBuffer, leftover...)
 					break
 				}
@@ -893,9 +919,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.Command.Write(string(data))
 
 			if this.Command.Size() > 0 {
+				// this means that the command is not empty, i.e. the input wasn't
+				// some control character
 				this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
 				this.setState(stateShell)
 				this.History.NewBlock()
+			} else {
+				this.ClearAutosuggest(this.CommandColorString)
 			}
 
 			this.ParentOut.Write([]byte(this.CommandColorString))

@@ -224,6 +224,7 @@ func main() {
 			os.Exit(7)
 		}
 
+		config.ShellBinary = shell
 		config.ShellPromptModel = cli.Shell.PromptModel
 		config.ShellPromptHistoryWindow = cli.Shell.PromptHistoryWindow
 		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
@@ -234,7 +235,7 @@ func main() {
 		//config.ShellPluginMode = cli.Shell.Plugin
 		config.ShellCommandPrompt = cli.Shell.CommandPrompt
 
-		bf.RunShell(ctx, config, shell)
+		bf.RunShell(ctx, config)
 
 	case "plugin":
 		logfileName := initLogging(ctx)

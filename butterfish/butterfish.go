@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -66,6 +65,7 @@ type ButterfishConfig struct {
 	// Shell mode configuration
 	ShellMode                bool
 	ShellPluginMode          bool
+	ShellBinary              string // path to the shell binary to use, e.g. /bin/zsh
 	ShellPromptModel         string // used when the user enters an explicit prompt
 	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
 	ShellCommandPrompt       string // replace the default command prompt (eg >) with this
@@ -90,6 +90,19 @@ type ButterfishConfig struct {
 	SummarizeModel       string
 	SummarizeTemperature float32
 	SummarizeMaxTokens   int
+}
+
+func (this *ButterfishConfig) IsZsh() bool {
+	if this.ShellBinary == "/bin/zsh" {
+		return true
+	}
+
+	// check last 4 chars of binary name
+	if len(this.ShellBinary) >= 4 && this.ShellBinary[len(this.ShellBinary)-4:] == "/zsh" {
+		return true
+	}
+
+	return false
 }
 
 // Interface for a library that accepts a prompt and interpolates variables
@@ -195,129 +208,6 @@ func MakeButterfishConfig() *ButterfishConfig {
 		SummarizeTemperature: 0.7,
 		SummarizeMaxTokens:   1024,
 	}
-}
-
-// Data type for passing byte chunks from a wrapped command around
-type byteMsg struct {
-	Data []byte
-}
-
-type cursorPosition struct {
-	Row    int
-	Column int
-}
-
-func NewByteMsg(data []byte) *byteMsg {
-	buf := make([]byte, len(data))
-	copy(buf, data)
-	return &byteMsg{
-		Data: buf,
-	}
-}
-
-// Given an io.Reader we write byte chunks to a channel
-func readerToChannel(input io.Reader, c chan<- *byteMsg) {
-	buf := make([]byte, 1024*16)
-
-	// Loop indefinitely
-	for {
-		// Read from stream
-		n, err := input.Read(buf)
-
-		// Check for error
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading from file: %s\n", err)
-			}
-			break
-		}
-
-		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
-			log.Printf("got escape sequence: %x", buf)
-			// We have downstream code that assumes full ANSI sequences, so we validate
-			// here, I've never seen this fire
-			panic("Got incomplete escape sequence")
-		}
-
-		c <- NewByteMsg(buf[:n])
-	}
-
-	// Close the channel
-	close(c)
-}
-
-// compile a regex that matches \x1b[%d;%dR
-var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
-
-// Search for an ANSI cursor position sequence, e.g. \x1b[4;14R, and return:
-// - row
-// - column
-// - length of the sequence
-// - whether the sequence was found
-func parseCursorPos(data []byte) (int, int, bool) {
-	matches := cursorPosRegex.FindSubmatch(data)
-	if len(matches) != 3 {
-		return -1, -1, false
-	}
-	row, err := strconv.Atoi(string(matches[1]))
-	if err != nil {
-		return -1, -1, false
-	}
-	col, err := strconv.Atoi(string(matches[2]))
-	if err != nil {
-		return -1, -1, false
-	}
-	return row, col, true
-}
-
-// Given an io.Reader we write byte chunks to a channel
-// This is a modified version with a separate channel for cursor position
-func readerToChannelWithPosition(input io.Reader, c chan<- *byteMsg, pos chan<- *cursorPosition) {
-	buf := make([]byte, 1024*16)
-
-	// Loop indefinitely
-	for {
-		// Read from stream
-		n, err := input.Read(buf)
-
-		// Check for error
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading from file: %s\n", err)
-			}
-			break
-		}
-
-		// if we find a cursor position, send it to the pos channel but leave it in
-		row, col, found := parseCursorPos(buf[:n])
-		if found {
-			pos <- &cursorPosition{
-				Row:    row,
-				Column: col,
-			}
-		}
-
-		if found {
-			cleaned := cursorPosRegex.ReplaceAll(buf[:n], []byte{})
-			copy(buf, cleaned)
-			n = len(cleaned)
-			if n == 0 {
-				continue
-			}
-		}
-
-		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
-			log.Printf("got escape sequence: %x", buf)
-			// We have downstream code that assumes full ANSI sequences, so we validate
-			// here, I've never seen this fire
-			panic("Got incomplete escape sequence")
-		}
-
-		c <- NewByteMsg(buf[:n])
-	}
-
-	// Close the channel
-	close(c)
 }
 
 // For Control Sequence Introducer, or CSI, commands, the ESC [ (written as \e[ or \033[ in several programming and scripting languages) is followed by any number (including none) of "parameter bytes" in the range 0x30–0x3F (ASCII 0–9:;<=>?), then by any number of "intermediate bytes" in the range 0x20–0x2F (ASCII space and !"#$%&'()*+,-./), then finally by a single "final byte" in the range 0x40–0x7E (ASCII @A–Z[\]^_`a–z{|}~)
