@@ -541,13 +541,16 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 }
 
 // Special characters that we wrap the shell's command prompt in (PS1) so
-// that we can detect where it starts and ends
-const promptPrefix = "\033Q"
-const promptSuffix = "\033R"
-const promptPrefixEscaped = "\\033Q"
-const promptSuffixEscaped = "\\033R"
+// that we can detect where it starts and ends.
+// We wrap the prefix and suffix in \001 and \002 so that the shell knows
+// that they're non-printing characters, otherwise the cursor position
+// will be wrong.
+const promptPrefix = "\001\033Q\002"
+const promptSuffix = "\001\033R\002"
+const promptPrefixEscaped = "\\001\\033Q\\002"
+const promptSuffixEscaped = "\\001\\033R\\002"
 
-var ps1Regex = regexp.MustCompile(" [0-9]+\001" + promptSuffix + "\002")
+var ps1Regex = regexp.MustCompile(" [0-9]+" + promptSuffix + "")
 
 // This sets the PS1 shell variable, which is the prompt that the shell
 // displays before each command.
@@ -563,17 +566,21 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 
 	// Notes:
 	// - We put echos in PS1 so that the escaped characters will print correctly
-	// - We wrap the prefix and suffix in \001 and \002 so that the shell knows
-	//   that they're non-printing characters, otherwise the cursor position
-	//   will be wrong
 	fmt.Fprintf(childIn,
-		"PS1=\"$(echo '\\001%s\\002')$PS1%s %s$(echo '\\001%s\\002')\"\n",
+		"PS1=\"$(echo '%s')$PS1%s %s$(echo '%s')\"\n",
 		promptPrefixEscaped,
 		this.Config.ShellCommandPrompt,
 		exitCode,
 		promptSuffixEscaped)
 }
 
+// Given a string of terminal output, identify terminal prompts based on the
+// custom PS1 escape sequences we set.
+// Returns:
+// - The last exit code/status seen in the string (i.e. will be non-zero if
+//   previous command failed.
+// - The number of prompts identified in the string.
+// - The string with the special prompt escape sequences removed.
 func ParsePS1(data string) (int, int, string) {
 	matches := ps1Regex.FindAllString(data, -1)
 	lastStatus := 0
@@ -585,9 +592,9 @@ func ParsePS1(data string) (int, int, string) {
 		lastStatus, _ = strconv.Atoi(match)
 		prompts++
 	}
-	// Remove matches from childOutStr
+	// Remove matches of suffix
 	cleaned := ps1Regex.ReplaceAllString(data, "")
-	// Remove the promptPrefix
+	// Remove the prefix
 	cleaned = strings.ReplaceAll(cleaned, promptPrefix, "")
 
 	return lastStatus, prompts, cleaned
