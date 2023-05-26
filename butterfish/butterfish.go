@@ -92,17 +92,10 @@ type ButterfishConfig struct {
 	SummarizeMaxTokens   int
 }
 
-func (this *ButterfishConfig) IsZsh() bool {
-	if this.ShellBinary == "/bin/zsh" {
-		return true
-	}
-
-	// check last 4 chars of binary name
-	if len(this.ShellBinary) >= 4 && this.ShellBinary[len(this.ShellBinary)-4:] == "/zsh" {
-		return true
-	}
-
-	return false
+func (this *ButterfishConfig) ParseShell() string {
+	fields := strings.Split(this.ShellBinary, "/")
+	lastField := fields[len(fields)-1]
+	return lastField
 }
 
 // Interface for a library that accepts a prompt and interpolates variables

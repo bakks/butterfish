@@ -551,12 +551,12 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 // We wrap the prefix and suffix in \001 and \002 so that the shell knows
 // that they're non-printing characters, otherwise the cursor position
 // will be wrong.
-const promptPrefix = "\001\033Q\002"
-const promptSuffix = "\001\033R\002"
-const promptPrefixEscaped = "\\001\\033Q\\002"
-const promptSuffixEscaped = "\\001\\033R\\002"
+const promptPrefix = "\033Q"
+const promptSuffix = "\033R"
+const promptPrefixEscaped = "\\033Q"
+const promptSuffixEscaped = "\\033R"
 
-var ps1Regex = regexp.MustCompile(" [0-9]+" + promptSuffix)
+var ps1Regex = regexp.MustCompile(" ([0-9]+)" + promptSuffix)
 
 // This sets the PS1 shell variable, which is the prompt that the shell
 // displays before each command.
@@ -565,18 +565,25 @@ var ps1Regex = regexp.MustCompile(" [0-9]+" + promptSuffix)
 // we're inside butterfish shell. The PS1 is roughly the following:
 // PS1 := promptPrefix $PS1 ShellCommandPrompt $? promptSuffix
 func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
-	exitCode := "$?"
-	if this.Config.IsZsh() {
-		exitCode = "%?"
+	shell := this.Config.ParseShell()
+	var ps1 string
+
+	switch shell {
+	case "bash", "sh":
+		ps1 = "PS1=\"\\[$(echo '%s')\\]\"$PS1\"%s\\[ $(echo '$?%s')\\]\"\n"
+	case "zsh":
+		ps1 = "PS1=\"%%{$(echo '%s')%%}$PS1%s%%{ %%?$(echo '%s')%%}\"\n"
+	default:
+		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for centain features. Create an issue at https://github.com/bakks/butterfish.", shell)
+		return
 	}
 
 	// Notes:
 	// - We put echos in PS1 so that the escaped characters will print correctly
 	fmt.Fprintf(childIn,
-		"PS1=\"$(echo '%s')$PS1%s %s$(echo '%s')\"\n",
+		ps1,
 		promptPrefixEscaped,
 		this.Config.ShellCommandPrompt,
-		exitCode,
 		promptSuffixEscaped)
 }
 
@@ -588,14 +595,16 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 // - The number of prompts identified in the string.
 // - The string with the special prompt escape sequences removed.
 func ParsePS1(data string) (int, int, string) {
-	matches := ps1Regex.FindAllString(data, -1)
+	matches := ps1Regex.FindAllStringSubmatch(data, -1)
 	lastStatus := 0
 	prompts := 0
 
 	for _, match := range matches {
-		// remove the unicode control characters
-		match := match[1 : len(match)-1]
-		lastStatus, _ = strconv.Atoi(match)
+		var err error
+		lastStatus, err = strconv.Atoi(match[1])
+		if err != nil {
+			log.Printf("Error parsing PS1 match: %s", err)
+		}
 		prompts++
 	}
 	// Remove matches of suffix
@@ -802,6 +811,9 @@ func (this *ShellState) Mux() {
 			//log.Printf("Got child output:\n%s", prettyHex(childOutMsg.Data))
 
 			lastStatus, prompts, childOutStr := ParsePS1(string(childOutMsg.Data))
+			if prompts != 0 {
+				log.Printf("Child exited with status %d", lastStatus)
+			}
 			this.PromptSuffixCounter += prompts
 
 			// If we're actively printing a response we buffer child output
