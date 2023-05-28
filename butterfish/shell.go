@@ -18,7 +18,6 @@ import (
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/mitchellh/go-ps"
 	"golang.org/x/term"
 )
@@ -483,23 +482,24 @@ type ShellState struct {
 	AutosuggestChan      chan *AutosuggestResult
 	History              *ShellHistory
 	PromptAnswerWriter   io.Writer
-	DefaultOutWriter     io.Writer
 	Prompt               *ShellBuffer
-	PromptStyle          lipgloss.Style
 	PromptResponseCancel context.CancelFunc
 	Command              *ShellBuffer
 	TerminalWidth        int
 
-	PromptColorString      string
-	CommandColorString     string
-	AutosuggestColorString string
-	AnswerColorString      string
+	// color theme
+	PromptColor      string
+	ErrorColor       string
+	CommandColor     string
+	AutosuggestColor string
+	AnswerColor      string
+	AquariumColor    string
 
+	// autosuggest config
 	AutosuggestEnabled bool
 	LastAutosuggest    string
 	AutosuggestCtx     context.Context
 	AutosuggestCancel  context.CancelFunc
-	AutosuggestStyle   lipgloss.Style
 	AutosuggestBuffer  *ShellBuffer
 }
 
@@ -625,6 +625,8 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	commandColor := "\x1b[0m"
 	autosuggestColor := "\x1b[38;5;241m"
 	answerColor := "\x1b[38;5;214m"
+	aquariumColor := "\x1b[38;5;51m"
+	errorColor := "\x1b[38;5;196m"
 
 	log.Printf("Starting shell multiplexer")
 
@@ -635,9 +637,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	go readerToChannel(childOut, childOutReader)
 	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
 
-	promptOutputWriter := util.NewColorWriter(parentOut, answerColor)
-	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
-	defaultOutWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
+	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
 
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -667,26 +667,25 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		CursorPosChan:      parentPositionChan,
 		History:            NewShellHistory(),
 		PromptOutputChan:   make(chan *byteMsg),
-		PromptAnswerWriter: cleanedWriter,
-		DefaultOutWriter:   defaultOutWriter,
-		PromptStyle:        this.Config.Styles.Question,
+		PromptAnswerWriter: carriageReturnWriter,
 		Command:            NewShellBuffer(),
 		Prompt:             NewShellBuffer(),
 		TerminalWidth:      termWidth,
 		AutosuggestEnabled: this.Config.ShellAutosuggestEnabled,
 		AutosuggestChan:    make(chan *AutosuggestResult),
-		AutosuggestStyle:   this.Config.Styles.Grey,
 
-		PromptColorString:      promptColor,
-		CommandColorString:     commandColor,
-		AutosuggestColorString: autosuggestColor,
-		AnswerColorString:      answerColor,
+		PromptColor:      promptColor,
+		ErrorColor:       errorColor,
+		CommandColor:     commandColor,
+		AutosuggestColor: autosuggestColor,
+		AnswerColor:      answerColor,
+		AquariumColor:    aquariumColor,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
 	shellState.Prompt.SetColor(promptColor)
-	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
-	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
+	log.Printf("Prompt color: %s", shellState.PromptColor[1:])
+	log.Printf("Autosuggest color: %s", shellState.AutosuggestColor[1:])
 
 	// clear out any existing output to hide the PS1 export stuff
 	clearByteChan(childOutReader, 100*time.Millisecond)
@@ -773,13 +772,21 @@ func (this *ShellState) Mux() {
 				childOutBuffer = []byte{}
 			}
 
+			// Get a new prompt
+			this.ChildIn.Write([]byte("\n"))
+
 			if this.AquariumMode {
 				llmAsk := string(output.Data)
 				if strings.Contains(llmAsk, "GOAL ACHIEVED") {
 					log.Printf("Aquarium mode: goal achieved, exiting")
 					this.AquariumMode = false
 					this.setState(stateNormal)
-					this.ChildIn.Write([]byte("\n"))
+					continue
+				}
+				if strings.Contains(llmAsk, "GOAL FAILED") {
+					log.Printf("Aquarium mode: goal failed, exiting")
+					this.AquariumMode = false
+					this.setState(stateNormal)
 					continue
 				}
 
@@ -790,14 +797,12 @@ func (this *ShellState) Mux() {
 					this.AquariumBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
-					this.ChildIn.Write([]byte("\n"))
-					this.ChildIn.Write([]byte(aquariumCmd))
-					this.ChildIn.Write([]byte("\n"))
+					fmt.Fprintf(this.ChildIn, "%s", aquariumCmd)
+					fmt.Fprintf(this.ChildIn, "\n")
 					continue
 				}
 			}
 
-			this.ChildIn.Write([]byte("\n"))
 			this.RequestAutosuggest(0, "")
 			this.setState(stateNormal)
 
@@ -915,7 +920,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.Prompt.Write(string(data))
 
 			// Write the actual prompt start
-			this.ParentOut.Write([]byte(this.PromptColorString))
+			this.ParentOut.Write([]byte(this.PromptColor))
 			this.ParentOut.Write(data)
 
 			// We're starting a prompt managed here in the wrapper, so we want to
@@ -926,7 +931,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
+				this.RealizeAutosuggest(this.Command, true, this.CommandColor)
 				this.setState(stateShell)
 				return data[1:]
 			} else {
@@ -946,21 +951,21 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			if this.Command.Size() > 0 {
 				// this means that the command is not empty, i.e. the input wasn't
 				// some control character
-				this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
+				this.RefreshAutosuggest(data, this.Command, this.CommandColor)
 				this.setState(stateShell)
 				this.History.NewBlock()
 			} else {
-				this.ClearAutosuggest(this.CommandColorString)
+				this.ClearAutosuggest(this.CommandColor)
 			}
 
-			this.ParentOut.Write([]byte(this.CommandColorString))
+			this.ParentOut.Write([]byte(this.CommandColor))
 			this.ChildIn.Write(data)
 		}
 
 	case statePrompting:
 		// check if the input contains a newline
 		if hasCarriageReturn {
-			this.ClearAutosuggest(this.CommandColorString)
+			this.ClearAutosuggest(this.CommandColor)
 			index := bytes.Index(data, []byte{'\r'})
 			toAdd := data[:index]
 			toPrint := this.Prompt.Write(string(toAdd))
@@ -979,7 +984,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Prompt, false, this.PromptColorString)
+				this.RealizeAutosuggest(this.Prompt, false, this.PromptColor)
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ParentOut.Write(data)
@@ -990,23 +995,23 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		} else if data[0] == 0x03 { // Ctrl-C
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
-			this.ParentOut.Write([]byte(this.CommandColorString))
+			this.ParentOut.Write([]byte(this.CommandColor))
 			this.setState(stateNormal)
 
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
 			this.ParentOut.Write(toPrint)
-			this.RefreshAutosuggest(data, this.Prompt, this.CommandColorString)
+			this.RefreshAutosuggest(data, this.Prompt, this.CommandColor)
 
 			if this.Prompt.Size() == 0 {
-				this.ParentOut.Write([]byte(this.CommandColorString)) // reset color
+				this.ParentOut.Write([]byte(this.CommandColor)) // reset color
 				this.setState(stateNormal)
 			}
 		}
 
 	case stateShell:
 		if hasCarriageReturn { // user is submitting a command
-			this.ClearAutosuggest(this.CommandColorString)
+			this.ClearAutosuggest(this.CommandColor)
 
 			this.setState(stateNormal)
 
@@ -1020,7 +1025,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
+				this.RealizeAutosuggest(this.Command, true, this.CommandColor)
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
@@ -1029,7 +1034,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 		} else { // otherwise user is typing a command
 			this.Command.Write(string(data))
-			this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
+			this.RefreshAutosuggest(data, this.Command, this.CommandColor)
 			this.ChildIn.Write(data)
 			if this.Command.Size() == 0 {
 				this.setState(stateNormal)
@@ -1043,6 +1048,16 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 	return nil
 }
 
+// We want to queue up the prompt response, which does the processing (except
+// for actually printing it). The processing like adding to history or
+// executing the next step in aquarium mode. We have to do this in a goroutine
+// because otherwise we would block the main thread.
+func (this *ShellState) SendPromptResponse(data string) {
+	go func() {
+		this.PromptOutputChan <- &byteMsg{Data: []byte(data)}
+	}()
+}
+
 func (this *ShellState) PrintStatus() {
 	text := fmt.Sprintf("You're using Butterfish Shell Mode\n%s\n\n", this.Butterfish.Config.BuildInfo)
 
@@ -1053,11 +1068,8 @@ func (this *ShellState) PrintStatus() {
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
 	text += fmt.Sprintf("Autosuggest history:   %d bytes\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
-	this.PromptAnswerWriter.Write([]byte(text))
-
-	go func() {
-		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
-	}()
+	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.AnswerColor, text, this.CommandColor)
+	this.SendPromptResponse(text)
 }
 
 func (this *ShellState) PrintHelp() {
@@ -1069,14 +1081,11 @@ func (this *ShellState) PrintHelp() {
 	- Type "Status" to show the current Butterfish configuration
 	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
 `
-	this.PromptAnswerWriter.Write([]byte(text))
-
-	go func() {
-		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
-	}()
+	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.AnswerColor, text, this.CommandColor)
+	this.SendPromptResponse(text)
 }
 
-const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will then give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. You must verify that the goal is achieved. When finished, respond with simply GOAL ACHIEVED."
+const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will then give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved. When finished, respond with simply GOAL ACHIEVED, unless the goal is impossible, in which case respond with GOAL FAILED."
 
 func (this *ShellState) StartAquarium() {
 	this.AquariumMode = true
@@ -1106,20 +1115,9 @@ func (this *ShellState) StartAquarium() {
 
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
-	go func() {
-		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
-		if err != nil {
-			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
-
-			log.Printf("%s", errStr)
-
-			if !strings.Contains(errStr, "context canceled") {
-				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
-			}
-		}
-
-		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
-	}()
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.PromptAnswerWriter, this.PromptOutputChan,
+		this.AquariumColor, this.ErrorColor)
 }
 
 func (this *ShellState) RespondAquarium(status int, output string) {
@@ -1142,25 +1140,9 @@ func (this *ShellState) RespondAquarium(status int, output string) {
 
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
-	go func() {
-		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
-		if err != nil {
-			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
-
-			// This error means the user needs to set up a subscription, give advice
-			if strings.Contains(errStr, ERR_429) {
-				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
-			}
-
-			log.Printf("%s", errStr)
-
-			if !strings.Contains(errStr, "context canceled") {
-				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
-			}
-		}
-
-		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
-	}()
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.PromptAnswerWriter, this.PromptOutputChan,
+		this.AquariumColor, this.ErrorColor)
 }
 
 func (this *ShellState) SendPrompt() {
@@ -1203,27 +1185,43 @@ func (this *ShellState) SendPrompt() {
 
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
-	go func() {
-		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
-		if err != nil {
-			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
-
-			// This error means the user needs to set up a subscription, give advice
-			if strings.Contains(errStr, ERR_429) {
-				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
-			}
-
-			log.Printf("%s", errStr)
-
-			if !strings.Contains(errStr, "context canceled") {
-				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
-			}
-		}
-
-		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
-	}()
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.PromptAnswerWriter, this.PromptOutputChan, this.AnswerColor,
+		this.ErrorColor)
 
 	this.Prompt.Clear()
+}
+
+func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Writer, outputChan chan *byteMsg, normalColor, errorColor string) {
+	fmt.Fprintf(writer, "%s", normalColor)
+	output, err := client.CompletionStream(request, writer)
+
+	toSend := []byte{}
+	if output != "" {
+		toSend = []byte(output)
+	}
+
+	if err != nil {
+		errStr := fmt.Sprintf("Error prompting LLM: %s\n", err)
+
+		// This error means the user needs to set up a subscription, give advice
+		if strings.Contains(errStr, ERR_429) {
+			errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
+		}
+
+		log.Printf("%s", errStr)
+
+		if !strings.Contains(errStr, "context canceled") {
+			fmt.Fprintf(writer, "%s%s", errorColor, errStr)
+			// We want to put the error message in the history as well
+			toSend = append(toSend, []byte(errStr)...)
+		}
+	}
+
+	if len(toSend) > 0 {
+		// send any output + error for processing (e.g. adding to history)
+		outputChan <- &byteMsg{Data: toSend}
+	}
 }
 
 // When the user presses tab or a similar hotkey, we want to turn the
@@ -1317,7 +1315,7 @@ func (this *ShellState) ShowAutosuggest(
 
 	// Use autosuggest buffer to get the bytes to write the greyed out
 	// autosuggestion and then move the cursor back to the original position
-	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, this.AutosuggestColorString)
+	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, this.AutosuggestColor)
 
 	this.ParentOut.Write([]byte(buf))
 }
