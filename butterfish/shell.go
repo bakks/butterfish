@@ -590,16 +590,18 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 
 	switch shell {
 	case "bash", "sh":
-		ps1 = "PS1=\"\\[$(echo '%s')\\]\"$PS1\"%s\\[ $(echo '$?%s')\\]\"\n"
+		// the \[ and \] are bash-specific and tell bash to not count the enclosed
+		// characters when calculating the cursor position
+		ps1 = "PS1=$'\\[%s\\]'$PS1$'%s\\[ $?%s\\]'\n"
 	case "zsh":
-		ps1 = "PS1=\"%%{$(echo '%s')%%}$PS1%s%%{ %%?$(echo '%s')%%}\"\n"
+		// the %%{ and %%} are zsh-specific and tell zsh to not count the enclosed
+		// characters when calculating the cursor position
+		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%}'\n"
 	default:
 		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for centain features. Create an issue at https://github.com/bakks/butterfish.", shell)
 		return
 	}
 
-	// Notes:
-	// - We put echos in PS1 so that the escaped characters will print correctly
 	fmt.Fprintf(childIn,
 		ps1,
 		promptPrefixEscaped,
