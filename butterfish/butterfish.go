@@ -65,6 +65,7 @@ type ButterfishConfig struct {
 	// Shell mode configuration
 	ShellMode                bool
 	ShellPluginMode          bool
+	ShellColorDark           bool
 	ShellBinary              string // path to the shell binary to use, e.g. /bin/zsh
 	ShellPromptModel         string // used when the user enters an explicit prompt
 	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt

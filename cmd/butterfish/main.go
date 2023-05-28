@@ -56,6 +56,7 @@ type CliConfig struct {
 		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
 		//Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
 		CommandPrompt string `short:"p" default:"🐠 " help:"Command prompt replacement, set to '' for no replacement"`
+		LightColor    bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
 
 Use:
@@ -231,6 +232,7 @@ func main() {
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow
+		config.ShellColorDark = !cli.Shell.LightColor
 		config.ShellMode = true
 		//config.ShellPluginMode = cli.Shell.Plugin
 		config.ShellCommandPrompt = cli.Shell.CommandPrompt
