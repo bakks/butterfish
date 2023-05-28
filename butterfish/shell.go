@@ -568,9 +568,6 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 
 // Special characters that we wrap the shell's command prompt in (PS1) so
 // that we can detect where it starts and ends.
-// We wrap the prefix and suffix in \001 and \002 so that the shell knows
-// that they're non-printing characters, otherwise the cursor position
-// will be wrong.
 const promptPrefix = "\033Q"
 const promptSuffix = "\033R"
 const promptPrefixEscaped = "\\033Q"
