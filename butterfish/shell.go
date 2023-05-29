@@ -29,21 +29,23 @@ const ESC_LEFT = "\x1b[%dD"
 const ESC_CLEAR = "\x1b[0K"
 
 var DarkShellColorScheme = &ShellColorScheme{
-	Prompt:      "\x1b[38;5;154m",
-	Command:     "\x1b[0m",
-	Autosuggest: "\x1b[38;5;241m",
-	Answer:      "\x1b[38;5;214m",
-	Aquarium:    "\x1b[38;5;51m",
-	Error:       "\x1b[38;5;196m",
+	Prompt:       "\x1b[38;5;154m",
+	PromptAction: "\x1b[38;5;200m",
+	Command:      "\x1b[0m",
+	Autosuggest:  "\x1b[38;5;241m",
+	Answer:       "\x1b[38;5;214m",
+	Aquarium:     "\x1b[38;5;51m",
+	Error:        "\x1b[38;5;196m",
 }
 
 var LightShellColorScheme = &ShellColorScheme{
-	Prompt:      "\x1b[38;5;28m",
-	Command:     "\x1b[0m",
-	Autosuggest: "\x1b[38;5;241m",
-	Answer:      "\x1b[38;5;214m",
-	Aquarium:    "\x1b[38;5;18m",
-	Error:       "\x1b[38;5;196m",
+	Prompt:       "\x1b[38;5;28m",
+	PromptAction: "\x1b[38;5;200m",
+	Command:      "\x1b[0m",
+	Autosuggest:  "\x1b[38;5;241m",
+	Answer:       "\x1b[38;5;214m",
+	Aquarium:     "\x1b[38;5;18m",
+	Error:        "\x1b[38;5;196m",
 }
 
 func RunShell(ctx context.Context, config *ButterfishConfig) error {
@@ -483,12 +485,13 @@ type AutosuggestResult struct {
 }
 
 type ShellColorScheme struct {
-	Prompt      string
-	Error       string
-	Command     string
-	Autosuggest string
-	Answer      string
-	Aquarium    string
+	Prompt       string
+	PromptAction string
+	Error        string
+	Command      string
+	Autosuggest  string
+	Answer       string
+	Aquarium     string
 }
 
 type ShellState struct {
@@ -841,7 +844,7 @@ func (this *ShellState) Mux() {
 			}
 
 			// If we're getting child output while typing in a shell command, this
-			// could mean the user is paging through old, or doing a shell tab
+			// could mean the user is paging through old commands, or doing a tab
 			// completion, or something unknown, so we don't want to add to history.
 			if this.State != stateShell {
 				this.History.Append(historyTypeShellOutput, childOutStr)
@@ -850,7 +853,7 @@ func (this *ShellState) Mux() {
 
 			if this.AquariumMode && this.PromptSuffixCounter >= 2 {
 				// move cursor to the beginning of the line and clear the line
-				this.ParentOut.Write([]byte("\r\x1b[K"))
+				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
 				this.RespondAquarium(lastStatus, this.AquariumBuffer)
 				this.AquariumBuffer = ""
 				this.PromptSuffixCounter = 0
@@ -864,7 +867,6 @@ func (this *ShellState) Mux() {
 			}
 
 			data := parentInMsg.Data
-			//log.Printf("Got child output:\n%s", prettyHex(data))
 
 			// include any cached data
 			if len(parentInBuffer) > 0 {
@@ -929,8 +931,12 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.Prompt.Write(string(data))
 
 			// Write the actual prompt start
-			this.ParentOut.Write([]byte(this.Color.Prompt))
-			this.ParentOut.Write(data)
+			color := this.Color.Prompt
+			if data[0] == '!' {
+				color = this.Color.PromptAction
+			}
+			this.Prompt.SetColor(color)
+			fmt.Fprintf(this.ParentOut, "%s%s", color, data)
 
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position
