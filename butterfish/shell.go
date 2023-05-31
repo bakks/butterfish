@@ -29,23 +29,25 @@ const ESC_LEFT = "\x1b[%dD"
 const ESC_CLEAR = "\x1b[0K"
 
 var DarkShellColorScheme = &ShellColorScheme{
-	Prompt:       "\x1b[38;5;154m",
-	PromptAction: "\x1b[38;5;200m",
-	Command:      "\x1b[0m",
-	Autosuggest:  "\x1b[38;5;241m",
-	Answer:       "\x1b[38;5;214m",
-	Aquarium:     "\x1b[38;5;51m",
-	Error:        "\x1b[38;5;196m",
+	Prompt:           "\x1b[38;5;154m",
+	PromptGoal:       "\x1b[38;5;200m",
+	PromptGoalUnsafe: "\x1b[38;5;9m",
+	Command:          "\x1b[0m",
+	Autosuggest:      "\x1b[38;5;241m",
+	Answer:           "\x1b[38;5;214m",
+	Aquarium:         "\x1b[38;5;51m",
+	Error:            "\x1b[38;5;196m",
 }
 
 var LightShellColorScheme = &ShellColorScheme{
-	Prompt:       "\x1b[38;5;28m",
-	PromptAction: "\x1b[38;5;200m",
-	Command:      "\x1b[0m",
-	Autosuggest:  "\x1b[38;5;241m",
-	Answer:       "\x1b[38;5;214m",
-	Aquarium:     "\x1b[38;5;18m",
-	Error:        "\x1b[38;5;196m",
+	Prompt:           "\x1b[38;5;28m",
+	PromptGoal:       "\x1b[38;5;200m",
+	PromptGoalUnsafe: "\x1b[38;5;9m",
+	Command:          "\x1b[0m",
+	Autosuggest:      "\x1b[38;5;241m",
+	Answer:           "\x1b[38;5;214m",
+	Aquarium:         "\x1b[38;5;18m",
+	Error:            "\x1b[38;5;196m",
 }
 
 func RunShell(ctx context.Context, config *ButterfishConfig) error {
@@ -217,13 +219,14 @@ type AutosuggestResult struct {
 }
 
 type ShellColorScheme struct {
-	Prompt       string
-	PromptAction string
-	Error        string
-	Command      string
-	Autosuggest  string
-	Answer       string
-	Aquarium     string
+	Prompt           string
+	PromptGoal       string
+	PromptGoalUnsafe string
+	Error            string
+	Command          string
+	Autosuggest      string
+	Answer           string
+	Aquarium         string
 }
 
 type ShellState struct {
@@ -237,6 +240,7 @@ type ShellState struct {
 	AquariumMode         bool
 	AquariumBuffer       string
 	AquariumGoal         string
+	AquariumUnsafe       bool
 	PromptSuffixCounter  int
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
@@ -543,7 +547,10 @@ func (this *ShellState) Mux() {
 					this.AquariumBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
-					fmt.Fprintf(this.ChildIn, "%s\n", aquariumCmd)
+					fmt.Fprintf(this.ChildIn, "%s", aquariumCmd)
+					if this.AquariumUnsafe {
+						fmt.Fprintf(this.ChildIn, "\n")
+					}
 					continue
 				}
 
@@ -668,7 +675,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			// Write the actual prompt start
 			color := this.Color.Prompt
 			if data[0] == '!' {
-				color = this.Color.PromptAction
+				color = this.Color.PromptGoal
 			}
 			this.Prompt.SetColor(color)
 			fmt.Fprintf(this.ParentOut, "%s%s", color, data)
@@ -712,8 +719,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		}
 
 	case statePrompting:
-		// check if the input contains a newline
 		if hasCarriageReturn {
+			// check if the input contains a newline
 			this.ClearAutosuggest(this.Color.Command)
 			index := bytes.Index(data, []byte{'\r'})
 			toAdd := data[:index]
@@ -736,6 +743,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				this.SendPrompt()
 			}
 			return data[index+1:]
+
+		} else if data[0] == '!' && this.Prompt.String() == "!" {
+			// If the user is prefixing the prompt with two bangs then they may
+			// be entering unsafe goal mode, color the prompt accordingly
+			this.Prompt.SetColor(this.Color.PromptGoalUnsafe)
+			toPrint := this.Prompt.Write(string(data))
+			this.ParentOut.Write(toPrint)
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
@@ -860,7 +874,7 @@ func (this *ShellState) PrintHistory() {
 		case historyTypeLLMOutput:
 			blockColor = this.Color.Answer
 		case historyTypeShellInput:
-			blockColor = this.Color.PromptAction
+			blockColor = this.Color.PromptGoal
 		}
 
 		strBuilder.WriteString(fmt.Sprintf("%s%s\n", blockColor, block.Content))
@@ -874,10 +888,22 @@ func (this *ShellState) PrintHistory() {
 const aquariumSystemMessage = `You are an agent helping me achieve the following goal: "%s". You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'.`
 
 func (this *ShellState) AquariumStart() {
-	this.AquariumMode = true
-
 	// Get the prompt after the bang
-	this.AquariumGoal = this.Prompt.String()[1:]
+	goal := this.Prompt.String()[1:]
+	if goal == "" {
+		return
+	}
+
+	// If the prompt is preceded with two bangs then go to unsafe mode
+	if goal[0] == '!' {
+		goal = goal[1:]
+		this.AquariumUnsafe = true
+	} else {
+		this.AquariumUnsafe = false
+	}
+
+	this.AquariumMode = true
+	this.AquariumGoal = goal
 	this.Prompt.Clear()
 
 	prompt := "Start now."
