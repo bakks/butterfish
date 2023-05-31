@@ -236,6 +236,7 @@ type ShellState struct {
 	State                int
 	AquariumMode         bool
 	AquariumBuffer       string
+	AquariumGoal         string
 	PromptSuffixCounter  int
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
@@ -722,6 +723,11 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.ParentOut.Write([]byte("\n\r"))
 
 			promptStr := this.Prompt.String()
+			if this.HandleLocalPrompt() {
+				// This was a local prompt like "help", we're done now
+				return data[index+1:]
+			}
+
 			if promptStr[0] == '!' {
 				this.AquariumStart()
 			} else if this.AquariumMode {
@@ -809,7 +815,11 @@ func (this *ShellState) SendPromptResponse(data string) {
 }
 
 func (this *ShellState) PrintStatus() {
-	text := fmt.Sprintf("You're using Butterfish Shell Mode\n%s\n\n", this.Butterfish.Config.BuildInfo)
+	text := fmt.Sprintf("You're using Butterfish Shell\n%s\n\n", this.Butterfish.Config.BuildInfo)
+
+	if this.AquariumMode {
+		text += fmt.Sprintf("You're in Command mode, the goal you've given to the agent is:\n%s\n\n", this.AquariumGoal)
+	}
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
 	text += fmt.Sprintf("Prompt history window: %d bytes\n", this.Butterfish.Config.ShellPromptHistoryWindow)
@@ -861,19 +871,18 @@ func (this *ShellState) PrintHistory() {
 	this.SendPromptResponse("")
 }
 
-const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved. When finished, respond with exactly 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'."
+const aquariumSystemMessage = `You are an agent helping me achieve the following goal: "%s". You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'.`
 
 func (this *ShellState) AquariumStart() {
 	this.AquariumMode = true
 
 	// Get the prompt after the bang
-	prompt := this.Prompt.String()[1:]
-	prompt = fmt.Sprintf("This is your goal: %s", prompt)
-	log.Printf("Starting Aquarium mode: %s", prompt)
+	this.AquariumGoal = this.Prompt.String()[1:]
 	this.Prompt.Clear()
 
+	prompt := "Start now."
+	log.Printf("Starting Aquarium mode: %s", this.AquariumGoal)
 	this.History.Append(historyTypePrompt, prompt)
-	log.Printf("Aquarium prompt: %s\n", prompt)
 
 	this.aquariumPrompt(prompt)
 }
@@ -893,18 +902,21 @@ func (this *ShellState) AquariumCommandResponse(status int, output string) {
 }
 
 func (this *ShellState) aquariumPrompt(prompt string) {
+	this.setState(statePromptResponse)
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
+
+	sysMsg := fmt.Sprintf(aquariumSystemMessage, this.AquariumGoal)
 
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
 		Prompt:        prompt,
 		Model:         this.Butterfish.Config.ShellPromptModel,
 		MaxTokens:     2048,
-		Temperature:   0.7,
+		Temperature:   0.8,
 		HistoryBlocks: historyBlocks,
-		SystemMessage: aquariumSystemMessage,
+		SystemMessage: sysMsg,
 	}
 
 	// we run this in a goroutine so that we can still receive input
@@ -914,23 +926,29 @@ func (this *ShellState) aquariumPrompt(prompt string) {
 		this.Color.Aquarium, this.Color.Error)
 }
 
-func (this *ShellState) SendPrompt() {
-	this.setState(statePromptResponse)
-
+func (this *ShellState) HandleLocalPrompt() bool {
 	promptStr := strings.ToLower(this.Prompt.String())
 	promptStr = strings.TrimSpace(promptStr)
 
 	switch promptStr {
 	case "status":
 		this.PrintStatus()
-		return
 	case "help":
 		this.PrintHelp()
-		return
 	case "history":
 		this.PrintHistory()
-		return
+	default:
+		return false
 	}
+
+	return true
+}
+
+func (this *ShellState) SendPrompt() {
+	this.setState(statePromptResponse)
+
+	promptStr := strings.ToLower(this.Prompt.String())
+	promptStr = strings.TrimSpace(promptStr)
 
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 512)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
