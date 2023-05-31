@@ -35,7 +35,7 @@ var DarkShellColorScheme = &ShellColorScheme{
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
 	Answer:           "\x1b[38;5;214m",
-	Aquarium:         "\x1b[38;5;51m",
+	GoalMode:         "\x1b[38;5;51m",
 	Error:            "\x1b[38;5;196m",
 }
 
@@ -46,7 +46,7 @@ var LightShellColorScheme = &ShellColorScheme{
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
 	Answer:           "\x1b[38;5;214m",
-	Aquarium:         "\x1b[38;5;18m",
+	GoalMode:         "\x1b[38;5;18m",
 	Error:            "\x1b[38;5;196m",
 }
 
@@ -226,7 +226,7 @@ type ShellColorScheme struct {
 	Command          string
 	Autosuggest      string
 	Answer           string
-	Aquarium         string
+	GoalMode         string
 }
 
 type ShellState struct {
@@ -237,10 +237,10 @@ type ShellState struct {
 
 	// The current state of the shell
 	State                int
-	AquariumMode         bool
-	AquariumBuffer       string
-	AquariumGoal         string
-	AquariumUnsafe       bool
+	GoalMode             bool
+	GoalModeBuffer       string
+	GoalModeGoal         string
+	GoalModeUnsafe       bool
 	PromptSuffixCounter  int
 	ChildOutReader       chan *byteMsg
 	ParentInReader       chan *byteMsg
@@ -450,7 +450,7 @@ func rgbaToColorString(r, g, b, _ uint32) string {
 
 // We expect the input string to end with a line containing "RUN: " followed by
 // the command to run. If no command is found we return ""
-func parseAquariumCommand(input string) string {
+func parseGoalModeCommand(input string) string {
 	if input == "" {
 		return ""
 	}
@@ -525,30 +525,30 @@ func (this *ShellState) Mux() {
 			// Get a new prompt
 			this.ChildIn.Write([]byte("\n"))
 
-			if this.AquariumMode {
+			if this.GoalMode {
 				llmAsk := string(output.Data)
 				if strings.Contains(llmAsk, "GOAL ACHIEVED") {
-					log.Printf("Aquarium mode: goal achieved, exiting")
-					this.AquariumMode = false
+					log.Printf("Goal mode: goal achieved, exiting")
+					this.GoalMode = false
 					this.setState(stateNormal)
 					continue
 				}
 				if strings.Contains(llmAsk, "GOAL FAILED") {
-					log.Printf("Aquarium mode: goal failed, exiting")
-					this.AquariumMode = false
+					log.Printf("Goal mode: goal failed, exiting")
+					this.GoalMode = false
 					this.setState(stateNormal)
 					continue
 				}
 
-				aquariumCmd := parseAquariumCommand(llmAsk)
-				if aquariumCmd != "" {
-					// Execute the given aquarium command on the local shell
-					log.Printf("Aquarium mode: running command: %s", aquariumCmd)
-					this.AquariumBuffer = ""
+				goalModeCmd := parseGoalModeCommand(llmAsk)
+				if goalModeCmd != "" {
+					// Execute the given command on the local shell
+					log.Printf("Goal mode: running command: %s", goalModeCmd)
+					this.GoalModeBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
-					fmt.Fprintf(this.ChildIn, "%s", aquariumCmd)
-					if this.AquariumUnsafe {
+					fmt.Fprintf(this.ChildIn, "%s", goalModeCmd)
+					if this.GoalModeUnsafe {
 						fmt.Fprintf(this.ChildIn, "\n")
 					}
 					continue
@@ -581,8 +581,8 @@ func (this *ShellState) Mux() {
 				continue
 			}
 
-			if this.AquariumMode {
-				this.AquariumBuffer += childOutStr
+			if this.GoalMode {
+				this.GoalModeBuffer += childOutStr
 			}
 
 			// If we're getting child output while typing in a shell command, this
@@ -593,11 +593,11 @@ func (this *ShellState) Mux() {
 			}
 			this.ParentOut.Write([]byte(childOutStr))
 
-			if this.AquariumMode && this.PromptSuffixCounter >= 2 {
+			if this.GoalMode && this.PromptSuffixCounter >= 2 {
 				// move cursor to the beginning of the line and clear the line
 				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
-				this.AquariumCommandResponse(lastStatus, this.AquariumBuffer)
-				this.AquariumBuffer = ""
+				this.GoalModeCommandResponse(lastStatus, this.GoalModeBuffer)
+				this.GoalModeBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
 
@@ -736,9 +736,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			}
 
 			if promptStr[0] == '!' {
-				this.AquariumStart()
-			} else if this.AquariumMode {
-				this.AquariumChat()
+				this.GoalModeStart()
+			} else if this.GoalMode {
+				this.GoalModeChat()
 			} else {
 				this.SendPrompt()
 			}
@@ -820,7 +820,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 // We want to queue up the prompt response, which does the processing (except
 // for actually printing it). The processing like adding to history or
-// executing the next step in aquarium mode. We have to do this in a goroutine
+// executing the next step in goal mode. We have to do this in a goroutine
 // because otherwise we would block the main thread.
 func (this *ShellState) SendPromptResponse(data string) {
 	go func() {
@@ -831,8 +831,8 @@ func (this *ShellState) SendPromptResponse(data string) {
 func (this *ShellState) PrintStatus() {
 	text := fmt.Sprintf("You're using Butterfish Shell\n%s\n\n", this.Butterfish.Config.BuildInfo)
 
-	if this.AquariumMode {
-		text += fmt.Sprintf("You're in Command mode, the goal you've given to the agent is:\n%s\n\n", this.AquariumGoal)
+	if this.GoalMode {
+		text += fmt.Sprintf("You're in Goal mode, the goal you've given to the agent is:\n%s\n\n", this.GoalModeGoal)
 	}
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
@@ -866,7 +866,7 @@ func (this *ShellState) PrintHistory() {
 
 	for _, block := range historyBlocks {
 		// block header
-		strBuilder.WriteString(fmt.Sprintf("%s%s\n", this.Color.Aquarium, HistoryTypeToString(block.Type)))
+		strBuilder.WriteString(fmt.Sprintf("%s%s\n", this.Color.GoalMode, HistoryTypeToString(block.Type)))
 		blockColor := this.Color.Command
 		switch block.Type {
 		case historyTypePrompt:
@@ -885,9 +885,9 @@ func (this *ShellState) PrintHistory() {
 	this.SendPromptResponse("")
 }
 
-const aquariumSystemMessage = `You are an agent helping me achieve the following goal: "%s". You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'.`
+const goalModeSystemMessage = `You are an agent helping me achieve the following goal: "%s". You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'.`
 
-func (this *ShellState) AquariumStart() {
+func (this *ShellState) GoalModeStart() {
 	// Get the prompt after the bang
 	goal := this.Prompt.String()[1:]
 	if goal == "" {
@@ -897,43 +897,43 @@ func (this *ShellState) AquariumStart() {
 	// If the prompt is preceded with two bangs then go to unsafe mode
 	if goal[0] == '!' {
 		goal = goal[1:]
-		this.AquariumUnsafe = true
+		this.GoalModeUnsafe = true
 	} else {
-		this.AquariumUnsafe = false
+		this.GoalModeUnsafe = false
 	}
 
-	this.AquariumMode = true
-	this.AquariumGoal = goal
+	this.GoalMode = true
+	this.GoalModeGoal = goal
 	this.Prompt.Clear()
 
 	prompt := "Start now."
-	log.Printf("Starting Aquarium mode: %s", this.AquariumGoal)
+	log.Printf("Starting goal mode: %s", this.GoalModeGoal)
 	this.History.Append(historyTypePrompt, prompt)
 
-	this.aquariumPrompt(prompt)
+	this.goalModePrompt(prompt)
 }
 
-func (this *ShellState) AquariumChat() {
+func (this *ShellState) GoalModeChat() {
 	prompt := this.Prompt.String()
 	this.Prompt.Clear()
 
-	log.Printf("Aquarium chat: %s\n", prompt)
-	this.aquariumPrompt(prompt)
+	log.Printf("Goal mode chat: %s\n", prompt)
+	this.goalModePrompt(prompt)
 }
 
-func (this *ShellState) AquariumCommandResponse(status int, output string) {
-	log.Printf("Aquarium response: %d\n", status)
+func (this *ShellState) GoalModeCommandResponse(status int, output string) {
+	log.Printf("Goal mode response: %d\n", status)
 	prompt := fmt.Sprintf("%s\nExit code: %d\n", output, status)
-	this.aquariumPrompt(prompt)
+	this.goalModePrompt(prompt)
 }
 
-func (this *ShellState) aquariumPrompt(prompt string) {
+func (this *ShellState) goalModePrompt(prompt string) {
 	this.setState(statePromptResponse)
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg := fmt.Sprintf(aquariumSystemMessage, this.AquariumGoal)
+	sysMsg := fmt.Sprintf(goalModeSystemMessage, this.GoalModeGoal)
 
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
@@ -949,7 +949,7 @@ func (this *ShellState) aquariumPrompt(prompt string) {
 	// like Ctrl-C while waiting for the response
 	go CompletionRoutine(request, this.Butterfish.LLMClient,
 		this.PromptAnswerWriter, this.PromptOutputChan,
-		this.Color.Aquarium, this.Color.Error)
+		this.Color.GoalMode, this.Color.Error)
 }
 
 func (this *ShellState) HandleLocalPrompt() bool {
