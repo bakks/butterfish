@@ -872,28 +872,10 @@ func (this *ShellState) AquariumStart() {
 	log.Printf("Starting Aquarium mode: %s", prompt)
 	this.Prompt.Clear()
 
-	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
-	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	this.PromptResponseCancel = cancel
-
-	request := &util.CompletionRequest{
-		Ctx:           requestCtx,
-		Prompt:        prompt,
-		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     2048,
-		Temperature:   0.7,
-		HistoryBlocks: historyBlocks,
-		SystemMessage: aquariumSystemMessage,
-	}
-
 	this.History.Append(historyTypePrompt, prompt)
 	log.Printf("Aquarium prompt: %s\n", prompt)
 
-	// we run this in a goroutine so that we can still receive input
-	// like Ctrl-C while waiting for the response
-	go CompletionRoutine(request, this.Butterfish.LLMClient,
-		this.PromptAnswerWriter, this.PromptOutputChan,
-		this.Color.Aquarium, this.Color.Error)
+	this.aquariumPrompt(prompt)
 }
 
 func (this *ShellState) AquariumChat() {
@@ -901,34 +883,19 @@ func (this *ShellState) AquariumChat() {
 	this.Prompt.Clear()
 
 	log.Printf("Aquarium chat: %s\n", prompt)
-	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
-	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	this.PromptResponseCancel = cancel
-
-	request := &util.CompletionRequest{
-		Ctx:           requestCtx,
-		Prompt:        prompt,
-		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     2048,
-		Temperature:   0.7,
-		HistoryBlocks: historyBlocks,
-		SystemMessage: aquariumSystemMessage,
-	}
-
-	// we run this in a goroutine so that we can still receive input
-	// like Ctrl-C while waiting for the response
-	go CompletionRoutine(request, this.Butterfish.LLMClient,
-		this.PromptAnswerWriter, this.PromptOutputChan,
-		this.Color.Aquarium, this.Color.Error)
+	this.aquariumPrompt(prompt)
 }
 
 func (this *ShellState) AquariumCommandResponse(status int, output string) {
 	log.Printf("Aquarium response: %d\n", status)
+	prompt := fmt.Sprintf("%s\nExit code: %d\n", output, status)
+	this.aquariumPrompt(prompt)
+}
+
+func (this *ShellState) aquariumPrompt(prompt string) {
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
-
-	prompt := fmt.Sprintf("%s\nExit code: %d\n", output, status)
 
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
