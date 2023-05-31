@@ -74,6 +74,22 @@ const (
 	historyTypeLLMOutput
 )
 
+// Turn history type enum to a string
+func HistoryTypeToString(historyType int) string {
+	switch historyType {
+	case historyTypePrompt:
+		return "Prompt"
+	case historyTypeShellInput:
+		return "Shell Input"
+	case historyTypeShellOutput:
+		return "Shell Output"
+	case historyTypeLLMOutput:
+		return "LLM Output"
+	default:
+		return "Unknown"
+	}
+}
+
 type HistoryBuffer struct {
 	Type    int
 	Content *ShellBuffer
@@ -93,7 +109,7 @@ func NewShellHistory() *ShellHistory {
 	}
 }
 
-func (this *ShellHistory) Add(historyType int, block string) {
+func (this *ShellHistory) add(historyType int, block string) {
 	buffer := NewShellBuffer()
 	buffer.Write(block)
 	this.Blocks = append(this.Blocks, HistoryBuffer{
@@ -103,30 +119,34 @@ func (this *ShellHistory) Add(historyType int, block string) {
 }
 
 func (this *ShellHistory) Append(historyType int, data string) {
-	length := len(this.Blocks)
+	// if data is empty, we don't want to add a new block
+	if len(data) == 0 {
+		return
+	}
+
+	numBlocks := len(this.Blocks)
 	// if we have a block already, and it matches the type, append to it
-	if length > 0 {
-		lastBlock := this.Blocks[len(this.Blocks)-1]
+	if numBlocks > 0 {
+		lastBlock := this.Blocks[numBlocks-1]
 
 		if lastBlock.Type == historyType {
-			this.Blocks[length-1].Content.Write(data)
+			lastBlock.Content.Write(data)
 			return
 		}
 	}
 
 	// if the history type doesn't match we fall through and add a new block
-	this.Add(historyType, data)
+	this.add(historyType, data)
 }
 
 func (this *ShellHistory) NewBlock() {
 	length := len(this.Blocks)
 	if length > 0 {
-		this.Add(this.Blocks[length-1].Type, "")
+		this.add(this.Blocks[length-1].Type, "")
 	}
 }
 
 // Go back in history for a certain number of bytes.
-// This truncates each block content to a maximum of 512 bytes.
 func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util.HistoryBlock {
 	var blocks []util.HistoryBlock
 
@@ -158,17 +178,11 @@ func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util
 func (this *ShellHistory) LogRecentHistory() {
 	blocks := this.GetLastNBytes(2000, 512)
 	log.Printf("Recent history: =======================================")
+	builder := strings.Builder{}
 	for _, block := range blocks {
-		if block.Type == historyTypePrompt {
-			log.Printf("Prompt: %s", block.Content)
-		} else if block.Type == historyTypeShellInput {
-			log.Printf("Shell input: %s", block.Content)
-		} else if block.Type == historyTypeShellOutput {
-			log.Printf("Shell output: %s", block.Content)
-		} else if block.Type == historyTypeLLMOutput {
-			log.Printf("LLM output: %s", block.Content)
-		}
+		builder.WriteString(fmt.Sprintf("%s: %s\n", HistoryTypeToString(block.Type), block.Content))
 	}
+	log.Printf(builder.String())
 	log.Printf("=======================================")
 }
 
@@ -432,17 +446,18 @@ func rgbaToColorString(r, g, b, _ uint32) string {
 // We expect the input string to end with a line containing "RUN: " followed by
 // the command to run. If no command is found we return ""
 func parseAquariumCommand(input string) string {
+	if input == "" {
+		return ""
+	}
 	lines := strings.Split(input, "\n")
-	if len(lines) < 1 {
-		return ""
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "RUN: ") {
+			return strings.TrimPrefix(line, "RUN: ")
+		}
 	}
 
-	lastLine := lines[len(lines)-1]
-	if !strings.HasPrefix(lastLine, "RUN: ") {
-		return ""
-	}
-
-	return lastLine[5:]
+	return ""
 }
 
 // TODO add a diagram of streams here
@@ -493,7 +508,7 @@ func (this *ShellState) Mux() {
 
 		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
-			this.History.Add(historyTypeLLMOutput, string(output.Data))
+			this.History.Append(historyTypeLLMOutput, string(output.Data))
 
 			// If there is child output waiting to be printed, print that now
 			if len(childOutBuffer) > 0 {
@@ -527,10 +542,11 @@ func (this *ShellState) Mux() {
 					this.AquariumBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
-					fmt.Fprintf(this.ChildIn, "%s", aquariumCmd)
-					fmt.Fprintf(this.ChildIn, "\n")
+					fmt.Fprintf(this.ChildIn, "%s\n", aquariumCmd)
 					continue
 				}
+
+				this.PromptSuffixCounter = -10000
 			}
 
 			this.RequestAutosuggest(0, "")
@@ -572,7 +588,7 @@ func (this *ShellState) Mux() {
 			if this.AquariumMode && this.PromptSuffixCounter >= 2 {
 				// move cursor to the beginning of the line and clear the line
 				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
-				this.RespondAquarium(lastStatus, this.AquariumBuffer)
+				this.AquariumCommandResponse(lastStatus, this.AquariumBuffer)
 				this.AquariumBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
@@ -686,7 +702,6 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				// some control character
 				this.RefreshAutosuggest(data, this.Command, this.Color.Command)
 				this.setState(stateShell)
-				this.History.NewBlock()
 			} else {
 				this.ClearAutosuggest(this.Color.Command)
 			}
@@ -708,7 +723,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 			promptStr := this.Prompt.String()
 			if promptStr[0] == '!' {
-				this.StartAquarium()
+				this.AquariumStart()
+			} else if this.AquariumMode {
+				this.AquariumChat()
 			} else {
 				this.SendPrompt()
 			}
@@ -750,8 +767,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 			index := bytes.Index(data, []byte{'\r'})
 			this.ChildIn.Write(data[:index+1])
+			this.History.Append(historyTypeShellInput, this.Command.String())
 			this.Command = NewShellBuffer()
-			this.History.NewBlock()
 
 			return data[index+1:]
 
@@ -811,16 +828,42 @@ func (this *ShellState) PrintHelp() {
 	- Type a normal command, like "ls -l" and press enter to execute it
 	- Start a command with a capital letter to send it to GPT, like "How do I find local .py files?"
 	- Autosuggest will print command completions, press tab to fill them in
-	- Type "Status" to show the current Butterfish configuration
 	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
+	- Type "Status" to show the current Butterfish configuration
+	- Type "History" to show the recent history that will be sent to GPT
 `
 	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.Color.Answer, text, this.Color.Command)
 	this.SendPromptResponse(text)
 }
 
-const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will then give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved. When finished, respond with simply GOAL ACHIEVED, unless the goal is impossible, in which case respond with GOAL FAILED."
+func (this *ShellState) PrintHistory() {
+	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
+	strBuilder := strings.Builder{}
 
-func (this *ShellState) StartAquarium() {
+	for _, block := range historyBlocks {
+		// block header
+		strBuilder.WriteString(fmt.Sprintf("%s%s\n", this.Color.Aquarium, HistoryTypeToString(block.Type)))
+		blockColor := this.Color.Command
+		switch block.Type {
+		case historyTypePrompt:
+			blockColor = this.Color.Prompt
+		case historyTypeLLMOutput:
+			blockColor = this.Color.Answer
+		case historyTypeShellInput:
+			blockColor = this.Color.PromptAction
+		}
+
+		strBuilder.WriteString(fmt.Sprintf("%s%s\n", blockColor, block.Content))
+	}
+
+	this.History.LogRecentHistory()
+	fmt.Fprintf(this.PromptAnswerWriter, "%s%s", strBuilder.String(), this.Color.Command)
+	this.SendPromptResponse("")
+}
+
+const aquariumSystemMessage = "You are an agent attempting to achieve a goal in Aquarium mode. In Aquarium mode, I will give you a goal, and you will give me unix commands to execute. If a command is given, it should be on the final line and preceded with 'RUN: '. I will give you the results of the command. If we haven't reached our goal, you will then continue to give me commands to execute to reach that goal. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved. When finished, respond with exactly 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'."
+
+func (this *ShellState) AquariumStart() {
 	this.AquariumMode = true
 
 	// Get the prompt after the bang
@@ -843,7 +886,7 @@ func (this *ShellState) StartAquarium() {
 		SystemMessage: aquariumSystemMessage,
 	}
 
-	this.History.Add(historyTypePrompt, prompt)
+	this.History.Append(historyTypePrompt, prompt)
 	log.Printf("Aquarium prompt: %s\n", prompt)
 
 	// we run this in a goroutine so that we can still receive input
@@ -853,7 +896,33 @@ func (this *ShellState) StartAquarium() {
 		this.Color.Aquarium, this.Color.Error)
 }
 
-func (this *ShellState) RespondAquarium(status int, output string) {
+func (this *ShellState) AquariumChat() {
+	prompt := this.Prompt.String()
+	this.Prompt.Clear()
+
+	log.Printf("Aquarium chat: %s\n", prompt)
+	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
+	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	this.PromptResponseCancel = cancel
+
+	request := &util.CompletionRequest{
+		Ctx:           requestCtx,
+		Prompt:        prompt,
+		Model:         this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:     2048,
+		Temperature:   0.7,
+		HistoryBlocks: historyBlocks,
+		SystemMessage: aquariumSystemMessage,
+	}
+
+	// we run this in a goroutine so that we can still receive input
+	// like Ctrl-C while waiting for the response
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.PromptAnswerWriter, this.PromptOutputChan,
+		this.Color.Aquarium, this.Color.Error)
+}
+
+func (this *ShellState) AquariumCommandResponse(status int, output string) {
 	log.Printf("Aquarium response: %d\n", status)
 	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow, 2048)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -884,12 +953,15 @@ func (this *ShellState) SendPrompt() {
 	promptStr := strings.ToLower(this.Prompt.String())
 	promptStr = strings.TrimSpace(promptStr)
 
-	if promptStr == "status" {
+	switch promptStr {
+	case "status":
 		this.PrintStatus()
 		return
-	}
-	if promptStr == "help" {
+	case "help":
 		this.PrintHelp()
+		return
+	case "history":
+		this.PrintHistory()
 		return
 	}
 
@@ -914,7 +986,7 @@ func (this *ShellState) SendPrompt() {
 		SystemMessage: sysMsg,
 	}
 
-	this.History.Add(historyTypePrompt, this.Prompt.String())
+	this.History.Append(historyTypePrompt, this.Prompt.String())
 
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
