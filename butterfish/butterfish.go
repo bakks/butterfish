@@ -63,19 +63,19 @@ type ButterfishConfig struct {
 	PromptLibrary PromptLibrary
 
 	// Shell mode configuration
-	ShellMode                bool
-	ShellPluginMode          bool
-	ShellColorDark           bool
-	ShellBinary              string // path to the shell binary to use, e.g. /bin/zsh
-	ShellPromptModel         string // used when the user enters an explicit prompt
-	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
-	ShellCommandPrompt       string // replace the default command prompt (eg >) with this
-	ShellAutosuggestEnabled  bool   // whether to use autosuggest
-	ShellAutosuggestModel    string // used when we're autocompleting a command
+	ShellMode               bool
+	ShellPluginMode         bool
+	ShellColorDark          bool
+	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
+	ShellPromptModel        string // used when the user enters an explicit prompt
+	ShellCommandPrompt      string // replace the default command prompt (eg >) with this
+	ShellAutosuggestEnabled bool   // whether to use autosuggest
+	ShellAutosuggestModel   string // used when we're autocompleting a command
 	// how long to wait between when the user stos typing and we ask for an
 	// autosuggest
-	ShellAutosuggestTimeout       time.Duration
-	ShellAutosuggestHistoryWindow int // how many bytes of history to include when autosuggesting
+	ShellAutosuggestTimeout time.Duration
+	// Maximum tokens that a single history line-item can consume
+	ShellMaxHistoryBlockTokens int
 
 	// Model, temp, and max tokens to use when executing the `gencmd` command
 	GencmdModel       string

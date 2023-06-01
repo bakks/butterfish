@@ -47,16 +47,15 @@ type CliConfig struct {
 	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
 
 	Shell struct {
-		Bin                      string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		PromptModel              string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
-		PromptHistoryWindow      int    `short:"w" default:"3000" help:"Number of bytes of history to include when prompting."`
-		AutosuggestDisabled      bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel         string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
-		AutosuggestTimeout       int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
-		AutosuggestHistoryWindow int    `short:"W" default:"3000" help:"Number of bytes of history to include when autosuggesting."`
+		Bin                 string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
+		PromptModel         string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
+		AutosuggestDisabled bool   `short:"A" default:"false" help:"Disable autosuggest."`
+		AutosuggestModel    string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
+		AutosuggestTimeout  int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
 		//Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
-		CommandPrompt string `short:"p" default:"🐠 " help:"Command prompt replacement, set to '' for no replacement"`
-		LightColor    bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+		CommandPrompt         string `short:"p" default:"🐠 " help:"Command prompt replacement, set to '' for no replacement"`
+		LightColor            bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+		MaxHistoryBlockTokens int    `short:"h" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
 
 Use:
@@ -227,15 +226,14 @@ func main() {
 
 		config.ShellBinary = shell
 		config.ShellPromptModel = cli.Shell.PromptModel
-		config.ShellPromptHistoryWindow = cli.Shell.PromptHistoryWindow
 		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
-		config.ShellAutosuggestHistoryWindow = cli.Shell.AutosuggestHistoryWindow
 		config.ShellColorDark = !cli.Shell.LightColor
 		config.ShellMode = true
 		//config.ShellPluginMode = cli.Shell.Plugin
 		config.ShellCommandPrompt = cli.Shell.CommandPrompt
+		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
 
 		bf.RunShell(ctx, config)
 
