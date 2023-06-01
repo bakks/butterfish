@@ -11,6 +11,7 @@ const (
 	PromptShellAutosuggestNewCommand = "shell_autocomplete_new_command"
 	PromptShellAutosuggestPrompt     = "shell_autocomplete_prompt"
 	PromptShellSystemMessage         = "shell_system_message"
+	GoalModeSystemMessage            = "goal_mode_system_message"
 )
 
 // These are the default prompts used for Butterfish, they will be written
@@ -22,6 +23,12 @@ var DefaultPrompts []Prompt = []Prompt{
 	{
 		Name:        PromptShellSystemMessage,
 		Prompt:      "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and examples but keep your answers succinct.",
+		OkToReplace: true,
+	},
+
+	{
+		Name:        GoalModeSystemMessage,
+		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'.",
 		OkToReplace: true,
 	},
 

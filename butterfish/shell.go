@@ -922,8 +922,6 @@ func (this *ShellState) PrintHistory() {
 	this.SendPromptResponse("")
 }
 
-const goalModeSystemMessage = `You are an agent helping me achieve the following goal: "%s". You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. If you don't have a goal respond with 'GOAL ACHIEVED'.`
-
 func (this *ShellState) GoalModeStart() {
 	// Get the prompt after the bang
 	goal := this.Prompt.String()[1:]
@@ -964,14 +962,21 @@ func (this *ShellState) GoalModeCommandResponse(status int, output string) {
 	this.goalModePrompt(prompt)
 }
 
-func (this *ShellState) goalModePrompt(prompt string) {
+func (this *ShellState) goalModePrompt(lastPrompt string) {
 	this.setState(statePromptResponse)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg := fmt.Sprintf(goalModeSystemMessage, this.GoalModeGoal)
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.GoalModeSystemMessage,
+		"goal", this.GoalModeGoal)
+	if err != nil {
+		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
+		log.Println(msg)
+		this.PrintError(msg)
+		return
+	}
 
-	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg)
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg)
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -979,7 +984,7 @@ func (this *ShellState) goalModePrompt(prompt string) {
 
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
-		Prompt:        prompt,
+		Prompt:        lastPrompt,
 		Model:         this.Butterfish.Config.ShellPromptModel,
 		MaxTokens:     2048,
 		Temperature:   0.8,
@@ -1140,8 +1145,9 @@ func (this *ShellState) SendPrompt() {
 
 	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellSystemMessage)
 	if err != nil {
-		log.Printf("Error getting system message prompt: %s", err)
-		this.setState(stateNormal)
+		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
+		log.Println(msg)
+		this.PrintError(msg)
 		return
 	}
 
