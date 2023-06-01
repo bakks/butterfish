@@ -327,12 +327,16 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 
 // Special characters that we wrap the shell's command prompt in (PS1) so
 // that we can detect where it starts and ends.
-const promptPrefix = "\033Q"
-const promptSuffix = "\033R"
-const promptPrefixEscaped = "\\033Q"
-const promptSuffixEscaped = "\\033R"
+const PROMPT_PREFIX = "\033Q"
+const PROMPT_SUFFIX = "\033R"
+const PROMPT_PREFIX_ESCAPED = "\\033Q"
+const PROMPT_SUFFIX_ESCAPED = "\\033R"
+const EMOJI_DEFAULT = "🐠"
+const EMOJI_GOAL = "🟦"
+const EMOJI_GOAL_UNSAFE = "🟥"
 
-var ps1Regex = regexp.MustCompile(" ([0-9]+)" + promptSuffix)
+var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
+var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
 
 // This sets the PS1 shell variable, which is the prompt that the shell
 // displays before each command.
@@ -348,21 +352,26 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 	case "bash", "sh":
 		// the \[ and \] are bash-specific and tell bash to not count the enclosed
 		// characters when calculating the cursor position
-		ps1 = "PS1=$'\\[%s\\]'$PS1$'%s\\[ $?%s\\]'\n"
+		ps1 = "PS1=$'\\[%s\\]'$PS1$'%s\\[ $?%s\\] '\n"
 	case "zsh":
 		// the %%{ and %%} are zsh-specific and tell zsh to not count the enclosed
 		// characters when calculating the cursor position
-		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%}'\n"
+		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%} '\n"
 	default:
 		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for centain features. Create an issue at https://github.com/bakks/butterfish.", shell)
 		return
 	}
 
+	promptIcon := ""
+	if !this.Config.ShellLeavePromptAlone {
+		promptIcon = EMOJI_DEFAULT
+	}
+
 	fmt.Fprintf(childIn,
 		ps1,
-		promptPrefixEscaped,
-		this.Config.ShellCommandPrompt,
-		promptSuffixEscaped)
+		PROMPT_PREFIX_ESCAPED,
+		promptIcon,
+		PROMPT_SUFFIX_ESCAPED)
 }
 
 // Given a string of terminal output, identify terminal prompts based on the
@@ -372,8 +381,13 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 //   previous command failed.
 // - The number of prompts identified in the string.
 // - The string with the special prompt escape sequences removed.
-func ParsePS1(data string) (int, int, string) {
-	matches := ps1Regex.FindAllStringSubmatch(data, -1)
+func ParsePS1(data string, regex *regexp.Regexp, currIcon string) (int, int, string) {
+	matches := regex.FindAllStringSubmatch(data, -1)
+
+	if len(matches) == 0 {
+		return 0, 0, data
+	}
+
 	lastStatus := 0
 	prompts := 0
 
@@ -385,12 +399,33 @@ func ParsePS1(data string) (int, int, string) {
 		}
 		prompts++
 	}
+
 	// Remove matches of suffix
-	cleaned := ps1Regex.ReplaceAllString(data, "")
+	cleaned := regex.ReplaceAllString(data, currIcon)
 	// Remove the prefix
-	cleaned = strings.ReplaceAll(cleaned, promptPrefix, "")
+	cleaned = strings.ReplaceAll(cleaned, PROMPT_PREFIX, "")
 
 	return lastStatus, prompts, cleaned
+}
+
+func (this *ShellState) ParsePS1(data string) (int, int, string) {
+	var regex *regexp.Regexp
+	if this.Butterfish.Config.ShellLeavePromptAlone {
+		regex = ps1Regex
+	} else {
+		regex = ps1FullRegex
+	}
+
+	currIcon := EMOJI_DEFAULT
+	if this.GoalMode {
+		if this.GoalModeUnsafe {
+			currIcon = EMOJI_GOAL_UNSAFE
+		} else {
+			currIcon = EMOJI_GOAL
+		}
+	}
+
+	return ParsePS1(data, regex, currIcon)
 }
 
 func (this *ButterfishCtx) ShellMultiplexer(
@@ -604,7 +639,7 @@ func (this *ShellState) Mux() {
 
 			//log.Printf("Got child output:\n%s", prettyHex(childOutMsg.Data))
 
-			lastStatus, prompts, childOutStr := ParsePS1(string(childOutMsg.Data))
+			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
 			//			if prompts != 0 {
 			//				log.Printf("Child exited with status %d", lastStatus)
 			//			}
@@ -872,7 +907,6 @@ func (this *ShellState) PrintStatus() {
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
 	text += fmt.Sprintf("Prompt history window: %d tokens\n", this.PromptMaxTokens)
-	text += fmt.Sprintf("Command prompt:        %s\n", this.Butterfish.Config.ShellCommandPrompt)
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)

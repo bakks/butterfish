@@ -53,9 +53,9 @@ type CliConfig struct {
 		AutosuggestModel    string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
 		AutosuggestTimeout  int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
 		//Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
-		CommandPrompt         string `short:"p" default:"🐠 " help:"Command prompt replacement, set to \"\" for no replacement"`
-		LightColor            bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
-		MaxHistoryBlockTokens int    `short:"h" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
+		NoCommandPrompt       bool `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
+		LightColor            bool `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+		MaxHistoryBlockTokens int  `short:"h" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
 
 Use:
@@ -234,7 +234,7 @@ func main() {
 		config.ShellColorDark = !cli.Shell.LightColor
 		config.ShellMode = true
 		//config.ShellPluginMode = cli.Shell.Plugin
-		config.ShellCommandPrompt = cli.Shell.CommandPrompt
+		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
 
 		bf.RunShell(ctx, config)

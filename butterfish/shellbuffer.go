@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 )
 
 // This holds a buffer that represents a tty shell buffer. Incoming data
@@ -72,7 +71,6 @@ func (this *ShellBuffer) Write(data string) []byte {
 			switch runes[i+2] {
 			case 0x41, 0x42:
 				// up or down arrow, ignore these because they will break the editing line
-				log.Printf("Ignoring up/down arrow")
 				i += 2
 				continue
 

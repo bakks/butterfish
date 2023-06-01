@@ -68,7 +68,7 @@ type ButterfishConfig struct {
 	ShellColorDark          bool
 	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
 	ShellPromptModel        string // used when the user enters an explicit prompt
-	ShellCommandPrompt      string // replace the default command prompt (eg >) with this
+	ShellLeavePromptAlone   bool   // don't try to edit the shell prompt
 	ShellAutosuggestEnabled bool   // whether to use autosuggest
 	ShellAutosuggestModel   string // used when we're autocompleting a command
 	// how long to wait between when the user stos typing and we ask for an
