@@ -599,12 +599,14 @@ func (this *ShellState) Mux() {
 				llmAsk := string(output.Data)
 				if strings.Contains(llmAsk, "GOAL ACHIEVED") {
 					log.Printf("Goal mode: goal achieved, exiting")
+					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
 					this.GoalMode = false
 					this.setState(stateNormal)
 					continue
 				}
 				if strings.Contains(llmAsk, "GOAL FAILED") {
 					log.Printf("Goal mode: goal failed, exiting")
+					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
 					this.GoalMode = false
 					this.setState(stateNormal)
 					continue
@@ -733,6 +735,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			// so just forward the input.
 			this.ChildIn.Write(data)
 			return nil
+		}
+
+		if data[0] == 0x03 && this.GoalMode {
+			// Ctrl-C while in goal mode
+			fmt.Fprintf(this.PromptAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
+			this.GoalMode = false
+			this.setState(stateNormal)
 		}
 
 		// Check if the first character is uppercase or a bang
@@ -972,6 +981,7 @@ func (this *ShellState) GoalModeStart() {
 	}
 
 	this.GoalMode = true
+	fmt.Fprintf(this.PromptAnswerWriter, "%sGoal mode starting...%s\n", this.Color.Answer, this.Color.Command)
 	this.GoalModeGoal = goal
 	this.Prompt.Clear()
 
