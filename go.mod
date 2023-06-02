@@ -16,7 +16,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/muesli/reflow v0.3.0
-	github.com/pkoukk/tiktoken-go v0.1.1-0.20230418101013-cae809389480
+	github.com/pkoukk/tiktoken-go v0.1.2
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/afero v1.9.5
 	github.com/stretchr/testify v1.8.2
@@ -50,5 +50,3 @@ require (
 	google.golang.org/genproto v0.0.0-20230320184635-7606e756e683 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/pkoukk/tiktoken-go => github.com/bakks/tiktoken-go v0.1.1-optimized-1
