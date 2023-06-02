@@ -4,10 +4,9 @@
 
 An open-source way to embed OpenAI ChatGPT in your terminal shell without having to invoke it every time. It's easily accessible and can see your shell history.
 
-|=======|=======|
-|MacOS|Linux/MacOS|
-|`brew install bakks/bakks/butterfish && butterfish shell`|`go install github.com/bakks/butterfish/cmd/butterfish@latest && $(go env GOPATH)/bin/butterfish shell`|
-|======|=======|
+| MacOS                                                     | Linux/MacOS                                                                                             |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `brew install bakks/bakks/butterfish && butterfish shell` | `go install github.com/bakks/butterfish/cmd/butterfish@latest && $(go env GOPATH)/bin/butterfish shell` |
 
 Once you're in Butterfish shell, talk to ChatGPT by starting a command with a _Capital Letter_. This uses your own OpenAI account directly.
 
