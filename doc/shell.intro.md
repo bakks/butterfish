@@ -22,14 +22,16 @@ I'm using Butterfish Shell for myself constantly, it might be useful for you so 
 
 ### Features
 
-**Integrates well with your existing shell, probably**
+#### Integrates well with your existing shell, probably
+
 When you run `butterfish shell`, it starts a new instance of your shell, which is probably `bash` or `zsh`. `zsh` is the default on MacOS. If you've customized your shell it shouldn't interfere with that.
 
 Butterfish Shell then sits in front of your shell and does useful things.
 
 It doesn't work with the Windows shell, I probably won't implement that -- for certain technical reasons, that's complicated. I haven't tried `fish` or other more esoteric shells.
 
-**Start a prompt with a Capital Letter**
+#### Start a prompt with a Capital Letter
+
 Within Butterfish Shell you can send a ChatGPT prompt by just starting a command with a capital letter, for example:
 
 ```
@@ -38,7 +40,8 @@ Within Butterfish Shell you can send a ChatGPT prompt by just starting a command
 
 Butterfish Shell is intercepting this and then sending the prompt to ChatGPT.
 
-**Manages your shell and prompting history**
+#### Manages your shell and prompting history
+
 One of the reasons ChatGPT is so useful is you can carry on a conversation. If the last answer wasn't good, you can ask to tweak it.
 
 Butterfish Shell gives you the same capability, but _also_ injects your shell history into the chat. Example:
@@ -54,7 +57,8 @@ find . -name "*.go"
 
 So when you talk with ChatGPT, the past questions/answers and the shell output itself is included in the context.
 
-**Gives you GPT autosuggest**
+#### Gives you GPT autosuggest
+
 This is like Github Copilot, but in your terminal shell. Butterfish Shell will autosuggest commands which you can apply with <kbd>Tab</kbd>.
 
 Like prompting, autosuggest context includes your recent history, so if ChatGPT suggested a command to you, it will likely autosuggest that to run next!
@@ -64,7 +68,8 @@ Most layers on top of ChatGPT add some language around what you type in to help 
 
 A goal here is to give you control over that language. To that end, the prompt wrappers are visible and editable: they're kept in `~/.config/butterfish/prompts.yaml`.
 
-**Select your own model**
+#### Select your own model
+
 Butterfish shell defaults to `gpt-3.5-turbo`, but if you have access to `gpt-4` you can use that as well with:
 
 ```
@@ -73,7 +78,8 @@ Butterfish shell defaults to `gpt-3.5-turbo`, but if you have access to `gpt-4` 
 
 It also works with the 32k context window GPT-4 model.
 
-**Goal mode**
+#### Goal mode
+
 This is where things get really experimental, wacky, and potentially dangerous. Butterfish Shell has a feature called Goal Mode, which allows ChatGPT to execute commands on it's own to reach a goal. It will give you commands which you execute, and then the results are passed back to ChatGPT. Start a command with `!` to engage this mode. Start a command with `!!` to let it execute commands without confirmation.
 
 ```
