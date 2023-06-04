@@ -106,7 +106,7 @@ Goal Mode is pretty hit or miss. Good luck!
 
 #### What does an API request look like?
 
-<img src="https://github.com/bakks/butterfish/raw/plugin/assets/api.example.png" alt="Butterfish" width="400px" />
+<img src="https://github.com/bakks/butterfish/raw/plugin/assets/shell.api.example.png" alt="Butterfish" width="400px" />
 
 The [OpenAI ChatGPT API](https://platform.openai.com/docs/api-reference/chat) expects you to submit a "history" of the conversation up to the current prompt. There are 3 kinds of messages in a history:
 
