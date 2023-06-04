@@ -95,7 +95,7 @@ Goal Mode is pretty hit or miss. Good luck!
 
 #### How does Butterfish Shell work?
 
-<img src="https://github.com/bakks/butterfish/raw/main/assets/shell.architecture.png" alt="Butterfish" width="500px" />
+<img src="https://github.com/bakks/butterfish/raw/plugin/assets/shell.architecture.png" alt="Butterfish" width="500px" />
 
 -   When you run `butterfish shell` in your terminal it starts an instance of your shell (e.g. `/bin/zsh`), then intercepts the shell's input and output. This is why we call it a "shell wrapper".
 -   Keyboard input and shell output are buffered in Butterfish's in-memory history.
@@ -106,7 +106,7 @@ Goal Mode is pretty hit or miss. Good luck!
 
 #### What does an API request look like?
 
-<img src="https://github.com/bakks/butterfish/raw/main/assets/api.example.png" alt="Butterfish" width="400px" />
+<img src="https://github.com/bakks/butterfish/raw/plugin/assets/api.example.png" alt="Butterfish" width="400px" />
 
 The [OpenAI ChatGPT API](https://platform.openai.com/docs/api-reference/chat) expects you to submit a "history" of the conversation up to the current prompt. There are 3 kinds of messages in a history:
 
@@ -148,4 +148,4 @@ Project goals:
 
 This is an experimental tool, I'm eager for feedback. Submit issues, pull requests, etc.!
 
-Above all, I hope this will be useful for you.
+Above all, I hope you will find this tool useful.
