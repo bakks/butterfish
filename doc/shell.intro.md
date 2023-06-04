@@ -10,6 +10,7 @@ Butterfish Shell is an open-source way to embed OpenAI ChatGPT in your terminal 
 
 Once you're in Butterfish shell, talk to ChatGPT by starting a command with a _Capital Letter_. This uses your own OpenAI account directly. The code is open source and available at [github.com/bakks/butterfish](https://github.com/bakks/butterfish).
 
+Here's Butterfish Shell in action:
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell.gif" alt="Butterfish" width="500px" height="250px" />
 
 ## The Long Answer
@@ -18,7 +19,7 @@ If you work with software you likely spend _some_ time in a terminal shell, it's
 
 I've been experimenting with using LLMs (like ChatGPT) for command line support, for example to suggest a command or summarize a file. But it feels clunky run something like `llm 'answer this question'` every time. And it should be able to see the history, I don't want to copy/paste stuff!
 
-Here's my solution: put a transparent layer around the terminal shell that communicates with ChatGPT. This merges the command line with the ChatGPT conversation - you do normal command line stuff and the AI can see the shell output, and you can prompt the AI at any time within the shell. Also, autosuggest works well. This feels like the right way to do a ChatGPT CLI: the AI is always there, it feels like magic.
+Here's my solution: put a transparent layer around the terminal shell that communicates with ChatGPT. This merges the command line with the ChatGPT conversation - you do normal command line stuff, the AI can see the shell output, and you can prompt the AI any time. Also, autosuggest works well. This feels like the right way to do a ChatGPT CLI: the AI is always there, it feels like magic.
 
 What can you use it for? Some example prompts:
 
