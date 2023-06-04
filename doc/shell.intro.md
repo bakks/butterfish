@@ -14,13 +14,22 @@ Once you're in Butterfish shell, talk to ChatGPT by starting a command with a _C
 
 ## The Long Answer
 
-If you work with software you likely spend _some_ time in a terminal shell. The terminal is a direct window into your machine, and feels both powerful and tedious. You can do almost anything directly from the command line, as long as you correctly summon arcane unix commands.
+If you work with software you likely spend _some_ time in a terminal shell, it's a simple, powerful, tedious window into your computer. You can do almost anything directly from the command line as long as you correctly summon arcane unix commands.
 
-I've been experimenting with getting LLMs (like ChatGPT) to help you with the command line, for example to suggest a command or summarize a file. But it feels clunky run something like `llm 'answer this question'` every time. And it should be able to see the history, I don't want to copy/paste stuff!
+I've been experimenting with using LLMs (like ChatGPT) for command line support, for example to suggest a command or summarize a file. But it feels clunky run something like `llm 'answer this question'` every time. And it should be able to see the history, I don't want to copy/paste stuff!
 
-Here's my solution: put a transparent layer around the terminal shell that communicates with ChatGPT. You can prompt ChatGPT at any time, the anwsers include the right context, and you can do autosuggest at this layer, among other things. This feels like the right way to do a ChatGPT CLI: the AI is always there, it feels like magic.
+Here's my solution: put a transparent layer around the terminal shell that communicates with ChatGPT. This merges the command line with the ChatGPT conversation - you do normal command line stuff and the AI can see the shell output, and you can prompt the AI at any time within the shell. Also, autosuggest works well. This feels like the right way to do a ChatGPT CLI: the AI is always there, it feels like magic.
 
-I'm using Butterfish Shell for myself constantly, it might be useful for you so please try it and send feedback! This document is here to give you a mental model of what and why Butterfish Shell is.
+What can you use it for? Some example prompts:
+
+-   Give me a command to do xxxx
+-   Why did that command fail?
+-   Summarize the file I just printed
+-   What does that error code mean?
+-   Give me a Golang hello world program
+-   Give me a pasta recipe (this serves as a generic ChatGPT interface!)
+
+I'm using Butterfish Shell for myself constantly, hopefully it's useful for you as well. Try it and send feedback! This document is here to give you a mental model of what you can do with it and how it works.
 
 ### Features
 
@@ -30,14 +39,14 @@ When you run `butterfish shell`, it starts a new instance of your shell, which i
 
 Butterfish Shell then sits in front of your shell and does useful things.
 
-It doesn't work with the Windows shell, I probably won't implement that -- for certain technical reasons, that's complicated. I haven't tried `fish` or other more esoteric shells.
+It doesn't work with the Windows shell, I probably won't implement that -- Windows CLI apps are significantly harder for technical reasons. I haven't tried `fish` or other more esoteric shells.
 
 #### Start a prompt with a Capital Letter
 
 Within Butterfish Shell you can send a ChatGPT prompt by just starting a command with a capital letter, for example:
 
 ```
-> How do I do ___?
+> Summarize the file I just printed
 ```
 
 Butterfish Shell is intercepting this and then sending the prompt to ChatGPT.
@@ -61,7 +70,7 @@ So when you talk with ChatGPT, the past questions/answers and the shell output i
 
 #### Gives you GPT autosuggest
 
-This is like Github Copilot, but in your terminal shell. Butterfish Shell will autosuggest commands which you can apply with <kbd>Tab</kbd>.
+This is like Github Copilot, but in your terminal shell. Butterfish Shell will autosuggest commands which you can apply with `Tab`.
 
 Like prompting, autosuggest context includes your recent history, so if ChatGPT suggested a command to you, it will likely autosuggest that to run next!
 
@@ -116,7 +125,7 @@ The [OpenAI ChatGPT API](https://platform.openai.com/docs/api-reference/chat) ex
 
 When Butterfish Shell sends a request to ChatGPT it will use its in-memory buffer to construct a history for the ChatGPT API.
 
-But don't forget the API has an important constraint: you can only send it so much data at once! This is the number of "tokens" for a model, GPT-3.5 allows an input/output of up to 4096 tokens at once. A token is a GPT-specific way of splitting text, I think of a token as roughly 1 syllable in a word.
+The API has an important constraint: you can only send it so much data at once! This is the number of "tokens" for a model, GPT-3.5 allows an input/output of up to 4096 tokens at once. A token is a GPT-specific way of splitting text, I think of a token as roughly 1 syllable in a word.
 
 Butterfish Shell will fit as much history into an API request as it can. It roughly follows these rules:
 
@@ -136,7 +145,7 @@ In general Butterfish tries to not interfere with your normal shell operation. A
 
 ### Notes on the Butterfish Project
 
-This is an open source project written by Peter Bakkum under the MIT Open Source License.
+This is an [open source project](https://github.com/bakks/butterfish) written in Golang by Peter Bakkum under the MIT Open Source License.
 
 Project goals:
 
