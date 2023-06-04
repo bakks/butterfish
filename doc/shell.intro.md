@@ -2,7 +2,7 @@
 
 ## The Short Answer
 
-Butterfish Shell is an open-source way to embed OpenAI ChatGPT in your terminal shell without having to invoke it every time. It's easily accessible and can see your shell history.
+Butterfish Shell is an open-source tool that embeds OpenAI ChatGPT in your existing terminal shell. Prompt ChatGPT at any time with questions about command output or anything else.
 
 | MacOS                                                     | Linux/MacOS                                                                                             |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
