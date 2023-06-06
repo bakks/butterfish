@@ -29,6 +29,19 @@ const ESC_RIGHT = "\x1b[%dC"
 const ESC_LEFT = "\x1b[%dD"
 const ESC_CLEAR = "\x1b[0K"
 
+// Special characters that we wrap the shell's command prompt in (PS1) so
+// that we can detect where it starts and ends.
+const PROMPT_PREFIX = "\033Q"
+const PROMPT_SUFFIX = "\033R"
+const PROMPT_PREFIX_ESCAPED = "\\033Q"
+const PROMPT_SUFFIX_ESCAPED = "\\033R"
+const EMOJI_DEFAULT = "🐠"
+const EMOJI_GOAL = "🟦"
+const EMOJI_GOAL_UNSAFE = "🟥"
+
+var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
+var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
+
 var DarkShellColorScheme = &ShellColorScheme{
 	Prompt:           "\x1b[38;5;154m",
 	PromptGoal:       "\x1b[38;5;200m",
@@ -93,9 +106,43 @@ func HistoryTypeToString(historyType int) string {
 	}
 }
 
+type Tokenization struct {
+	InputLength int    // the unprocessed length of the pretokenized plus truncated content
+	NumTokens   int    // number of tokens in the data
+	Data        string // tokenized and truncated content
+}
+
 type HistoryBuffer struct {
 	Type    int
 	Content *ShellBuffer
+	// This is to cache tokenization plus truncation of the content
+	Tokenizations map[string]Tokenization
+}
+
+func (this *HistoryBuffer) SetTokenization(encoding string, inputLength int, numTokens int, data string) {
+	if this.Tokenizations == nil {
+		this.Tokenizations = make(map[string]Tokenization)
+	}
+	this.Tokenizations[encoding] = Tokenization{
+		InputLength: inputLength,
+		NumTokens:   numTokens,
+		Data:        data,
+	}
+}
+
+func (this *HistoryBuffer) GetTokenization(encoding string, length int) (string, int, bool) {
+	if this.Tokenizations == nil {
+		this.Tokenizations = make(map[string]Tokenization)
+	}
+
+	tokenization, ok := this.Tokenizations[encoding]
+	if !ok {
+		return "", 0, false
+	}
+	if tokenization.InputLength != length {
+		return "", 0, false
+	}
+	return tokenization.Data, tokenization.NumTokens, true
 }
 
 // ShellHistory keeps a record of past shell history and LLM interaction in
@@ -103,19 +150,19 @@ type HistoryBuffer struct {
 // the last block, and get the the last n bytes of the history as an array of
 // HistoryBlocks.
 type ShellHistory struct {
-	Blocks []HistoryBuffer
+	Blocks []*HistoryBuffer
 }
 
 func NewShellHistory() *ShellHistory {
 	return &ShellHistory{
-		Blocks: make([]HistoryBuffer, 0),
+		Blocks: make([]*HistoryBuffer, 0),
 	}
 }
 
 func (this *ShellHistory) add(historyType int, block string) {
 	buffer := NewShellBuffer()
 	buffer.Write(block)
-	this.Blocks = append(this.Blocks, HistoryBuffer{
+	this.Blocks = append(this.Blocks, &HistoryBuffer{
 		Type:    historyType,
 		Content: buffer,
 	})
@@ -178,7 +225,7 @@ func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util
 	return blocks
 }
 
-func (this *ShellHistory) IterateBlocks(cb func(block HistoryBuffer) bool) {
+func (this *ShellHistory) IterateBlocks(cb func(block *HistoryBuffer) bool) {
 	for i := len(this.Blocks) - 1; i >= 0; i-- {
 		cont := cb(this.Blocks[i])
 		if !cont {
@@ -301,14 +348,17 @@ func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
 func (this *ShellState) GetCursorPosition() (int, int) {
 	// send the cursor position request
 	this.ParentOut.Write([]byte(ESC_CUP))
-	timeout := time.After(200 * time.Millisecond)
+	timeout := time.After(500000 * time.Millisecond)
 	var pos *cursorPosition
 
 	// the parent in reader watches for these responses, set timeout and
 	// panic if we don't get a response
 	select {
 	case <-timeout:
-		panic("Timeout waiting for cursor position response, this probably means that you're using a terminal emulator that doesn't work well with butterfish. Please submit an issue to https://github.com/bakks/butterfish.")
+		panic(`Timeout waiting for cursor position response, this means that either:
+- Butterfish has frozen due to a bug.
+- You're using a terminal emulator that doesn't work well with butterfish.
+Please submit an issue to https://github.com/bakks/butterfish.`)
 
 	case pos = <-this.CursorPosChan:
 	}
@@ -324,19 +374,6 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 		}
 	}
 }
-
-// Special characters that we wrap the shell's command prompt in (PS1) so
-// that we can detect where it starts and ends.
-const PROMPT_PREFIX = "\033Q"
-const PROMPT_SUFFIX = "\033R"
-const PROMPT_PREFIX_ESCAPED = "\\033Q"
-const PROMPT_SUFFIX_ESCAPED = "\\033R"
-const EMOJI_DEFAULT = "🐠"
-const EMOJI_GOAL = "🟦"
-const EMOJI_GOAL_UNSAFE = "🟥"
-
-var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
-var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
 
 // This sets the PS1 shell variable, which is the prompt that the shell
 // displays before each command.
@@ -1145,7 +1182,7 @@ func getHistoryBlocksByTokens(history *ShellHistory, encoder *tiktoken.Tiktoken,
 	blocks := []util.HistoryBlock{}
 	usedTokens := 0
 
-	history.IterateBlocks(func(block HistoryBuffer) bool {
+	history.IterateBlocks(func(block *HistoryBuffer) bool {
 		msgTokens := tokensPerMessage
 
 		var roleString string
@@ -1157,9 +1194,26 @@ func getHistoryBlocksByTokens(history *ShellHistory, encoder *tiktoken.Tiktoken,
 
 		// add tokens for role
 		msgTokens += len(encoder.Encode(roleString, nil, nil))
+		contentStr := block.Content.String()
 
-		historyContent := sanitizeTTYString(block.Content.String())
-		contentTokens, content, _ := countAndTruncate(historyContent, encoder, maxHistoryBlockTokens)
+		// check existing block tokenizations
+		content, contentTokens, ok := block.GetTokenization(encoder.EncoderName(), block.Content.Size())
+
+		if !ok { // cache miss
+			// avoid processing super long strings with a ceiling
+			ceiling := maxHistoryBlockTokens * 4
+			contentLen := len(contentStr)
+			if contentLen > ceiling {
+				contentStr = contentStr[:ceiling]
+			}
+
+			// remove ANSI escape codes
+			historyContent := sanitizeTTYString(contentStr)
+			// encode and truncate
+			contentTokens, content, _ = countAndTruncate(historyContent, encoder, maxHistoryBlockTokens)
+			// save truncated string
+			block.SetTokenization(encoder.EncoderName(), contentLen, contentTokens, content)
+		}
 		msgTokens += contentTokens
 
 		if usedTokens+msgTokens > maxTokens {

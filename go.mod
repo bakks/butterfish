@@ -50,3 +50,6 @@ require (
 	google.golang.org/genproto v0.0.0-20230320184635-7606e756e683 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// replace tiktoken with local version
+replace github.com/pkoukk/tiktoken-go => github.com/bakks/tiktoken-go v0.1.2-local-1
