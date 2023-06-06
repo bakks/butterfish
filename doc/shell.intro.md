@@ -4,11 +4,11 @@
 
 Butterfish Shell is an open-source tool that embeds OpenAI ChatGPT in your existing terminal shell. Prompt ChatGPT at any time with questions about command output or anything else.
 
-| MacOS                                                     | Linux/MacOS                                                                                             |
+| Homebrew                                                  | go install                                                                                              |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `brew install bakks/bakks/butterfish && butterfish shell` | `go install github.com/bakks/butterfish/cmd/butterfish@latest && $(go env GOPATH)/bin/butterfish shell` |
 
-Once you're in Butterfish shell, talk to ChatGPT by starting a command with a _Capital Letter_. This uses your own OpenAI account directly. The code is open source and available at [github.com/bakks/butterfish](https://github.com/bakks/butterfish).
+Once you're in Butterfish shell, talk to ChatGPT by starting a command with a _Capital Letter_. See the code at [github.com/bakks/butterfish](https://github.com/bakks/butterfish).
 
 Here's Butterfish Shell in action:
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell.gif" alt="Butterfish" width="500px" height="250px" />
