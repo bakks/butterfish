@@ -11,6 +11,7 @@ const (
 	PromptShellAutosuggestNewCommand = "shell_autocomplete_new_command"
 	PromptShellAutosuggestPrompt     = "shell_autocomplete_prompt"
 	PromptShellSystemMessage         = "shell_system_message"
+	GoalModeSystemMessage            = "goal_mode_system_message"
 )
 
 // These are the default prompts used for Butterfish, they will be written
@@ -26,23 +27,30 @@ var DefaultPrompts []Prompt = []Prompt{
 	},
 
 	{
+		Name:        GoalModeSystemMessage,
+		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. Those keywords must be capitalized. If you don't have a goal respond with 'GOAL ACHIEVED'.",
+		OkToReplace: true,
+	},
+
+	{
 		Name:        PromptShellAutosuggestCommand,
 		OkToReplace: true,
-		Prompt: `The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is some recent context and history:
+		Prompt: `The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is recent history:
 '''
 {history}
 '''.
-If there are specific commands mentioned by the assistant, especially with quotation marks, bias towards those commands. This is the start of the command: '{command}'.`,
+If a command was recently suggested by the assistant and it matches the start of the command, suggest that. This is the start of the command: '{command}'.`,
 	},
 
 	{
 		Name:        PromptShellAutosuggestNewCommand,
 		OkToReplace: true,
-		Prompt: `The user is using a Unix shell but hasn't yet entered anything. Suggest a unix command based on previous assistant output like an example. If the user has entered a command recently which failed, suggest a fixed version of that command. Respond with only the shell command, do not add comments or quotations. Here is the recent history:
+		Prompt: `The user is using a Unix shell but hasn't yet entered anything. Suggest a unix command based on previous assistant output like an example. If the user has entered a command recently which failed, suggest a fixed version of that command. Respond with only the shell command, do not add comments or quotations. Do not suggest in natural language, suggest as a unix shell command. Here is recent history:
 '''
 {history}
 '''
-If there are specific commands mentioned by the assistant, especially with quotation marks, bias towards those commands.`,
+If a command was recently suggested by the assistant, suggest that.
+`,
 	},
 
 	{

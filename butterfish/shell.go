@@ -17,42 +17,57 @@ import (
 
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
-	"github.com/charmbracelet/lipgloss"
+
 	"github.com/mitchellh/go-ps"
+	"github.com/pkoukk/tiktoken-go"
 	"golang.org/x/term"
 )
 
-const ERR_429 = "429:insufficient_quota"
-const ERR_429_HELP = "You are likely using a free OpenAI account without a subscription activated, this error means you are out of credits. To resolve it, set up a subscription at https://platform.openai.com/account/billing/overview. This requires a credit card and payment, run `butterfish help` for guidance on managing cost."
+const ESC_CUP = "\x1b[6n" // Request the cursor position
+const ESC_UP = "\x1b[%dA"
+const ESC_RIGHT = "\x1b[%dC"
+const ESC_LEFT = "\x1b[%dD"
+const ESC_CLEAR = "\x1b[0K"
 
-// compile a regex that matches \x1b[%d;%dR
-var cursorPosRegex = regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
+// Special characters that we wrap the shell's command prompt in (PS1) so
+// that we can detect where it starts and ends.
+const PROMPT_PREFIX = "\033Q"
+const PROMPT_SUFFIX = "\033R"
+const PROMPT_PREFIX_ESCAPED = "\\033Q"
+const PROMPT_SUFFIX_ESCAPED = "\\033R"
+const EMOJI_DEFAULT = "🐠"
+const EMOJI_GOAL = "🟦"
+const EMOJI_GOAL_UNSAFE = "🟥"
 
-// Search for an ANSI cursor position sequence, e.g. \x1b[4;14R, and return:
-// - row
-// - column
-// - length of the sequence
-// - whether the sequence was found
-func parseCursorPos(data []byte) (int, int, int, bool) {
-	matches := cursorPosRegex.FindSubmatch(data)
-	if len(matches) != 3 {
-		return -1, -1, -1, false
-	}
-	row, err := strconv.Atoi(string(matches[1]))
-	if err != nil {
-		return -1, -1, -1, false
-	}
-	col, err := strconv.Atoi(string(matches[2]))
-	if err != nil {
-		return -1, -1, -1, false
-	}
-	return row, col, len(matches[0]), true
+var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
+var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
+
+var DarkShellColorScheme = &ShellColorScheme{
+	Prompt:           "\x1b[38;5;154m",
+	PromptGoal:       "\x1b[38;5;200m",
+	PromptGoalUnsafe: "\x1b[38;5;9m",
+	Command:          "\x1b[0m",
+	Autosuggest:      "\x1b[38;5;241m",
+	Answer:           "\x1b[38;5;214m",
+	GoalMode:         "\x1b[38;5;51m",
+	Error:            "\x1b[38;5;196m",
 }
 
-func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error {
+var LightShellColorScheme = &ShellColorScheme{
+	Prompt:           "\x1b[38;5;28m",
+	PromptGoal:       "\x1b[38;5;200m",
+	PromptGoalUnsafe: "\x1b[38;5;9m",
+	Command:          "\x1b[0m",
+	Autosuggest:      "\x1b[38;5;241m",
+	Answer:           "\x1b[38;5;214m",
+	GoalMode:         "\x1b[38;5;18m",
+	Error:            "\x1b[38;5;196m",
+}
+
+func RunShell(ctx context.Context, config *ButterfishConfig) error {
 	envVars := []string{"BUTTERFISH_SHELL=1"}
 
-	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{shell})
+	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{config.ShellBinary})
 	if err != nil {
 		return err
 	}
@@ -68,293 +83,6 @@ func RunShell(ctx context.Context, config *ButterfishConfig, shell string) error
 	return nil
 }
 
-// This holds a buffer that represents a tty shell buffer. Incoming data
-// manipulates the buffer, for example the left arrow will move the cursor left,
-// a backspace would erase the end of the buffer.
-type ShellBuffer struct {
-	// The buffer itself
-	buffer       []rune
-	cursor       int
-	termWidth    int
-	promptLength int
-	color        string
-
-	lastAutosuggestLen int
-	lastJumpForward    int
-}
-
-func (this *ShellBuffer) SetColor(color string) {
-	this.color = color
-}
-
-func (this *ShellBuffer) Clear() []byte {
-	for i := 0; i < len(this.buffer); i++ {
-		this.buffer[i] = ' '
-	}
-
-	originalCursor := this.cursor
-	this.cursor = 0
-	update := this.calculateShellUpdate(originalCursor)
-
-	this.buffer = make([]rune, 0)
-
-	return update
-}
-
-func (this *ShellBuffer) SetPromptLength(promptLength int) {
-	this.promptLength = promptLength
-}
-
-func (this *ShellBuffer) SetTerminalWidth(width int) {
-	this.termWidth = width
-}
-
-func (this *ShellBuffer) Size() int {
-	return len(this.buffer)
-}
-
-func (this *ShellBuffer) Cursor() int {
-	return this.cursor
-}
-
-func (this *ShellBuffer) Write(data string) []byte {
-	if len(data) == 0 {
-		return []byte{}
-	}
-
-	startingCursor := this.cursor
-	runes := []rune(data)
-
-	for i := 0; i < len(runes); i++ {
-
-		if len(runes) >= i+3 && runes[i] == 0x1b && runes[i+1] == 0x5b {
-			lastRune := runes[i+2]
-			switch lastRune {
-			case 0x41, 0x42:
-				// up or down arrow, ignore these because they will break the editing line
-				i += 2
-				continue
-
-			case 0x43:
-				// right arrow
-				if this.cursor < len(this.buffer) {
-					this.cursor++
-				}
-				i += 2
-				continue
-
-			case 0x44:
-				// left arrow
-				if this.cursor > 0 {
-					this.cursor--
-				}
-				i += 2
-				continue
-			}
-		}
-
-		r := rune(runes[i])
-
-		switch r {
-		case 0x08, 0x7f: // backspace
-			if this.cursor > 0 && len(this.buffer) > 0 {
-				this.buffer = append(this.buffer[:this.cursor-1], this.buffer[this.cursor:]...)
-				this.cursor--
-			}
-
-		default:
-			if this.cursor == len(this.buffer) {
-				this.buffer = append(this.buffer, r)
-			} else {
-				this.buffer = append(this.buffer[:this.cursor], append([]rune{r}, this.buffer[this.cursor:]...)...)
-			}
-			this.cursor++
-
-		}
-	}
-
-	//log.Printf("Buffer update, cursor: %d, buffer: %s, written: %s  %x", this.cursor, string(this.buffer), data, []byte(data))
-
-	return this.calculateShellUpdate(startingCursor)
-}
-
-func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
-	// Ok, we've updated the buffer. Now we need to figure out what to print.
-	// The assumption here is that we need to print new stuff, that might fill
-	// multiple lines, might start with a prompt (i.e. not at column 0), and
-	// the cursor might be in the middle of the buffer.
-
-	var w io.Writer
-	// create writer to a string buffer
-	var buf bytes.Buffer
-	w = &buf
-
-	// if we have no termwidth we just print out, don't worry about wrapping
-	if this.termWidth == 0 {
-		// go left from the starting cursor
-		fmt.Fprintf(w, "\x1b[%dD", startingCursor)
-		// print the buffer
-		fmt.Fprintf(w, "%s", string(this.buffer))
-		// go back to the ending cursor
-		fmt.Fprintf(w, "\x1b[%dD", len(this.buffer)-this.cursor)
-
-		return buf.Bytes()
-	}
-
-	newNumLines := (max(len(this.buffer), this.cursor+1) + this.promptLength) / this.termWidth
-	oldCursorLine := (startingCursor + this.promptLength) / this.termWidth
-	newCursorLine := (this.cursor + this.promptLength) / this.termWidth
-	newColumn := (this.cursor + this.promptLength) % this.termWidth
-	posAfterWriting := (len(this.buffer) + this.promptLength) % this.termWidth
-
-	// get cursor back to the beginning of the prompt
-	// carriage return to go to left side of term
-	w.Write([]byte{'\r'})
-	// go up for the number of lines
-	if oldCursorLine > 0 {
-		// in this case we clear out the final old line
-		fmt.Fprintf(w, "\x1b[0K")
-		fmt.Fprintf(w, "\x1b[%dA", oldCursorLine)
-	}
-	// go right for the prompt length
-	if this.promptLength > 0 {
-		fmt.Fprintf(w, "\x1b[%dC", this.promptLength)
-	}
-
-	// set the terminal color
-	if this.color != "" {
-		w.Write([]byte(this.color))
-	}
-
-	// write the full new buffer
-	w.Write([]byte(string(this.buffer)))
-
-	if posAfterWriting == 0 {
-		// if we are at the beginning of a new line, we need to go down
-		// one line to get to the right spot
-		w.Write([]byte("\r\n"))
-	}
-
-	// clear to end of line
-	w.Write([]byte("\x1b[0K"))
-
-	// if the cursor is not at the end of the buffer we need to adjust it because
-	// we rewrote the entire buffer
-	if this.cursor < len(this.buffer) {
-		// carriage return to go to left side of term
-		w.Write([]byte{'\r'})
-		// go up for the number of lines
-		if newNumLines-newCursorLine > 0 {
-			fmt.Fprintf(w, "\x1b[%dA", newNumLines-newCursorLine)
-		}
-		// go right to the new cursor column
-		if newColumn > 0 {
-			fmt.Fprintf(w, "\x1b[%dC", newColumn)
-		}
-	}
-
-	return buf.Bytes()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func (this *ShellBuffer) String() string {
-	return string(this.buffer)
-}
-
-func NewShellBuffer() *ShellBuffer {
-	return &ShellBuffer{
-		buffer: make([]rune, 0),
-		cursor: 0,
-	}
-}
-
-// >>> command
-//            ^ cursor
-// autosuggest: " foobar"
-// jumpForward: 0
-//
-// >>> command
-//          ^ cursor
-// autosuggest: " foobar"
-// jumpForward: 2
-func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward int, colorStr string) []byte {
-	// promptlength represents the starting cursor position in this context
-
-	var w io.Writer
-	// create writer to a string buffer
-	var buf bytes.Buffer
-	w = &buf
-
-	numLines := (len(autosuggestText) + jumpForward + this.promptLength) / this.termWidth
-	this.lastAutosuggestLen = len(autosuggestText)
-	this.lastJumpForward = jumpForward
-
-	//log.Printf("Applying autosuggest, numLines: %d, jumpForward: %d, promptLength: %d, autosuggestText: %s", numLines, jumpForward, this.promptLength, autosuggestText)
-
-	// if we would have to jump down to the next line to write the autosuggest
-	if this.promptLength+jumpForward > this.termWidth {
-		// don't handle this case
-		return []byte{}
-	}
-
-	// go right to the jumpForward position
-	if jumpForward > 0 {
-		fmt.Fprintf(w, "\x1b[%dC", jumpForward)
-	}
-
-	// handle color
-	if colorStr != "" {
-		w.Write([]byte(colorStr))
-	} else if this.color != "" {
-		w.Write([]byte(this.color))
-	}
-
-	// write the autosuggest text
-	w.Write([]byte(autosuggestText))
-
-	// return cursor to original position
-
-	// carriage return to go to left side of term
-	w.Write([]byte{'\r'})
-
-	// go up for the number of lines
-	if numLines > 0 {
-		fmt.Fprintf(w, "\x1b[%dA", numLines)
-	}
-
-	// go right for the prompt length
-	if this.promptLength > 0 {
-		fmt.Fprintf(w, "\x1b[%dC", this.promptLength)
-	}
-
-	return buf.Bytes()
-}
-
-func (this *ShellBuffer) ClearLast(colorStr string) []byte {
-	//log.Printf("Clearing last autosuggest, lastAutosuggestLen: %d, lastJumpForward: %d, promptLength: %d", this.lastAutosuggestLen, this.lastJumpForward, this.promptLength)
-	buf := make([]byte, this.lastAutosuggestLen)
-	for i := 0; i < this.lastAutosuggestLen; i++ {
-		buf[i] = ' '
-	}
-
-	return this.WriteAutosuggest(string(buf), this.lastJumpForward, colorStr)
-}
-
-func (this *ShellBuffer) EatAutosuggestRune() {
-	if this.lastJumpForward > 0 {
-		panic("jump forward should be 0")
-	}
-
-	this.lastAutosuggestLen--
-	this.promptLength++
-}
-
 const (
 	historyTypePrompt = iota
 	historyTypeShellInput
@@ -362,9 +90,59 @@ const (
 	historyTypeLLMOutput
 )
 
+// Turn history type enum to a string
+func HistoryTypeToString(historyType int) string {
+	switch historyType {
+	case historyTypePrompt:
+		return "Prompt"
+	case historyTypeShellInput:
+		return "Shell Input"
+	case historyTypeShellOutput:
+		return "Shell Output"
+	case historyTypeLLMOutput:
+		return "LLM Output"
+	default:
+		return "Unknown"
+	}
+}
+
+type Tokenization struct {
+	InputLength int    // the unprocessed length of the pretokenized plus truncated content
+	NumTokens   int    // number of tokens in the data
+	Data        string // tokenized and truncated content
+}
+
 type HistoryBuffer struct {
 	Type    int
 	Content *ShellBuffer
+	// This is to cache tokenization plus truncation of the content
+	Tokenizations map[string]Tokenization
+}
+
+func (this *HistoryBuffer) SetTokenization(encoding string, inputLength int, numTokens int, data string) {
+	if this.Tokenizations == nil {
+		this.Tokenizations = make(map[string]Tokenization)
+	}
+	this.Tokenizations[encoding] = Tokenization{
+		InputLength: inputLength,
+		NumTokens:   numTokens,
+		Data:        data,
+	}
+}
+
+func (this *HistoryBuffer) GetTokenization(encoding string, length int) (string, int, bool) {
+	if this.Tokenizations == nil {
+		this.Tokenizations = make(map[string]Tokenization)
+	}
+
+	tokenization, ok := this.Tokenizations[encoding]
+	if !ok {
+		return "", 0, false
+	}
+	if tokenization.InputLength != length {
+		return "", 0, false
+	}
+	return tokenization.Data, tokenization.NumTokens, true
 }
 
 // ShellHistory keeps a record of past shell history and LLM interaction in
@@ -372,63 +150,61 @@ type HistoryBuffer struct {
 // the last block, and get the the last n bytes of the history as an array of
 // HistoryBlocks.
 type ShellHistory struct {
-	Blocks         []HistoryBuffer
-	TruncateLength int
+	Blocks []*HistoryBuffer
 }
 
 func NewShellHistory() *ShellHistory {
 	return &ShellHistory{
-		Blocks:         make([]HistoryBuffer, 0),
-		TruncateLength: 512,
+		Blocks: make([]*HistoryBuffer, 0),
 	}
 }
 
-func (this *ShellHistory) Add(historyType int, block string) {
+func (this *ShellHistory) add(historyType int, block string) {
 	buffer := NewShellBuffer()
 	buffer.Write(block)
-	this.Blocks = append(this.Blocks, HistoryBuffer{
+	this.Blocks = append(this.Blocks, &HistoryBuffer{
 		Type:    historyType,
 		Content: buffer,
 	})
 }
 
 func (this *ShellHistory) Append(historyType int, data string) {
-	length := len(this.Blocks)
+	// if data is empty, we don't want to add a new block
+	if len(data) == 0 {
+		return
+	}
+
+	numBlocks := len(this.Blocks)
 	// if we have a block already, and it matches the type, append to it
-	if length > 0 {
-		lastBlock := this.Blocks[len(this.Blocks)-1]
+	if numBlocks > 0 {
+		lastBlock := this.Blocks[numBlocks-1]
 
 		if lastBlock.Type == historyType {
-			if lastBlock.Content.Size() < this.TruncateLength {
-				// we append to the last block if we haven't hit the truncation length
-				this.Blocks[length-1].Content.Write(data)
-			}
-			// if we hit the truncation length we drop the data
+			lastBlock.Content.Write(data)
 			return
 		}
 	}
 
 	// if the history type doesn't match we fall through and add a new block
-	this.Add(historyType, data)
+	this.add(historyType, data)
 }
 
 func (this *ShellHistory) NewBlock() {
 	length := len(this.Blocks)
 	if length > 0 {
-		this.Add(this.Blocks[length-1].Type, "")
+		this.add(this.Blocks[length-1].Type, "")
 	}
 }
 
 // Go back in history for a certain number of bytes.
-// This truncates each block content to a maximum of 512 bytes.
-func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
+func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util.HistoryBlock {
 	var blocks []util.HistoryBlock
 
 	for i := len(this.Blocks) - 1; i >= 0 && numBytes > 0; i-- {
 		block := this.Blocks[i]
 		content := sanitizeTTYString(block.Content.String())
-		if len(content) > this.TruncateLength {
-			content = content[:this.TruncateLength]
+		if len(content) > truncateLength {
+			content = content[:truncateLength]
 		}
 		if len(content) > numBytes {
 			break // we don't want a weird partial line so we bail out here
@@ -449,20 +225,23 @@ func (this *ShellHistory) GetLastNBytes(numBytes int) []util.HistoryBlock {
 	return blocks
 }
 
-func (this *ShellHistory) LogRecentHistory() {
-	blocks := this.GetLastNBytes(2000)
-	log.Printf("Recent history: =======================================")
-	for _, block := range blocks {
-		if block.Type == historyTypePrompt {
-			log.Printf("Prompt: %s", block.Content)
-		} else if block.Type == historyTypeShellInput {
-			log.Printf("Shell input: %s", block.Content)
-		} else if block.Type == historyTypeShellOutput {
-			log.Printf("Shell output: %s", block.Content)
-		} else if block.Type == historyTypeLLMOutput {
-			log.Printf("LLM output: %s", block.Content)
+func (this *ShellHistory) IterateBlocks(cb func(block *HistoryBuffer) bool) {
+	for i := len(this.Blocks) - 1; i >= 0; i-- {
+		cont := cb(this.Blocks[i])
+		if !cont {
+			break
 		}
 	}
+}
+
+func (this *ShellHistory) LogRecentHistory() {
+	blocks := this.GetLastNBytes(2000, 512)
+	log.Printf("Recent history: =======================================")
+	builder := strings.Builder{}
+	for _, block := range blocks {
+		builder.WriteString(fmt.Sprintf("%s: %s\n", HistoryTypeToString(block.Type), block.Content))
+	}
+	log.Printf(builder.String())
 	log.Printf("=======================================")
 }
 
@@ -484,9 +263,27 @@ const (
 	statePromptResponse
 )
 
+var stateNames = []string{
+	"Normal",
+	"Shell",
+	"Prompting",
+	"PromptResponse",
+}
+
 type AutosuggestResult struct {
 	Command    string
 	Suggestion string
+}
+
+type ShellColorScheme struct {
+	Prompt           string
+	PromptGoal       string
+	PromptGoalUnsafe string
+	Error            string
+	Command          string
+	Autosuggest      string
+	Answer           string
+	GoalMode         string
 }
 
 type ShellState struct {
@@ -495,32 +292,46 @@ type ShellState struct {
 	ChildIn    io.Writer
 	Sigwinch   chan os.Signal
 
+	// set based on model
+	PromptMaxTokens      int
+	AutosuggestMaxTokens int
+
 	// The current state of the shell
-	State                int
-	ChildOutReader       chan *byteMsg
-	ParentInReader       chan *byteMsg
-	PromptOutputChan     chan *byteMsg
-	AutosuggestChan      chan *AutosuggestResult
-	History              *ShellHistory
-	PromptAnswerWriter   io.Writer
-	Prompt               *ShellBuffer
-	PromptStyle          lipgloss.Style
-	PromptResponseCancel context.CancelFunc
-	Command              *ShellBuffer
-	TerminalWidth        int
+	State                   int
+	GoalMode                bool
+	GoalModeBuffer          string
+	GoalModeGoal            string
+	GoalModeUnsafe          bool
+	PromptSuffixCounter     int
+	ChildOutReader          chan *byteMsg
+	ParentInReader          chan *byteMsg
+	CursorPosChan           chan *cursorPosition
+	PromptOutputChan        chan *byteMsg
+	PrintErrorChan          chan error
+	AutosuggestChan         chan *AutosuggestResult
+	History                 *ShellHistory
+	PromptAnswerWriter      io.Writer
+	Prompt                  *ShellBuffer
+	PromptResponseCancel    context.CancelFunc
+	Command                 *ShellBuffer
+	TerminalWidth           int
+	Color                   *ShellColorScheme
+	TokensReservedForAnswer int
+	// these are used to estimate number of tokens
+	AutosuggestEncoder *tiktoken.Tiktoken
+	PromptEncoder      *tiktoken.Tiktoken
 
-	PromptColorString      string
-	CommandColorString     string
-	AutosuggestColorString string
-	AnswerColorString      string
-
+	// autosuggest config
 	AutosuggestEnabled bool
 	LastAutosuggest    string
 	AutosuggestCtx     context.Context
 	AutosuggestCancel  context.CancelFunc
-	AutosuggestStyle   lipgloss.Style
 	AutosuggestBuffer  *ShellBuffer
-	PendingAutosuggest *AutosuggestResult
+}
+
+func (this *ShellState) setState(state int) {
+	log.Printf("State change: %s -> %s", stateNames[this.State], stateNames[state])
+	this.State = state
 }
 
 func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
@@ -534,32 +345,147 @@ func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
 	}
 }
 
+func (this *ShellState) GetCursorPosition() (int, int) {
+	// send the cursor position request
+	this.ParentOut.Write([]byte(ESC_CUP))
+	timeout := time.After(500000 * time.Millisecond)
+	var pos *cursorPosition
+
+	// the parent in reader watches for these responses, set timeout and
+	// panic if we don't get a response
+	select {
+	case <-timeout:
+		panic(`Timeout waiting for cursor position response, this means that either:
+- Butterfish has frozen due to a bug.
+- You're using a terminal emulator that doesn't work well with butterfish.
+Please submit an issue to https://github.com/bakks/butterfish.`)
+
+	case pos = <-this.CursorPosChan:
+	}
+
+	// it's possible that we have a stale response, so we loop on the channel
+	// until we get the most recent one
+	for {
+		select {
+		case pos = <-this.CursorPosChan:
+			continue
+		default:
+			return pos.Row, pos.Column
+		}
+	}
+}
+
+// This sets the PS1 shell variable, which is the prompt that the shell
+// displays before each command.
+// We need to be able to parse the child shell's prompt to determine where
+// it starts, ends, exit code, and allow customization to show the user that
+// we're inside butterfish shell. The PS1 is roughly the following:
+// PS1 := promptPrefix $PS1 ShellCommandPrompt $? promptSuffix
+func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
+	shell := this.Config.ParseShell()
+	var ps1 string
+
+	switch shell {
+	case "bash", "sh":
+		// the \[ and \] are bash-specific and tell bash to not count the enclosed
+		// characters when calculating the cursor position
+		ps1 = "PS1=$'\\[%s\\]'$PS1$'%s\\[ $?%s\\] '\n"
+	case "zsh":
+		// the %%{ and %%} are zsh-specific and tell zsh to not count the enclosed
+		// characters when calculating the cursor position
+		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%} '\n"
+	default:
+		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for centain features. Create an issue at https://github.com/bakks/butterfish.", shell)
+		return
+	}
+
+	promptIcon := ""
+	if !this.Config.ShellLeavePromptAlone {
+		promptIcon = EMOJI_DEFAULT
+	}
+
+	fmt.Fprintf(childIn,
+		ps1,
+		PROMPT_PREFIX_ESCAPED,
+		promptIcon,
+		PROMPT_SUFFIX_ESCAPED)
+}
+
+// Given a string of terminal output, identify terminal prompts based on the
+// custom PS1 escape sequences we set.
+// Returns:
+// - The last exit code/status seen in the string (i.e. will be non-zero if
+//   previous command failed.
+// - The number of prompts identified in the string.
+// - The string with the special prompt escape sequences removed.
+func ParsePS1(data string, regex *regexp.Regexp, currIcon string) (int, int, string) {
+	matches := regex.FindAllStringSubmatch(data, -1)
+
+	if len(matches) == 0 {
+		return 0, 0, data
+	}
+
+	lastStatus := 0
+	prompts := 0
+
+	for _, match := range matches {
+		var err error
+		lastStatus, err = strconv.Atoi(match[1])
+		if err != nil {
+			log.Printf("Error parsing PS1 match: %s", err)
+		}
+		prompts++
+	}
+
+	// Remove matches of suffix
+	cleaned := regex.ReplaceAllString(data, currIcon)
+	// Remove the prefix
+	cleaned = strings.ReplaceAll(cleaned, PROMPT_PREFIX, "")
+
+	return lastStatus, prompts, cleaned
+}
+
+func (this *ShellState) ParsePS1(data string) (int, int, string) {
+	var regex *regexp.Regexp
+	if this.Butterfish.Config.ShellLeavePromptAlone {
+		regex = ps1Regex
+	} else {
+		regex = ps1FullRegex
+	}
+
+	currIcon := EMOJI_DEFAULT
+	if this.GoalMode {
+		if this.GoalModeUnsafe {
+			currIcon = EMOJI_GOAL_UNSAFE
+		} else {
+			currIcon = EMOJI_GOAL
+		}
+	}
+
+	return ParsePS1(data, regex, currIcon)
+}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
 
-	//string that goes back 2 characters in terminal then prints fish emoji
-	clearChildOut := false
-	if this.Config.ShellCommandPrompt != "" {
-		fmt.Fprintf(childIn, "export PS1=\"$PS1%s\"\n", this.Config.ShellCommandPrompt)
-		clearChildOut = true
-	}
+	this.SetPS1(childIn)
 
-	promptColor := "\x1b[38;5;154m"
-	commandColor := "\x1b[0m"
-	autosuggestColor := "\x1b[38;5;241m"
-	answerColor := "\x1b[38;5;214m"
+	colorScheme := DarkShellColorScheme
+	if !this.Config.ShellColorDark {
+		colorScheme = LightShellColorScheme
+	}
 
 	log.Printf("Starting shell multiplexer")
 
 	childOutReader := make(chan *byteMsg)
 	parentInReader := make(chan *byteMsg)
+	parentPositionChan := make(chan *cursorPosition)
 
 	go readerToChannel(childOut, childOutReader)
-	go readerToChannel(parentIn, parentInReader)
+	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
 
-	promptOutputWriter := util.NewColorWriter(parentOut, answerColor)
-	cleanedWriter := util.NewReplaceWriter(promptOutputWriter, "\n", "\r\n")
+	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
 
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -569,52 +495,82 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 
-	shellState := &ShellState{
-		Butterfish:         this,
-		ParentOut:          parentOut,
-		ChildIn:            childIn,
-		Sigwinch:           sigwinch,
-		State:              stateNormal,
-		ChildOutReader:     childOutReader,
-		ParentInReader:     parentInReader,
-		History:            NewShellHistory(),
-		PromptOutputChan:   make(chan *byteMsg),
-		PromptAnswerWriter: cleanedWriter,
-		PromptStyle:        this.Config.Styles.Question,
-		Command:            NewShellBuffer(),
-		Prompt:             NewShellBuffer(),
-		TerminalWidth:      termWidth,
-		AutosuggestEnabled: this.Config.ShellAutosuggestEnabled,
-		AutosuggestChan:    make(chan *AutosuggestResult),
-		AutosuggestStyle:   this.Config.Styles.Grey,
+	//	if this.Config.ShellPluginMode {
+	//		client, err := this.StartPluginClient()
+	//		if err != nil {
+	//			panic(err)
+	//		}
+	//
+	//		go client.Mux(this.Ctx)
+	//	}
 
-		PromptColorString:      promptColor,
-		CommandColorString:     commandColor,
-		AutosuggestColorString: autosuggestColor,
-		AnswerColorString:      answerColor,
+	shellState := &ShellState{
+		Butterfish:              this,
+		ParentOut:               parentOut,
+		ChildIn:                 childIn,
+		Sigwinch:                sigwinch,
+		State:                   stateNormal,
+		ChildOutReader:          childOutReader,
+		ParentInReader:          parentInReader,
+		CursorPosChan:           parentPositionChan,
+		PrintErrorChan:          make(chan error),
+		History:                 NewShellHistory(),
+		PromptOutputChan:        make(chan *byteMsg),
+		PromptAnswerWriter:      carriageReturnWriter,
+		Command:                 NewShellBuffer(),
+		Prompt:                  NewShellBuffer(),
+		TerminalWidth:           termWidth,
+		AutosuggestEnabled:      this.Config.ShellAutosuggestEnabled,
+		AutosuggestChan:         make(chan *AutosuggestResult),
+		Color:                   colorScheme,
+		PromptMaxTokens:         NumTokensForModel(this.Config.ShellPromptModel),
+		AutosuggestMaxTokens:    NumTokensForModel(this.Config.ShellAutosuggestModel),
+		TokensReservedForAnswer: 512,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
-	shellState.Prompt.SetColor(promptColor)
-	log.Printf("Prompt color: %s", shellState.PromptColorString[1:])
-	log.Printf("Autosuggest color: %s", shellState.AutosuggestColorString[1:])
+	shellState.Prompt.SetColor(colorScheme.Prompt)
 
-	if clearChildOut {
-		// clear out any existing output to hide the PS1 export stuff
-		clearByteChan(childOutReader, 100*time.Millisecond)
-		fmt.Fprintf(childIn, "\n")
-	}
+	// clear out any existing output to hide the PS1 export stuff
+	clearByteChan(childOutReader, 100*time.Millisecond)
+	fmt.Fprintf(childIn, "\n")
 
 	// start
 	shellState.Mux()
 }
 
-func rgbaToColorString(r, g, b, _ uint32) string {
-	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r/255, g/255, b/255)
+//func rgbaToColorString(r, g, b, _ uint32) string {
+//	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r/255, g/255, b/255)
+//}
+
+// We expect the input string to end with a line containing "RUN: " followed by
+// the command to run. If no command is found we return ""
+func parseGoalModeCommand(input string) string {
+	if input == "" {
+		return ""
+	}
+	lines := strings.Split(input, "\n")
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "RUN: ") {
+			return strings.TrimPrefix(line, "RUN: ")
+		}
+	}
+
+	return ""
+}
+
+func (this *ShellState) Errorf(format string, args ...any) {
+	this.PrintErrorChan <- fmt.Errorf(format, args...)
+}
+
+func (this *ShellState) PrintError(err error) {
+	this.PrintErrorChan <- err
 }
 
 // TODO add a diagram of streams here
 func (this *ShellState) Mux() {
+	log.Printf("Started shell mux")
 	parentInBuffer := []byte{}
 	childOutBuffer := []byte{}
 
@@ -622,6 +578,10 @@ func (this *ShellState) Mux() {
 		select {
 		case <-this.Butterfish.Ctx.Done():
 			return
+
+		case err := <-this.PrintErrorChan:
+			this.History.Append(historyTypeShellOutput, err.Error())
+			fmt.Fprintf(this.ParentOut, "%s%s", this.Color.Error, err.Error())
 
 		// the terminal window resized and we got a SIGWINCH
 		case <-this.Sigwinch:
@@ -641,24 +601,73 @@ func (this *ShellState) Mux() {
 
 		// We received an autosuggest result from the autosuggest goroutine
 		case result := <-this.AutosuggestChan:
-			this.PendingAutosuggest = result
 			// request cursor position
-			this.ParentOut.Write([]byte("\x1b[6n"))
+			_, col := this.GetCursorPosition()
+			var buffer *ShellBuffer
+
+			// figure out which buffer we're autocompleting
+			switch this.State {
+			case statePrompting:
+				buffer = this.Prompt
+			case stateShell, stateNormal:
+				buffer = this.Command
+			default:
+				log.Printf("Got autosuggest result in unexpected state %d", this.State)
+				continue
+			}
+
+			this.ShowAutosuggest(buffer, result, col-1, this.TerminalWidth)
 
 		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
-			this.History.Add(historyTypeLLMOutput, string(output.Data))
-			this.ChildIn.Write([]byte("\n"))
-			this.RequestAutosuggest(0, "")
+			this.History.Append(historyTypeLLMOutput, string(output.Data))
 
+			// If there is child output waiting to be printed, print that now
 			if len(childOutBuffer) > 0 {
 				this.ParentOut.Write(childOutBuffer)
 				this.History.Append(historyTypeShellOutput, string(childOutBuffer))
 				childOutBuffer = []byte{}
 			}
 
-			this.State = stateNormal
-			log.Printf("State change: promptResponse -> normal")
+			// Get a new prompt
+			this.ChildIn.Write([]byte("\n"))
+
+			if this.GoalMode {
+				llmAsk := string(output.Data)
+				if strings.Contains(llmAsk, "GOAL ACHIEVED") {
+					log.Printf("Goal mode: goal achieved, exiting")
+					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
+					this.GoalMode = false
+					this.setState(stateNormal)
+					continue
+				}
+				if strings.Contains(llmAsk, "GOAL FAILED") {
+					log.Printf("Goal mode: goal failed, exiting")
+					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
+					this.GoalMode = false
+					this.setState(stateNormal)
+					continue
+				}
+
+				goalModeCmd := parseGoalModeCommand(llmAsk)
+				if goalModeCmd != "" {
+					// Execute the given command on the local shell
+					log.Printf("Goal mode: running command: %s", goalModeCmd)
+					this.GoalModeBuffer = ""
+					this.PromptSuffixCounter = 0
+					this.setState(stateNormal)
+					fmt.Fprintf(this.ChildIn, "%s", goalModeCmd)
+					if this.GoalModeUnsafe {
+						fmt.Fprintf(this.ChildIn, "\n")
+					}
+					continue
+				}
+
+				this.PromptSuffixCounter = -10000
+			}
+
+			this.RequestAutosuggest(0, "")
+			this.setState(stateNormal)
 
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
@@ -667,14 +676,39 @@ func (this *ShellState) Mux() {
 				return
 			}
 
+			//log.Printf("Got child output:\n%s", prettyHex(childOutMsg.Data))
+
+			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
+			//			if prompts != 0 {
+			//				log.Printf("Child exited with status %d", lastStatus)
+			//			}
+			this.PromptSuffixCounter += prompts
+
 			// If we're actively printing a response we buffer child output
 			if this.State == statePromptResponse {
 				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
 				continue
 			}
 
-			this.History.Append(historyTypeShellOutput, string(childOutMsg.Data))
-			this.ParentOut.Write(childOutMsg.Data)
+			if this.GoalMode {
+				this.GoalModeBuffer += childOutStr
+			}
+
+			// If we're getting child output while typing in a shell command, this
+			// could mean the user is paging through old commands, or doing a tab
+			// completion, or something unknown, so we don't want to add to history.
+			if this.State != stateShell {
+				this.History.Append(historyTypeShellOutput, childOutStr)
+			}
+			this.ParentOut.Write([]byte(childOutStr))
+
+			if this.GoalMode && this.PromptSuffixCounter >= 2 {
+				// move cursor to the beginning of the line and clear the line
+				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
+				this.GoalModeCommandResponse(lastStatus, this.GoalModeBuffer)
+				this.GoalModeBuffer = ""
+				this.PromptSuffixCounter = 0
+			}
 
 		case parentInMsg := <-this.ParentInReader:
 			if parentInMsg == nil {
@@ -705,6 +739,7 @@ func (this *ShellState) Mux() {
 					break
 				}
 				if len(leftover) == len(data) {
+					// nothing was consumed, we buffer and try again later
 					parentInBuffer = append(parentInBuffer, leftover...)
 					break
 				}
@@ -718,36 +753,6 @@ func (this *ShellState) Mux() {
 
 func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
-
-	// check if this is a message telling us the cursor position
-	_, col, cursorPosLen, ok := parseCursorPos(data)
-	if ok {
-		// This is wonky and probably needs to be reworked.
-		// Finding the cursor position is done by writing \x1b[6n to the terminal
-		// (printing on parentOut), and then looking for the response that looks
-		// like \x1b[%d;%dR. We request cursor position in 2 cases:
-		// 1. When we start a prompt, so that we can wrap the prompt correctly
-		// 2. When we get an autosuggest result, so that we can wrap the autosuggest
-		// There are almost certainly some race conditions here though, since
-		// we request cursor position and then go back to the Mux loop.
-		pending := this.PendingAutosuggest
-		this.PendingAutosuggest = nil
-
-		if this.State == statePrompting {
-			if pending != nil {
-				// if we have a pending autosuggest, use it
-				this.ShowAutosuggest(this.Prompt, pending, col-1, this.TerminalWidth)
-			} else {
-				// otherwise we're in a situation where we've just started a prompt
-				this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
-			}
-		} else if this.State == stateShell || this.State == stateNormal {
-			if pending != nil {
-				this.ShowAutosuggest(this.Command, pending, col-1, this.TerminalWidth)
-			}
-		}
-		return data[cursorPosLen:] // don't write the data to the child
-	}
 
 	switch this.State {
 	case statePromptResponse:
@@ -769,55 +774,70 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			return nil
 		}
 
-		// check if the first character is uppercase
+		if data[0] == 0x03 && this.GoalMode {
+			// Ctrl-C while in goal mode
+			fmt.Fprintf(this.PromptAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
+			this.GoalMode = false
+			this.setState(stateNormal)
+		}
+
+		// Check if the first character is uppercase or a bang
 		// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
-		if unicode.IsUpper(rune(data[0])) {
-			this.State = statePrompting
-			log.Printf("State change: normal -> prompting")
+		if unicode.IsUpper(rune(data[0])) || data[0] == '!' {
+			this.setState(statePrompting)
 			this.Prompt.Clear()
 			this.Prompt.Write(string(data))
 
 			// Write the actual prompt start
-			this.ParentOut.Write([]byte(this.PromptColorString))
-			this.ParentOut.Write(data)
+			color := this.Color.Prompt
+			if data[0] == '!' {
+				color = this.Color.PromptGoal
+			}
+			this.Prompt.SetColor(color)
+			fmt.Fprintf(this.ParentOut, "%s%s", color, data)
 
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position
-			this.ParentOut.Write([]byte("\x1b[6n"))
+			_, col := this.GetCursorPosition()
+			this.Prompt.SetPromptLength(col - 1 - this.Prompt.Size())
+			return data[1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
-				this.State = stateShell
-				log.Printf("State change: normal -> shell")
+				this.RealizeAutosuggest(this.Command, true, this.Color.Command)
+				this.setState(stateShell)
 				return data[1:]
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
 			}
+			return data[1:]
 
 		} else if data[0] == '\r' {
 			this.ChildIn.Write(data)
+			return data[1:]
 
 		} else {
 			this.Command = NewShellBuffer()
 			this.Command.Write(string(data))
 
 			if this.Command.Size() > 0 {
-				this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
-				log.Printf("State change: normal -> shell")
-				this.State = stateShell
-				this.History.NewBlock()
+				// this means that the command is not empty, i.e. the input wasn't
+				// some control character
+				this.RefreshAutosuggest(data, this.Command, this.Color.Command)
+				this.setState(stateShell)
+			} else {
+				this.ClearAutosuggest(this.Color.Command)
 			}
 
-			this.ParentOut.Write([]byte(this.CommandColorString))
+			this.ParentOut.Write([]byte(this.Color.Command))
 			this.ChildIn.Write(data)
 		}
 
 	case statePrompting:
-		// check if the input contains a newline
 		if hasCarriageReturn {
-			this.ClearAutosuggest(this.CommandColorString)
+			// check if the input contains a newline
+			this.ClearAutosuggest(this.Color.Command)
 			index := bytes.Index(data, []byte{'\r'})
 			toAdd := data[:index]
 			toPrint := this.Prompt.Write(string(toAdd))
@@ -825,13 +845,32 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte("\n\r"))
 
-			this.SendPrompt()
+			promptStr := this.Prompt.String()
+			if this.HandleLocalPrompt() {
+				// This was a local prompt like "help", we're done now
+				return data[index+1:]
+			}
+
+			if promptStr[0] == '!' {
+				this.GoalModeStart()
+			} else if this.GoalMode {
+				this.GoalModeChat()
+			} else {
+				this.SendPrompt()
+			}
 			return data[index+1:]
+
+		} else if data[0] == '!' && this.Prompt.String() == "!" {
+			// If the user is prefixing the prompt with two bangs then they may
+			// be entering unsafe goal mode, color the prompt accordingly
+			this.Prompt.SetColor(this.Color.PromptGoalUnsafe)
+			toPrint := this.Prompt.Write(string(data))
+			this.ParentOut.Write(toPrint)
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Prompt, false, this.PromptColorString)
+				this.RealizeAutosuggest(this.Prompt, false, this.Color.Prompt)
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ParentOut.Write(data)
@@ -842,40 +881,37 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		} else if data[0] == 0x03 { // Ctrl-C
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
-			this.ParentOut.Write([]byte(this.CommandColorString))
-			this.State = stateNormal
-			log.Printf("State change: prompting -> normal")
+			this.ParentOut.Write([]byte(this.Color.Command))
+			this.setState(stateNormal)
 
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
 			this.ParentOut.Write(toPrint)
-			this.RefreshAutosuggest(data, this.Prompt, this.CommandColorString)
+			this.RefreshAutosuggest(data, this.Prompt, this.Color.Command)
 
 			if this.Prompt.Size() == 0 {
-				this.ParentOut.Write([]byte(this.CommandColorString)) // reset color
-				this.State = stateNormal
-				log.Printf("State change: prompting -> normal")
+				this.ParentOut.Write([]byte(this.Color.Command)) // reset color
+				this.setState(stateNormal)
 			}
 		}
 
 	case stateShell:
 		if hasCarriageReturn { // user is submitting a command
-			this.ClearAutosuggest(this.CommandColorString)
+			this.ClearAutosuggest(this.Color.Command)
 
-			this.State = stateNormal
-			log.Printf("State change: shell -> normal")
+			this.setState(stateNormal)
 
 			index := bytes.Index(data, []byte{'\r'})
 			this.ChildIn.Write(data[:index+1])
+			this.History.Append(historyTypeShellInput, this.Command.String())
 			this.Command = NewShellBuffer()
-			this.History.NewBlock()
 
 			return data[index+1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Command, true, this.CommandColorString)
+				this.RealizeAutosuggest(this.Command, true, this.Color.Command)
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ChildIn.Write(data)
@@ -884,11 +920,10 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 		} else { // otherwise user is typing a command
 			this.Command.Write(string(data))
-			this.RefreshAutosuggest(data, this.Command, this.CommandColorString)
+			this.RefreshAutosuggest(data, this.Command, this.Color.Command)
 			this.ChildIn.Write(data)
 			if this.Command.Size() == 0 {
-				this.State = stateNormal
-				log.Printf("State change: shell -> normal")
+				this.setState(stateNormal)
 			}
 		}
 
@@ -899,21 +934,31 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 	return nil
 }
 
+// We want to queue up the prompt response, which does the processing (except
+// for actually printing it). The processing like adding to history or
+// executing the next step in goal mode. We have to do this in a goroutine
+// because otherwise we would block the main thread.
+func (this *ShellState) SendPromptResponse(data string) {
+	go func() {
+		this.PromptOutputChan <- &byteMsg{Data: []byte(data)}
+	}()
+}
+
 func (this *ShellState) PrintStatus() {
-	text := fmt.Sprintf("You're using Butterfish Shell Mode\n%s\n\n", this.Butterfish.Config.BuildInfo)
+	text := fmt.Sprintf("You're using Butterfish Shell\n%s\n\n", this.Butterfish.Config.BuildInfo)
+
+	if this.GoalMode {
+		text += fmt.Sprintf("You're in Goal mode, the goal you've given to the agent is:\n%s\n\n", this.GoalModeGoal)
+	}
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
-	text += fmt.Sprintf("Prompt history window: %d bytes\n", this.Butterfish.Config.ShellPromptHistoryWindow)
-	text += fmt.Sprintf("Command prompt:        %s\n", this.Butterfish.Config.ShellCommandPrompt)
+	text += fmt.Sprintf("Prompt history window: %d tokens\n", this.PromptMaxTokens)
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
-	text += fmt.Sprintf("Autosuggest history:   %d bytes\n", this.Butterfish.Config.ShellAutosuggestHistoryWindow)
-	fmt.Fprintf(this.PromptAnswerWriter, text)
-
-	go func() {
-		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
-	}()
+	text += fmt.Sprintf("Autosuggest history:   %d tokens\n", this.AutosuggestMaxTokens)
+	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.Color.Answer, text, this.Color.Command)
+	this.SendPromptResponse(text)
 }
 
 func (this *ShellState) PrintHelp() {
@@ -922,79 +967,346 @@ func (this *ShellState) PrintHelp() {
 	- Type a normal command, like "ls -l" and press enter to execute it
 	- Start a command with a capital letter to send it to GPT, like "How do I find local .py files?"
 	- Autosuggest will print command completions, press tab to fill them in
-	- Type "Status" to show the current Butterfish configuration
 	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
+	- Type "Status" to show the current Butterfish configuration
+	- Type "History" to show the recent history that will be sent to GPT
 `
-	fmt.Fprintf(this.PromptAnswerWriter, text)
-
-	go func() {
-		this.PromptOutputChan <- &byteMsg{Data: []byte(text)}
-	}()
+	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.Color.Answer, text, this.Color.Command)
+	this.SendPromptResponse(text)
 }
 
-func (this *ShellState) SendPrompt() {
-	this.State = statePromptResponse
-	log.Printf("State change: prompting -> promptResponse")
+func (this *ShellState) PrintHistory() {
+	maxHistoryBlockTokens := this.Butterfish.Config.ShellMaxHistoryBlockTokens
+	historyBlocks, _ := getHistoryBlocksByTokens(this.History, this.getPromptEncoder(),
+		maxHistoryBlockTokens, this.PromptMaxTokens, 4)
+	strBuilder := strings.Builder{}
 
-	promptStr := strings.ToLower(this.Prompt.String())
-	promptStr = strings.TrimSpace(promptStr)
+	for _, block := range historyBlocks {
+		// block header
+		strBuilder.WriteString(fmt.Sprintf("%s%s\n", this.Color.GoalMode, HistoryTypeToString(block.Type)))
+		blockColor := this.Color.Command
+		switch block.Type {
+		case historyTypePrompt:
+			blockColor = this.Color.Prompt
+		case historyTypeLLMOutput:
+			blockColor = this.Color.Answer
+		case historyTypeShellInput:
+			blockColor = this.Color.PromptGoal
+		}
 
-	if promptStr == "status" {
-		this.PrintStatus()
+		strBuilder.WriteString(fmt.Sprintf("%s%s\n", blockColor, block.Content))
+	}
+
+	this.History.LogRecentHistory()
+	fmt.Fprintf(this.PromptAnswerWriter, "%s%s", strBuilder.String(), this.Color.Command)
+	this.SendPromptResponse("")
+}
+
+func (this *ShellState) GoalModeStart() {
+	// Get the prompt after the bang
+	goal := this.Prompt.String()[1:]
+	if goal == "" {
 		return
 	}
-	if promptStr == "help" {
-		this.PrintHelp()
-		return
+
+	// If the prompt is preceded with two bangs then go to unsafe mode
+	if goal[0] == '!' {
+		goal = goal[1:]
+		this.GoalModeUnsafe = true
+	} else {
+		this.GoalModeUnsafe = false
 	}
 
-	historyBlocks := this.History.GetLastNBytes(this.Butterfish.Config.ShellPromptHistoryWindow)
+	this.GoalMode = true
+	fmt.Fprintf(this.PromptAnswerWriter, "%sGoal mode starting...%s\n", this.Color.Answer, this.Color.Command)
+	this.GoalModeGoal = goal
+	this.Prompt.Clear()
+
+	prompt := "Start now."
+	log.Printf("Starting goal mode: %s", this.GoalModeGoal)
+	this.History.Append(historyTypePrompt, prompt)
+
+	this.goalModePrompt(prompt)
+}
+
+func (this *ShellState) GoalModeChat() {
+	prompt := this.Prompt.String()
+	this.Prompt.Clear()
+
+	log.Printf("Goal mode chat: %s\n", prompt)
+	this.goalModePrompt(prompt)
+}
+
+func (this *ShellState) GoalModeCommandResponse(status int, output string) {
+	log.Printf("Goal mode response: %d\n", status)
+	prompt := fmt.Sprintf("%s\nExit code: %d\n", output, status)
+	this.goalModePrompt(prompt)
+}
+
+func (this *ShellState) goalModePrompt(lastPrompt string) {
+	this.setState(statePromptResponse)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellSystemMessage)
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.GoalModeSystemMessage,
+		"goal", this.GoalModeGoal)
 	if err != nil {
-		log.Printf("Error getting system message prompt: %s", err)
-		this.State = stateNormal
-		log.Printf("State change: promptResponse -> normal")
+		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
+		log.Println(msg)
+		this.PrintError(msg)
+		return
+	}
+
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg)
+	if err != nil {
+		this.PrintError(err)
 		return
 	}
 
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
-		Prompt:        this.Prompt.String(),
+		Prompt:        lastPrompt,
 		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     512,
+		MaxTokens:     2048,
+		Temperature:   0.8,
+		HistoryBlocks: historyBlocks,
+		SystemMessage: sysMsg,
+	}
+
+	// we run this in a goroutine so that we can still receive input
+	// like Ctrl-C while waiting for the response
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.PromptAnswerWriter, this.PromptOutputChan,
+		this.Color.GoalMode, this.Color.Error)
+}
+
+func (this *ShellState) HandleLocalPrompt() bool {
+	promptStr := strings.ToLower(this.Prompt.String())
+	promptStr = strings.TrimSpace(promptStr)
+
+	switch promptStr {
+	case "status":
+		this.PrintStatus()
+	case "help":
+		this.PrintHelp()
+	case "history":
+		this.PrintHistory()
+	default:
+		return false
+	}
+
+	return true
+}
+
+// Given an encoder, a string, and a maximum number of takens, we count the
+// number of tokens in the string and truncate to the max tokens if the would
+// exceed it.
+func countAndTruncate(data string, encoder *tiktoken.Tiktoken, maxTokens int) (int, string, bool) {
+	tokens := encoder.Encode(data, nil, nil)
+	truncated := false
+	if len(tokens) >= maxTokens {
+		tokens = tokens[:maxTokens]
+		data = encoder.Decode(tokens)
+		truncated = true
+	}
+
+	return len(tokens), data, truncated
+}
+
+// Prepare to call assembleChat() based on the ShellState variables for
+// calculating token limits.
+func (this *ShellState) AssembleChat(prompt, sysMsg string) (string, []util.HistoryBlock, error) {
+	// How many tokens can this model handle
+	totalTokens := this.PromptMaxTokens
+	reserveForAnswer := this.TokensReservedForAnswer // leave available
+	maxPromptTokens := 512                           // for the prompt specifically
+	// for each individual history block
+	maxHistoryBlockTokens := this.Butterfish.Config.ShellMaxHistoryBlockTokens
+	// How much for the total request (prompt, history, sys msg)
+	maxCombinedPromptTokens := totalTokens - reserveForAnswer
+
+	return assembleChat(prompt, sysMsg, this.History,
+		this.Butterfish.Config.ShellPromptModel, this.getPromptEncoder(),
+		maxPromptTokens, maxHistoryBlockTokens, maxCombinedPromptTokens)
+}
+
+// Build a list of HistoryBlocks for use in GPT chat history, and ensure the
+// prompt and system message plus the history are within the token limit.
+// The prompt may be truncated based on maxPromptTokens.
+func assembleChat(
+	prompt, sysMsg string, history *ShellHistory, model string, encoder *tiktoken.Tiktoken,
+	maxPromptTokens, maxHistoryBlockTokens, maxTokens int) (string, []util.HistoryBlock, error) {
+
+	tokensPerMessage := NumTokensPerMessageForModel(model)
+
+	// baseline for chat
+	usedTokens := 3
+
+	// account for prompt
+	numPromptTokens, prompt, truncated := countAndTruncate(prompt, encoder, maxPromptTokens)
+	if truncated {
+		log.Printf("WARNING: truncated the prompt to %d tokens", numPromptTokens)
+	}
+	usedTokens += numPromptTokens
+
+	// account for system message
+	sysMsgTokens := encoder.Encode(sysMsg, nil, nil)
+	if len(sysMsgTokens) > 1028 {
+		log.Printf("WARNING: the system message is very long, this may cause you to hit the token limit. Recommend you reduce the size in prompts.yaml")
+	}
+
+	usedTokens += usedTokens + len(sysMsgTokens)
+	if usedTokens > maxTokens {
+		return "", nil, fmt.Errorf("System message too long, %d tokens", sysMsgTokens)
+	}
+
+	blocks, historyTokens := getHistoryBlocksByTokens(history, encoder,
+		maxHistoryBlockTokens, maxTokens-usedTokens, tokensPerMessage)
+	usedTokens += historyTokens
+
+	log.Printf("Chat tokens: %d\n", usedTokens)
+	if usedTokens > maxTokens {
+		panic("Too many tokens, this should not happen")
+	}
+
+	return prompt, blocks, nil
+}
+
+// Iterate through a history and build a list of HistoryBlocks up until the
+// maximum number of tokens is reached. A single block will be truncated to
+// the maxHistoryBlockTokens number. Each block will start at a baseline of
+// tokensPerMessage number of tokens.
+// We return the history blocks and the number of tokens it uses.
+func getHistoryBlocksByTokens(history *ShellHistory, encoder *tiktoken.Tiktoken, maxHistoryBlockTokens, maxTokens, tokensPerMessage int) ([]util.HistoryBlock, int) {
+
+	blocks := []util.HistoryBlock{}
+	usedTokens := 0
+
+	history.IterateBlocks(func(block *HistoryBuffer) bool {
+		msgTokens := tokensPerMessage
+
+		var roleString string
+		if block.Type == historyTypeLLMOutput {
+			roleString = "assistant"
+		} else {
+			roleString = "user"
+		}
+
+		// add tokens for role
+		msgTokens += len(encoder.Encode(roleString, nil, nil))
+		contentStr := block.Content.String()
+
+		// check existing block tokenizations
+		content, contentTokens, ok := block.GetTokenization(encoder.EncoderName(), block.Content.Size())
+
+		if !ok { // cache miss
+			// avoid processing super long strings with a ceiling
+			ceiling := maxHistoryBlockTokens * 4
+			contentLen := len(contentStr)
+			if contentLen > ceiling {
+				contentStr = contentStr[:ceiling]
+			}
+
+			// remove ANSI escape codes
+			historyContent := sanitizeTTYString(contentStr)
+			// encode and truncate
+			contentTokens, content, _ = countAndTruncate(historyContent, encoder, maxHistoryBlockTokens)
+			// save truncated string
+			block.SetTokenization(encoder.EncoderName(), contentLen, contentTokens, content)
+		}
+		msgTokens += contentTokens
+
+		if usedTokens+msgTokens > maxTokens {
+			// we're done adding blocks
+			return false
+		}
+
+		usedTokens += msgTokens
+		newBlock := util.HistoryBlock{
+			Type:    block.Type,
+			Content: content,
+		}
+
+		// we prepend the block so that the history is in the correct order
+		blocks = append([]util.HistoryBlock{newBlock}, blocks...)
+		return true
+	})
+
+	return blocks, usedTokens
+}
+
+func (this *ShellState) SendPrompt() {
+	this.setState(statePromptResponse)
+
+	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	this.PromptResponseCancel = cancel
+
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellSystemMessage)
+	if err != nil {
+		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
+		log.Println(msg)
+		this.PrintError(msg)
+		return
+	}
+
+	prompt := this.Prompt.String()
+	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg)
+	if err != nil {
+		this.PrintError(err)
+		return
+	}
+
+	request := &util.CompletionRequest{
+		Ctx:           requestCtx,
+		Prompt:        prompt,
+		Model:         this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:     this.TokensReservedForAnswer,
 		Temperature:   0.7,
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
 	}
 
-	this.History.Add(historyTypePrompt, this.Prompt.String())
+	this.History.Append(historyTypePrompt, this.Prompt.String())
 
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
-	go func() {
-		output, err := this.Butterfish.LLMClient.CompletionStream(request, this.PromptAnswerWriter)
-		if err != nil {
-			errStr := fmt.Sprintf("Error prompting in shell: %s\n", err)
-
-			// This error means the user needs to set up a subscription, give advice
-			if strings.Contains(errStr, ERR_429) {
-				errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
-			}
-
-			log.Printf("%s", errStr)
-
-			if !strings.Contains(errStr, "context canceled") {
-				fmt.Fprintf(this.PromptAnswerWriter, "%s", errStr)
-			}
-		}
-
-		this.PromptOutputChan <- &byteMsg{Data: []byte(output)}
-	}()
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.PromptAnswerWriter, this.PromptOutputChan,
+		this.Color.Answer, this.Color.Error)
 
 	this.Prompt.Clear()
+}
+
+func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Writer, outputChan chan *byteMsg, normalColor, errorColor string) {
+	fmt.Fprintf(writer, "%s", normalColor)
+	output, err := client.CompletionStream(request, writer)
+
+	toSend := []byte{}
+	if output != "" {
+		toSend = []byte(output)
+	}
+
+	if err != nil {
+		errStr := fmt.Sprintf("Error prompting LLM: %s\n", err)
+
+		// This error means the user needs to set up a subscription, give advice
+		if strings.Contains(errStr, ERR_429) {
+			errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
+		}
+
+		log.Printf("%s", errStr)
+
+		if !strings.Contains(errStr, "context canceled") {
+			fmt.Fprintf(writer, "%s%s", errorColor, errStr)
+			// We want to put the error message in the history as well
+			toSend = append(toSend, []byte(errStr)...)
+		}
+	}
+
+	if len(toSend) > 0 {
+		// send any output + error for processing (e.g. adding to history)
+		outputChan <- &byteMsg{Data: toSend}
+	}
 }
 
 // When the user presses tab or a similar hotkey, we want to turn the
@@ -1047,7 +1359,7 @@ func (this *ShellState) ShowAutosuggest(
 
 	if result.Command != buffer.String() {
 		// this is an old result, it doesn't match the current command buffer
-		log.Printf("Autosuggest result is old, ignoring")
+		log.Printf("Autosuggest result is old, ignoring. Expected: %s, got: %s", buffer.String(), result.Command)
 		return
 	}
 
@@ -1088,7 +1400,7 @@ func (this *ShellState) ShowAutosuggest(
 
 	// Use autosuggest buffer to get the bytes to write the greyed out
 	// autosuggestion and then move the cursor back to the original position
-	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, this.AutosuggestColorString)
+	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, this.Color.Autosuggest)
 
 	this.ParentOut.Write([]byte(buf))
 }
@@ -1130,6 +1442,46 @@ func (this *ShellState) ClearAutosuggest(colorStr string) {
 	this.AutosuggestBuffer = nil
 }
 
+func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
+	if this.AutosuggestEncoder == nil {
+		modelName := this.Butterfish.Config.ShellAutosuggestModel
+		encodingName := tiktoken.MODEL_TO_ENCODING[modelName]
+		if encodingName == "" {
+			log.Printf("WARNING: Encoder for autosuggest model %s not found, using default", modelName)
+			encodingName = "text-davinci-003"
+		}
+
+		encoder, err := tiktoken.GetEncoding(encodingName)
+		if err != nil {
+			panic(fmt.Sprintf("Error getting encoder for autosuggest model %s: %s", modelName, err))
+		}
+
+		this.AutosuggestEncoder = encoder
+	}
+
+	return this.AutosuggestEncoder
+}
+
+func (this *ShellState) getPromptEncoder() *tiktoken.Tiktoken {
+	if this.PromptEncoder == nil {
+		modelName := this.Butterfish.Config.ShellPromptModel
+		encodingName := tiktoken.MODEL_TO_ENCODING[modelName]
+		if encodingName == "" {
+			log.Printf("WARNING: Encoder for prompt model %s not found, using default", modelName)
+			encodingName = "gpt-3.5"
+		}
+
+		encoder, err := tiktoken.GetEncoding(encodingName)
+		if err != nil {
+			panic(fmt.Sprintf("Error getting encoder for prompt model %s: %s", modelName, err))
+		}
+
+		this.PromptEncoder = encoder
+	}
+
+	return this.PromptEncoder
+}
+
 func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) {
 	if !this.AutosuggestEnabled {
 		return
@@ -1146,24 +1498,29 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		return
 	}
 
-	historyBlocks := HistoryBlocksToString(this.History.GetLastNBytes(this.Butterfish.Config.ShellAutosuggestHistoryWindow))
+	maxTokensPerHistoryBlock := this.Butterfish.Config.ShellMaxHistoryBlockTokens
+	maxTokens := 1500 // Send a total of 1500 history tokens if available
 
+	historyBlocks, _ := getHistoryBlocksByTokens(this.History, this.getAutosuggestEncoder(),
+		maxTokensPerHistoryBlock, maxTokens, 4)
+
+	historyStr := HistoryBlocksToString(historyBlocks)
 	var llmPrompt string
 	var err error
 
 	if len(command) == 0 {
 		// command completion when we haven't started a command
 		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestNewCommand,
-			"history", historyBlocks)
+			"history", historyStr)
 	} else if !unicode.IsUpper(rune(command[0])) {
 		// command completion when we have started typing a command
 		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestCommand,
-			"history", historyBlocks,
+			"history", historyStr,
 			"command", command)
 	} else {
 		// prompt completion, like we're asking a question
 		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestPrompt,
-			"history", historyBlocks,
+			"history", historyStr,
 			"command", command)
 	}
 

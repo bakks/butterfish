@@ -9,7 +9,10 @@ all: build test
 proto/butterfish.pb.go: proto/butterfish.proto
 	cd proto && protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative butterfish.proto
 
-bin/butterfish: proto/butterfish.pb.go $(gofiles) Makefile
+proto/ibodai.pb.go: proto/ibodai.proto
+	cd proto && protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ibodai.proto
+
+bin/butterfish: proto/butterfish.pb.go proto/ibodai.pb.go $(gofiles) Makefile
 	mkdir -p bin
 	go build -ldflags "${flags}" -o ./bin/butterfish ./cmd/butterfish
 
@@ -24,5 +27,9 @@ test: proto/butterfish.pb.go
 
 build: bin/butterfish
 
-.PHONY: all clean watch test build
+licenses:
+	go-licenses report ./... 2>/dev/null | awk -F"," '{printf "|[%s](https://%s)|[%s](%s)|\n",$$1,$$1,$$3,$$2}'
+
+
+.PHONY: all clean watch test build licenses
 

@@ -63,16 +63,19 @@ type ButterfishConfig struct {
 	PromptLibrary PromptLibrary
 
 	// Shell mode configuration
-	ShellMode                bool
-	ShellPromptModel         string // used when the user enters an explicit prompt
-	ShellPromptHistoryWindow int    // how many bytes of history to include in the prompt
-	ShellCommandPrompt       string // replace the default command prompt (eg >) with this
-	ShellAutosuggestEnabled  bool   // whether to use autosuggest
-	ShellAutosuggestModel    string // used when we're autocompleting a command
+	ShellMode               bool
+	ShellPluginMode         bool
+	ShellColorDark          bool
+	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
+	ShellPromptModel        string // used when the user enters an explicit prompt
+	ShellLeavePromptAlone   bool   // don't try to edit the shell prompt
+	ShellAutosuggestEnabled bool   // whether to use autosuggest
+	ShellAutosuggestModel   string // used when we're autocompleting a command
 	// how long to wait between when the user stos typing and we ask for an
 	// autosuggest
-	ShellAutosuggestTimeout       time.Duration
-	ShellAutosuggestHistoryWindow int // how many bytes of history to include when autosuggesting
+	ShellAutosuggestTimeout time.Duration
+	// Maximum tokens that a single history line-item can consume
+	ShellMaxHistoryBlockTokens int
 
 	// Model, temp, and max tokens to use when executing the `gencmd` command
 	GencmdModel       string
@@ -88,6 +91,12 @@ type ButterfishConfig struct {
 	SummarizeModel       string
 	SummarizeTemperature float32
 	SummarizeMaxTokens   int
+}
+
+func (this *ButterfishConfig) ParseShell() string {
+	fields := strings.Split(this.ShellBinary, "/")
+	lastField := fields[len(fields)-1]
+	return lastField
 }
 
 // Interface for a library that accepts a prompt and interpolates variables
@@ -193,48 +202,6 @@ func MakeButterfishConfig() *ButterfishConfig {
 		SummarizeTemperature: 0.7,
 		SummarizeMaxTokens:   1024,
 	}
-}
-
-// Data type for passing byte chunks from a wrapped command around
-type byteMsg struct {
-	Data []byte
-}
-
-func NewByteMsg(data []byte) *byteMsg {
-	buf := make([]byte, len(data))
-	copy(buf, data)
-	return &byteMsg{
-		Data: buf,
-	}
-}
-
-// Given an io.Reader we write byte chunks to a channel
-func readerToChannel(input io.Reader, c chan<- *byteMsg) {
-	buf := make([]byte, 1024*16)
-
-	// Loop indefinitely
-	for {
-		// Read from stream
-		n, err := input.Read(buf)
-
-		// Check for error
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading from file: %s\n", err)
-			}
-			break
-		}
-
-		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
-			log.Printf("got escape sequence: %x", buf)
-			panic("Got incomplete escape sequence")
-		}
-
-		c <- NewByteMsg(buf[:n])
-	}
-
-	// Close the channel
-	close(c)
 }
 
 // For Control Sequence Introducer, or CSI, commands, the ESC [ (written as \e[ or \033[ in several programming and scripting languages) is followed by any number (including none) of "parameter bytes" in the range 0x30–0x3F (ASCII 0–9:;<=>?), then by any number of "intermediate bytes" in the range 0x20–0x2F (ASCII space and !"#$%&'()*+,-./), then finally by a single "final byte" in the range 0x40–0x7E (ASCII @A–Z[\]^_`a–z{|}~)

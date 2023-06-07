@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option go_package = "github.com/bakks/ibodai/proto";
+
+// This defines the Ibodai service which opens a bidirectional stream from the
+// client to the server. The server sends a command to the client (in a single
+// message), then the client streams a response back to the server in chunks
+// of bytes. The response chunks should reference the command ID.
+
+service Ibodai {
+  rpc Stream (stream ClientMessage) returns (stream Command);
+}
+
+// The Command message is sent from the server to the client. The client
+// should respond with a Response message with the same ID.
+message Command {
+  string id = 1;
+  string command = 2;
+}
+
+enum ClientMessageType {
+  HELLO = 0;
+  OUTPUT = 1;
+  DONE = 2;
+}
+
+message ClientMessage {
+  ClientMessageType type = 1;
+  string client_token = 2; // for HELLO
+  string command_id = 3; // for OUTPUT and DONE
+  bytes data = 4; // for OUTPUT
+  int32 exit_code = 5; // for DONE
+}

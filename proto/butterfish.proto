@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "github.com/teglon/butterfish/proto";
+option go_package = "github.com/bakks/butterfish/proto";
 
 // A format for serializing indexes of vector embeddings for a directory
 // and its constituent files.
