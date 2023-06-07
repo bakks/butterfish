@@ -70,7 +70,7 @@ Use:
 Here are special Butterfish commands:
   - Help : Give hints about usage.
   - Status : Show the current Butterfish configuration.
-	- History : Print out the history that would be sent in a GPT prompt.
+  - History : Print out the history that would be sent in a GPT prompt.
 
 If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000)."`
 

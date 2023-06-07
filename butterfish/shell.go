@@ -1498,8 +1498,6 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		return
 	}
 
-	// This is a bit of a hack, we're assembling a chat history without the prompt
-	// or system message
 	maxTokensPerHistoryBlock := this.Butterfish.Config.ShellMaxHistoryBlockTokens
 	maxTokens := 1500 // Send a total of 1500 history tokens if available
 
