@@ -2,33 +2,34 @@
 
 Let's do useful things with LLMs from the command line, with a bent towards software engineering.
 
-[![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) | Updates at [@pbbakkum](https://twitter.com/pbbakkum)
+[![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) ![Latest Version](https://img.shields.io/github/v/release/bakks/butterfish)
+Updates at [@pbbakkum](https://twitter.com/pbbakkum)
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/summarize.gif" alt="Butterfish" width="500px" height="250px" />
 
 ## What is this thing?
 
-- I want to call GPT from the command line, pipe input/output, index and manipulate local files, etc.
-- I want to see the actual prompts.
-- I want to accelerate how I write and run code.
-- Not into Python, prefer Go.
+-   I want to call GPT from the command line, pipe input/output, index and manipulate local files, etc.
+-   I want to see the actual prompts.
+-   I want to accelerate how I write and run code.
+-   Not into Python, prefer Go.
 
 Solution:
 
-- This is an experimental MacOS/Linux command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
-- What can you do with it?
-  - _Ask questions in your shell with recent history_
-  - Run raw GPT prompts.
-  - Semantically summarize local content.
-  - Generate and run shell commands.
-  - Detect when a command fails and offer a fix.
-  - Edit your prompts in a YAML file.
-  - Generate and cache embeddings for text files.
-  - Search and ask GPT questions based on those embeddings.
-- Experimenting with different modes of LLM invocation:
-  - Command Line: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
-  - Wrapped Shell: start with a Capital letter to prompt the LLM, prompts and autocomplete see recent history.
-- External contribution and feedback highly encouraged. Submit a PR!
+-   This is an experimental MacOS/Linux command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
+-   What can you do with it?
+    -   _Ask questions in your shell with recent history_
+    -   Run raw GPT prompts.
+    -   Semantically summarize local content.
+    -   Generate and run shell commands.
+    -   Detect when a command fails and offer a fix.
+    -   Edit your prompts in a YAML file.
+    -   Generate and cache embeddings for text files.
+    -   Search and ask GPT questions based on those embeddings.
+-   Experimenting with different modes of LLM invocation:
+    -   Command Line: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
+    -   Wrapped Shell: start with a Capital letter to prompt the LLM, prompts and autocomplete see recent history.
+-   External contribution and feedback highly encouraged. Submit a PR!
 
 ## Installation / Authentication
 
@@ -66,17 +67,17 @@ You might use your local terminal for lots of everyday tasks - building code, us
 
 Shell mode is an attempt to tightly integrate language models into your shell. Think Github Copilot for shell. The goals here are:
 
-- Make the user faster and more effective
-- Be unobtrusive, don't break current shell workflows
-- Don't require another window or using mouse
-- Use the recent shell history
+-   Make the user faster and more effective
+-   Be unobtrusive, don't break current shell workflows
+-   Don't require another window or using mouse
+-   Use the recent shell history
 
 How does this work? Shell mode _wraps_ your shell rather than replacing it.
 
-- You run `butterfish shell` and get a transparent layer on top of your normal shell.
-- You start a command with a capital letter to prompt the LLM, e.g. "How do I do..."
-- You can autocomplete commands and prompt questions
-- Prompts and autocomplete use local context for answers, like ChatGPT
+-   You run `butterfish shell` and get a transparent layer on top of your normal shell.
+-   You start a command with a capital letter to prompt the LLM, e.g. "How do I do..."
+-   You can autocomplete commands and prompt questions
+-   Prompts and autocomplete use local context for answers, like ChatGPT
 
 This pattern is shockingly effective - you can ask the LLM to solve the error that just printed, and if it suggests a command then autocomplete that command.
 
@@ -155,8 +156,8 @@ butterfish shell -m 'gpt-4' -w 6000
 
 If you're looking for a way to accidentally delete your files, Plugin Mode is a way to grant ChatGPT plugins direct access to a machine. Example chat prompts:
 
-- What files are in my home directory?
-- Create a new Python project in ~/project using pip dependencies, provide a hello world script.
+-   What files are in my home directory?
+-   Create a new Python project in ~/project using pip dependencies, provide a hello world script.
 
 <img src="https://github.com/bakks/butterfish/raw/plugin/assets/plugin.png" alt="Plugin Demo" width="500px" />
 
