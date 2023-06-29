@@ -14,9 +14,10 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mitchellh/go-homedir"
 
+	//_ "net/http/pprof"
+
 	bf "github.com/bakks/butterfish/butterfish"
 	"github.com/bakks/butterfish/util"
-	//_ "net/http/pprof"
 )
 
 var ( // these are filled in at build time
@@ -188,9 +189,9 @@ func getBuildInfo() string {
 
 func main() {
 	// start pprof server in goroutine
-	//go func() {
-	//	log.Println(http.ListenAndServe("localhost:6060", nil))
-	//}()
+	// go func() {
+	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
+	// }()
 
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
 	cli := &CliConfig{}

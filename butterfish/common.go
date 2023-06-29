@@ -106,9 +106,7 @@ func readerToChannelWithPosition(input io.Reader, c chan<- *byteMsg, pos chan<- 
 				Row:    row,
 				Column: col,
 			}
-		}
 
-		if found {
 			cleaned := cursorPosRegex.ReplaceAll(buf[:n], []byte{})
 			copy(buf, cleaned)
 			n = len(cleaned)

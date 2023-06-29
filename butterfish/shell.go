@@ -348,7 +348,8 @@ func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
 func (this *ShellState) GetCursorPosition() (int, int) {
 	// send the cursor position request
 	this.ParentOut.Write([]byte(ESC_CUP))
-	timeout := time.After(500000 * time.Millisecond)
+	// we wait 5s, if we haven't gotten a response by then we likely have a bug
+	timeout := time.After(5000 * time.Millisecond)
 	var pos *cursorPosition
 
 	// the parent in reader watches for these responses, set timeout and
@@ -478,9 +479,11 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	log.Printf("Starting shell multiplexer")
 
-	childOutReader := make(chan *byteMsg)
-	parentInReader := make(chan *byteMsg)
-	parentPositionChan := make(chan *cursorPosition)
+	childOutReader := make(chan *byteMsg, 8)
+	parentInReader := make(chan *byteMsg, 8)
+	// This is a buffered channel so that we don't block reading input when
+	// pushing a new position
+	parentPositionChan := make(chan *cursorPosition, 128)
 
 	go readerToChannel(childOut, childOutReader)
 	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
@@ -583,6 +586,16 @@ func (this *ShellState) Mux() {
 			this.History.Append(historyTypeShellOutput, err.Error())
 			fmt.Fprintf(this.ParentOut, "%s%s", this.Color.Error, err.Error())
 
+		// The CursorPosChan produces cursor positions seen in the parent input,
+		// which have then been cleaned from the incoming text. If we find a
+		// position in this case it means that a child process has requested
+		// the cursor position (rather than butterfish shell), and so we re-add
+		// the position to the child input. The other case is when we call
+		// GetCursorPosition(), which blocks this process until we get a valid
+		// position.
+		case pos := <-this.CursorPosChan:
+			fmt.Fprintf(this.ChildIn, "\x1b[%d;%dR", pos.Row, pos.Column)
+
 		// the terminal window resized and we got a SIGWINCH
 		case <-this.Sigwinch:
 			termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
@@ -676,7 +689,7 @@ func (this *ShellState) Mux() {
 				return
 			}
 
-			//log.Printf("Got child output:\n%s", prettyHex(childOutMsg.Data))
+			//log.Printf("Got child output:\n%x", childOutMsg.Data)
 
 			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
 			//			if prompts != 0 {
@@ -733,6 +746,9 @@ func (this *ShellState) Mux() {
 			}
 
 			for {
+				// The InputFromParent function consumes bytes from the passed in data
+				// buffer and returns unprocessed bytes, so we loop and continue to
+				// pass data in, if available
 				leftover := this.InputFromParent(this.Butterfish.Ctx, data)
 
 				if leftover == nil || len(leftover) == 0 {
