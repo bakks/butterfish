@@ -42,6 +42,23 @@ const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 const defaultEnvPath = "~/.config/butterfish/butterfish.env"
 const defaultPromptPath = "~/.config/butterfish/prompts.yaml"
 
+const shell_help = `Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
+
+Use:
+  - Type a normal command, like 'ls -l' and press enter to execute it
+  - Start a command with a capital letter to send it to GPT, like 'How do I recursively find local .py files?'
+  - Autosuggest will print command completions, press tab to fill them in
+  - GPT will be able to see your shell history, so you can ask contextual questions like 'why didn't my last command work?'
+	- Start a command with ! to enter Goal Mode, in which GPT will act as an Agent attempting to accomplish your goal by executing commands, for example '!Run make in this directory and debug any problems'.
+	- Start a command with !! to enter Unsafe Goal Mode, in which GPT will execute commands without confirmation. USE WITH CAUTION.
+
+Here are special Butterfish commands:
+  - Help : Give hints about usage.
+  - Status : Show the current Butterfish configuration.
+  - History : Print out the history that would be sent in a GPT prompt.
+
+If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000).`
+
 // Kong configuration for shell arguments (shell meaning when butterfish is
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
@@ -58,22 +75,7 @@ type CliConfig struct {
 		NoCommandPrompt       bool `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
 		LightColor            bool `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 		MaxHistoryBlockTokens int  `short:"h" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
-	} `cmd:"" help:"Start the Butterfish shell wrapper. This wraps your existing shell, giving you access to LLM prompting by starting your command with a capital letter. LLM calls include prior shell context. This is great for keeping a chat-like terminal open, sending written prompts, debugging commands, and iterating on past actions.
-
-Use:
-  - Type a normal command, like 'ls -l' and press enter to execute it
-  - Start a command with a capital letter to send it to GPT, like 'How do I recursively find local .py files?'
-  - Autosuggest will print command completions, press tab to fill them in
-  - GPT will be able to see your shell history, so you can ask contextual questions like 'why didn't my last command work?'
-	- Start a command with ! to enter Goal Mode, in which GPT will act as an Agent attempting to accomplish your goal by executing commands, for example '!Run make in this directory and debug any problems'.
-	- Start a command with !! to enter Unsafe Goal Mode, in which GPT will execute commands without confirmation. USE WITH CAUTION.
-
-Here are special Butterfish commands:
-  - Help : Give hints about usage.
-  - Status : Show the current Butterfish configuration.
-  - History : Print out the history that would be sent in a GPT prompt.
-
-If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000)."`
+	} `cmd:"" help:"${shell_help}"`
 
 	Plugin struct {
 		NoPrompt bool   `short:"f" default:"false" help:"Execute remote commands without manual confirmation."`
@@ -199,7 +201,10 @@ func main() {
 	cliParser, err := kong.New(cli,
 		kong.Name("butterfish"),
 		kong.Description(desc),
-		kong.UsageOnError())
+		kong.UsageOnError(),
+		kong.Vars{
+			"shell_help": shell_help,
+		})
 	if err != nil {
 		panic(err)
 	}
