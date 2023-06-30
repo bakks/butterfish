@@ -924,13 +924,19 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 			return data[index+1:]
 
+		} else if data[0] == 0x03 { // Ctrl-C
+			this.Command.Clear()
+			this.setState(stateNormal)
+			this.ChildIn.Write([]byte{data[0]})
+			return data[1:]
+
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
 				this.RealizeAutosuggest(this.Command, true, this.Color.Command)
 			} else {
 				// no last autosuggest found, just forward the tab
-				this.ChildIn.Write(data)
+				this.ChildIn.Write([]byte{data[0]})
 			}
 			return data[1:]
 
