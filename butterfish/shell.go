@@ -1481,13 +1481,7 @@ func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
 func (this *ShellState) getPromptEncoder() *tiktoken.Tiktoken {
 	if this.PromptEncoder == nil {
 		modelName := this.Butterfish.Config.ShellPromptModel
-		encodingName := tiktoken.MODEL_TO_ENCODING[modelName]
-		if encodingName == "" {
-			log.Printf("WARNING: Encoder for prompt model %s not found, using default", modelName)
-			encodingName = "gpt-3.5"
-		}
-
-		encoder, err := tiktoken.GetEncoding(encodingName)
+		encoder, err := tiktoken.EncodingForModel(modelName)
 		if err != nil {
 			panic(fmt.Sprintf("Error getting encoder for prompt model %s: %s", modelName, err))
 		}

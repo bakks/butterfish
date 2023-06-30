@@ -8,6 +8,68 @@ import (
 	"strconv"
 )
 
+// See https://platform.openai.com/docs/models/overview
+var MODEL_TO_NUM_TOKENS = map[string]int{
+	"gpt-4":                  8192,
+	"gpt-4-0314":             8192,
+	"gpt-4-0613":             8192,
+	"gpt-4-32k":              32768,
+	"gpt-4-32k-0314":         32768,
+	"gpt-4-32k-0613":         32768,
+	"gpt-3.5-turbo":          4096,
+	"gpt-3.5-turbo-0301":     4096,
+	"gpt-3.5-turbo-16k":      16384,
+	"gpt-3.5-turbo-16k-0613": 16384,
+	"text-davinci-003":       2047,
+	"text-davinci-002":       2047,
+	"code-davinci-002":       8001,
+	"code-davinci-001":       8001,
+	"text-curie-001":         2049,
+	"text-babbage-001":       2049,
+	"text-ada-001":           2049,
+	"davinci":                2049,
+	"curie":                  2049,
+	"babbage":                2049,
+	"ada":                    2049,
+	"code-cushman-002":       2048,
+	"code-cushman-001":       2048,
+}
+
+// these token numbers come from
+// https://github.com/pkoukk/tiktoken-go#counting-tokens-for-chat-api-calls
+var MODEL_TO_TOKENS_PER_MESSAGE = map[string]int{
+	"gpt-4":                  3,
+	"gpt-4-0314":             3,
+	"gpt-4-0613":             3,
+	"gpt-4-32k":              3,
+	"gpt-4-32k-0314":         3,
+	"gpt-4-32k-0613":         3,
+	"gpt-3.5-turbo":          4,
+	"gpt-3.5-turbo-0301":     4,
+	"gpt-3.5-turbo-16k":      4,
+	"gpt-3.5-turbo-16k-0613": 4,
+}
+
+func NumTokensForModel(model string) int {
+	numTokens, ok := MODEL_TO_NUM_TOKENS[model]
+	if ok {
+		return numTokens
+	}
+
+	log.Printf("WARNING: Unknown model %s, using default num tokens 2048", model)
+	return 2048
+}
+
+func NumTokensPerMessageForModel(model string) int {
+	numTokens, ok := MODEL_TO_TOKENS_PER_MESSAGE[model]
+	if ok {
+		return numTokens
+	}
+
+	log.Printf("WARNING: Unknown model %s, using default num tokens per message 4", model)
+	return 4
+}
+
 // Data type for passing byte chunks from a wrapped command around
 type byteMsg struct {
 	Data []byte
@@ -134,60 +196,6 @@ func max(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// See https://platform.openai.com/docs/models/overview
-var MODEL_TO_NUM_TOKENS = map[string]int{
-	"gpt-4":              8192,
-	"gpt-4-0314":         8192,
-	"gpt-4-32k":          32768,
-	"gpt-4-32k-0314":     32768,
-	"gpt-3.5-turbo":      4096,
-	"gpt-3.5-turbo-0301": 4096,
-	"text-davinci-003":   2047,
-	"text-davinci-002":   2047,
-	"code-davinci-002":   8001,
-	"code-davinci-001":   8001,
-	"text-curie-001":     2049,
-	"text-babbage-001":   2049,
-	"text-ada-001":       2049,
-	"davinci":            2049,
-	"curie":              2049,
-	"babbage":            2049,
-	"ada":                2049,
-	"code-cushman-002":   2048,
-	"code-cushman-001":   2048,
-}
-
-// these token numbers come from
-// https://github.com/pkoukk/tiktoken-go#counting-tokens-for-chat-api-calls
-var MODEL_TO_TOKENS_PER_MESSAGE = map[string]int{
-	"gpt-4":              3,
-	"gpt-4-0314":         3,
-	"gpt-4-32k":          3,
-	"gpt-4-32k-0314":     3,
-	"gpt-3.5-turbo":      4,
-	"gpt-3.5-turbo-0301": 4,
-}
-
-func NumTokensForModel(model string) int {
-	numTokens, ok := MODEL_TO_NUM_TOKENS[model]
-	if ok {
-		return numTokens
-	}
-
-	log.Printf("WARNING: Unknown model %s, using default num tokens 2048", model)
-	return 2048
-}
-
-func NumTokensPerMessageForModel(model string) int {
-	numTokens, ok := MODEL_TO_TOKENS_PER_MESSAGE[model]
-	if ok {
-		return numTokens
-	}
-
-	log.Printf("WARNING: Unknown model %s, using default num tokens per message 4", model)
-	return 4
 }
 
 func prettyAnsiCsi(data []byte) (int, string) {
