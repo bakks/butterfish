@@ -2,33 +2,24 @@
 
 Let's do useful things with LLMs from the command line, with a bent towards software engineering.
 
-[![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) [![Latest Version](https://img.shields.io/github/v/release/bakks/butterfish)](https://github.com/bakks/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
+[![Website](https://img.shields.io/badge/website-https://butterfi.sh-blue)](https://butterfi.sh) [![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) [![Latest Version](https://img.shields.io/github/v/release/bakks/butterfish)](https://github.com/bakks/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/summarize.gif" alt="Butterfish" width="500px" height="250px" />
 
 ## What is this thing?
 
--   I want to call GPT from the command line, pipe input/output, index and manipulate local files, etc.
--   I want to see the actual prompts.
--   I want to accelerate how I write and run code.
--   Not into Python, prefer Go.
+Butterfish is a tool to use the OpenAI API from the Command Line, with particular attention attention paid to fluency and Unix principles. [Shell Mode](#shell-mode) is the current development focus -- it embeds ChatGPT prompting directly in your terminal shell.
 
-Solution:
+### What can you do with it?
 
--   This is an experimental MacOS/Linux command line tool for using GPT-3. You give it your OpenAI key and it runs queries.
--   What can you do with it?
-    -   _Ask questions in your shell with recent history_
-    -   Run raw GPT prompts.
-    -   Semantically summarize local content.
-    -   Generate and run shell commands.
-    -   Detect when a command fails and offer a fix.
-    -   Edit your prompts in a YAML file.
-    -   Generate and cache embeddings for text files.
-    -   Search and ask GPT questions based on those embeddings.
--   Experimenting with different modes of LLM invocation:
-    -   Command Line: directly from command line with `butterfish <cmd>`, e.g. `butterfish gencmd 'list all .go files in current directory'`.
-    -   Wrapped Shell: start with a Capital letter to prompt the LLM, prompts and autocomplete see recent history.
--   External contribution and feedback highly encouraged. Submit a PR!
+-   Ask questions about your shell history.
+-   Generate and autocomplete shell commands.
+-   Give GPT a goal and let it execute commands.
+-   Summarize a local file.
+-   Generate and search embeddings of local files.
+-   See and edit the actual AI prompts.
+
+Feedback and external contribution is very welcome! Butterfish is open source under the MIT license. We hope that you find it useful!
 
 ## Installation / Authentication
 
@@ -158,6 +149,8 @@ If you're looking for a way to accidentally delete your files, Plugin Mode is a 
 
 -   What files are in my home directory?
 -   Create a new Python project in ~/project using pip dependencies, provide a hello world script.
+
+Note this is not yet an official OpenAI plugin, please contact me if you're interested in this.
 
 <img src="https://github.com/bakks/butterfish/raw/plugin/assets/plugin.png" alt="Plugin Demo" width="500px" />
 
