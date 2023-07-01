@@ -1,13 +1,6 @@
 Output gif/summarize.gif
 
-Require butterfish
-
-Set FontSize 18
-Set Width 1000
-Set Height 500
-Set Framerate 30
-Set PlaybackSpeed 1
-Set Padding 10
+Source common.tape
 
 Hide Sleep 2s Show
 

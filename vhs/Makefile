@@ -3,7 +3,7 @@ gifs = $(patsubst %.tape,gif/%.gif,$(tapes))
 
 all: $(gifs)
 
-gif/%.gif: %.tape
+gif/%.gif: %.tape common.tape
 	@echo "Generating $@"
 	vhs $<
 
