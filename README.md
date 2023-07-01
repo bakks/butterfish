@@ -1,4 +1,4 @@
-# Butterfish
+# 🐠 Butterfish
 
 Let's do useful things with LLMs from the command line, with a bent towards software engineering.
 
