@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/PullRequestInc/go-gpt3 v1.1.15
 	github.com/alecthomas/kong v0.8.0
+	github.com/bakks/tiktoken-go v0.1.4-bakks-2
 	github.com/charmbracelet/bubbles v0.16.1
 	github.com/charmbracelet/bubbletea v0.24.2
 	github.com/charmbracelet/lipgloss v0.7.1
@@ -16,7 +17,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/muesli/reflow v0.3.0
-	github.com/pkoukk/tiktoken-go v0.1.4
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/afero v1.9.5
 	github.com/stretchr/testify v1.8.2
@@ -47,10 +47,6 @@ require (
 	golang.org/x/sync v0.3.0 // indirect
 	golang.org/x/sys v0.9.0 // indirect
 	golang.org/x/text v0.10.0 // indirect
-	google.golang.org/genproto v0.0.0-20230525234025-438c736192d0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230629202037-9506855d4529 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// replace tiktoken with local version
-replace github.com/pkoukk/tiktoken-go => github.com/bakks/tiktoken-go v0.1.4-bakks

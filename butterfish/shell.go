@@ -18,8 +18,8 @@ import (
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
 
+	"github.com/bakks/tiktoken-go"
 	"github.com/mitchellh/go-ps"
-	"github.com/pkoukk/tiktoken-go"
 	"golang.org/x/term"
 )
 
@@ -624,6 +624,8 @@ func (this *ShellState) Mux() {
 				buffer = this.Prompt
 			case stateShell, stateNormal:
 				buffer = this.Command
+			case statePromptResponse:
+				continue
 			default:
 				log.Printf("Got autosuggest result in unexpected state %d", this.State)
 				continue
