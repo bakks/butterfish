@@ -115,8 +115,7 @@ type PromptLibrary interface {
 type LLM interface {
 	CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error)
 	Completion(request *util.CompletionRequest) (string, error)
-	Embeddings(ctx context.Context, input []string) ([][]float64, error)
-	Edits(ctx context.Context, content, instruction, model string, temperature float32) (string, error)
+	Embeddings(ctx context.Context, input []string) ([][]float32, error)
 }
 
 type ButterfishCtx struct {
@@ -302,7 +301,7 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 	return ptmx, cleanup, nil
 }
 
-func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
+func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float32, error) {
 	return this.LLMClient.Embeddings(ctx, content)
 }
 

@@ -21,27 +21,27 @@ func TestSearch(t *testing.T) {
 							{
 								Start:  0,
 								End:    1,
-								Vector: []float64{1, 0, 0, 0, 0},
+								Vector: []float32{1, 0, 0, 0, 0},
 							},
 							{
 								Start:  1,
 								End:    2,
-								Vector: []float64{0, 1, 0, 0, 0},
+								Vector: []float32{0, 1, 0, 0, 0},
 							},
 							{
 								Start:  2,
 								End:    3,
-								Vector: []float64{0, 0, 1, 0, 0},
+								Vector: []float32{0, 0, 1, 0, 0},
 							},
 							{
 								Start:  3,
 								End:    4,
-								Vector: []float64{0, 0, 0, 1, 0},
+								Vector: []float32{0, 0, 0, 1, 0},
 							},
 							{
 								Start:  4,
 								End:    5,
-								Vector: []float64{0, 0, 0, 0, 1},
+								Vector: []float32{0, 0, 0, 0, 1},
 							},
 						},
 					},
@@ -50,7 +50,7 @@ func TestSearch(t *testing.T) {
 		},
 	}
 
-	results, err := index.SearchWithVector(context.Background(), []float64{1, 0.5, 0, 0, 0}, 3)
+	results, err := index.SearchWithVector(context.Background(), []float32{1, 0.5, 0, 0, 0}, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(results))
 	assert.Equal(t, "/path/foo/test.txt", results[0].FilePath)
@@ -63,11 +63,11 @@ type mockEmbedder struct {
 	Calls int
 }
 
-func (this *mockEmbedder) CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error) {
-	embeddings := make([][]float64, len(content))
+func (this *mockEmbedder) CalculateEmbeddings(ctx context.Context, content []string) ([][]float32, error) {
+	embeddings := make([][]float32, len(content))
 	for i, str := range content {
 		// create a fake embedding of the ascii values of the first 5 chars
-		embeddings[i] = make([]float64, 128)
+		embeddings[i] = make([]float32, 128)
 		embeddings[i][int(str[0])] = 1
 	}
 

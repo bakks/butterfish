@@ -10,20 +10,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PullRequestInc/go-gpt3"
 	"github.com/bakks/butterfish/util"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const ERR_429 = "429:insufficient_quota"
 const ERR_429_HELP = "You are likely using a free OpenAI account without a subscription activated, this error means you are out of credits. To resolve it, set up a subscription at https://platform.openai.com/account/billing/overview. This requires a credit card and payment, run `butterfish help` for guidance on managing cost. Once you have a subscription set up you must issue a NEW OpenAI token, your previous token will not reflect the subscription."
 
 var LegacyModelTypes = []string{
-	gpt3.TextAda001Engine,
-	gpt3.TextBabbage001Engine,
-	gpt3.TextCurie001Engine,
-	gpt3.TextDavinci001Engine,
-	gpt3.TextDavinci002Engine,
-	gpt3.TextDavinci003Engine,
+	openai.GPT3TextAda001,
+	openai.GPT3TextBabbage001,
+	openai.GPT3TextCurie001,
+	openai.GPT3TextDavinci001,
+	openai.GPT3TextDavinci002,
+	openai.GPT3TextDavinci003,
 }
 
 func IsLegacyModel(model string) bool {
@@ -36,7 +36,7 @@ func IsLegacyModel(model string) bool {
 }
 
 type GPT struct {
-	client        gpt3.Client
+	client        *openai.Client
 	verbose       bool
 	useLogging    bool
 	verboseWriter io.Writer
@@ -45,9 +45,7 @@ type GPT struct {
 const gptClientTimeout = 300 * time.Second
 
 func NewGPT(token string, verbose bool, verboseWriter io.Writer) *GPT {
-	client := gpt3.NewClient(token,
-		gpt3.WithDefaultEngine(gpt3.TextDavinci003Engine),
-		gpt3.WithTimeout(gptClientTimeout))
+	client := openai.NewClient(token)
 
 	return &GPT{
 		client:        client,
@@ -85,7 +83,7 @@ func (this *GPT) Printf(format string, args ...any) {
 	}
 }
 
-func ChatCompletionRequestMessagesString(msgs []gpt3.ChatCompletionRequestMessage) string {
+func ChatCompletionRequestMessagesString(msgs []openai.ChatCompletionMessage) string {
 	out := []string{}
 	for _, msg := range msgs {
 		line := fmt.Sprintf("%s:  %s", msg.Role, msg.Content)
@@ -94,8 +92,8 @@ func ChatCompletionRequestMessagesString(msgs []gpt3.ChatCompletionRequestMessag
 	return strings.Join(out, "\n")
 }
 
-func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []gpt3.ChatCompletionRequestMessage {
-	out := []gpt3.ChatCompletionRequestMessage{
+func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []openai.ChatCompletionMessage {
+	out := []openai.ChatCompletionMessage{
 		{
 			Role:    "system",
 			Content: systemMsg,
@@ -108,7 +106,7 @@ func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []
 			role = "assistant"
 		}
 
-		nextBlock := gpt3.ChatCompletionRequestMessage{
+		nextBlock := openai.ChatCompletionMessage{
 			Role:    role,
 			Content: block.Content,
 		}
@@ -163,16 +161,16 @@ func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Wri
 }
 
 func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
-	engine := request.Model
-	req := gpt3.CompletionRequest{
+	req := openai.CompletionRequest{
 		Prompt:      []string{request.Prompt},
-		MaxTokens:   &request.MaxTokens,
-		Temperature: &request.Temperature,
+		Model:       request.Model,
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
 	}
 
 	strBuilder := strings.Builder{}
 
-	callback := func(resp *gpt3.CompletionResponse) {
+	callback := func(resp openai.CompletionResponse) {
 		if resp.Choices == nil || len(resp.Choices) == 0 {
 			return
 		}
@@ -183,16 +181,29 @@ func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer 
 	}
 
 	this.printPrompt(request.Prompt)
-	err := this.client.CompletionStreamWithEngine(request.Ctx, engine, req, callback)
+	stream, err := this.client.CreateCompletionStream(request.Ctx, req)
+
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return "", err
+		}
+
+		callback(response)
+	}
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
 	return strBuilder.String(), err
 }
 
 func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
-	req := gpt3.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model: request.Model,
-		Messages: []gpt3.ChatCompletionRequestMessage{
+		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "system",
 				Content: request.SystemMessage,
@@ -203,7 +214,7 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 			},
 		},
 		MaxTokens:   request.MaxTokens,
-		Temperature: &request.Temperature,
+		Temperature: request.Temperature,
 		N:           1,
 	}
 
@@ -215,27 +226,27 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		return "", errors.New("system message required for full chat completion")
 	}
 	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
-	messages := append(gptHistory, gpt3.ChatCompletionRequestMessage{
+	messages := append(gptHistory, openai.ChatCompletionMessage{
 		Role:    "user",
 		Content: request.Prompt,
 	})
 
-	req := gpt3.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model:       request.Model,
 		Messages:    messages,
 		MaxTokens:   request.MaxTokens,
-		Temperature: &request.Temperature,
+		Temperature: request.Temperature,
 		N:           1,
 	}
 
 	return this.doChatStreamCompletion(request.Ctx, req, writer)
 }
 
-func (this *GPT) doChatStreamCompletion(ctx context.Context, req gpt3.ChatCompletionRequest, writer io.Writer) (string, error) {
+func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatCompletionRequest, writer io.Writer) (string, error) {
 
 	strBuilder := strings.Builder{}
 
-	callback := func(resp *gpt3.ChatCompletionStreamResponse) {
+	callback := func(resp openai.ChatCompletionStreamResponse) {
 		if resp.Choices == nil || len(resp.Choices) == 0 {
 			return
 		}
@@ -250,23 +261,36 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req gpt3.ChatComple
 	}
 
 	this.printPrompt(ChatCompletionRequestMessagesString(req.Messages))
-	err := this.client.ChatCompletionStream(ctx, req, callback)
-	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
+	stream, err := this.client.CreateChatCompletionStream(ctx, req)
 
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return "", err
+		}
+
+		callback(response)
+	}
+
+	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 	return strBuilder.String(), err
 }
 
 // Run a GPT completion request and return the response
 func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, error) {
-	engine := request.Model
-	req := gpt3.CompletionRequest{
-		Prompt:      []string{request.Prompt},
-		MaxTokens:   &request.MaxTokens,
-		Temperature: &request.Temperature,
+	req := openai.CompletionRequest{
+		Model:       request.Model,
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
+		Prompt:      request.Prompt,
 	}
 
 	this.printPrompt(request.Prompt)
-	resp, err := this.client.CompletionWithEngine(request.Ctx, engine, req)
+	resp, err := this.client.CreateCompletion(request.Ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -285,16 +309,16 @@ func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, er
 	}
 
 	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
-	messages := append(gptHistory, gpt3.ChatCompletionRequestMessage{
+	messages := append(gptHistory, openai.ChatCompletionMessage{
 		Role:    "user",
 		Content: request.Prompt,
 	})
 
-	req := gpt3.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model:       request.Model,
 		Messages:    messages,
 		MaxTokens:   request.MaxTokens,
-		Temperature: &request.Temperature,
+		Temperature: request.Temperature,
 		N:           1,
 	}
 
@@ -302,9 +326,9 @@ func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, er
 }
 
 func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, error) {
-	req := gpt3.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model: request.Model,
-		Messages: []gpt3.ChatCompletionRequestMessage{
+		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "system",
 				Content: request.SystemMessage,
@@ -315,16 +339,16 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, 
 			},
 		},
 		MaxTokens:   request.MaxTokens,
-		Temperature: &request.Temperature,
+		Temperature: request.Temperature,
 		N:           1,
 	}
 
 	return this.doChatCompletion(request.Ctx, req)
 }
 
-func (this *GPT) doChatCompletion(ctx context.Context, request gpt3.ChatCompletionRequest) (string, error) {
+func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (string, error) {
 	this.printPrompt(ChatCompletionRequestMessagesString(request.Messages))
-	resp, err := this.client.ChatCompletion(ctx, request)
+	resp, err := this.client.CreateChatCompletion(ctx, request)
 	if err != nil {
 		return "", err
 	}
@@ -336,7 +360,7 @@ func (this *GPT) doChatCompletion(ctx context.Context, request gpt3.ChatCompleti
 }
 
 const GPTEmbeddingsMaxTokens = 8192
-const GPTEmbeddingsModel = "text-embedding-ada-002"
+const GPTEmbeddingsModel = openai.AdaEmbeddingV2
 
 func withExponentialBackoff(writer io.Writer, f func() error) error {
 	for i := 0; ; i++ {
@@ -357,8 +381,8 @@ func withExponentialBackoff(writer io.Writer, f func() error) error {
 	}
 }
 
-func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, error) {
-	req := gpt3.EmbeddingsRequest{
+func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float32, error) {
+	req := openai.EmbeddingRequest{
 		Input: input,
 		Model: GPTEmbeddingsModel,
 	}
@@ -377,10 +401,10 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 		this.Printf("%s\n", summary)
 	}
 
-	result := [][]float64{}
+	result := [][]float32{}
 
 	err := withExponentialBackoff(this.verboseWriter, func() error {
-		resp, err := this.client.Embeddings(ctx, req)
+		resp, err := this.client.CreateEmbeddings(ctx, req)
 		if err != nil {
 			return err
 		}
@@ -392,30 +416,4 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float64, e
 	})
 
 	return result, err
-}
-
-const GPTEditModel = "code-davinci-edit-001"
-
-func (this *GPT) Edits(ctx context.Context,
-	content, instruction, model string,
-	temperature float32) (string, error) {
-	if model == "" {
-		model = GPTEditModel
-	}
-
-	req := gpt3.EditsRequest{
-		Model:       model,
-		Input:       content,
-		Instruction: instruction,
-		Temperature: &temperature,
-	}
-
-	this.printPrompt(fmt.Sprintf("%s\n---\n%s", instruction, content))
-
-	resp, err := this.client.Edits(ctx, req)
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Choices[0].Text, nil
 }

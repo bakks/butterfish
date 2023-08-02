@@ -24,14 +24,14 @@ import (
 )
 
 type Embedder interface {
-	CalculateEmbeddings(ctx context.Context, content []string) ([][]float64, error)
+	CalculateEmbeddings(ctx context.Context, content []string) ([][]float32, error)
 }
 
 type FileEmbeddingIndex interface {
 	SetEmbedder(embedder Embedder)
 	Search(ctx context.Context, query string, numResults int) ([]*VectorSearchResult, error)
-	Vectorize(ctx context.Context, content string) ([]float64, error)
-	SearchWithVector(ctx context.Context, queryVector []float64, k int) ([]*VectorSearchResult, error)
+	Vectorize(ctx context.Context, content string) ([]float32, error)
+	SearchWithVector(ctx context.Context, queryVector []float32, k int) ([]*VectorSearchResult, error)
 	PopulateSearchResults(ctx context.Context, embeddings []*VectorSearchResult) error
 	ClearPaths(ctx context.Context, paths []string) error
 	ClearPath(ctx context.Context, path string) error
@@ -47,7 +47,7 @@ type VectorSearchResult struct {
 	FilePath string
 	Start    uint64
 	End      uint64
-	Vector   []float64
+	Vector   []float32
 	Content  string
 }
 
@@ -143,7 +143,7 @@ func (this *DiskCachedEmbeddingIndex) Search(ctx context.Context, query string, 
 }
 
 // Vectorize the given string by embedding it with the current embedder.
-func (this *DiskCachedEmbeddingIndex) Vectorize(ctx context.Context, content string) ([]float64, error) {
+func (this *DiskCachedEmbeddingIndex) Vectorize(ctx context.Context, content string) ([]float32, error) {
 	if this.Embedder == nil {
 		return nil, fmt.Errorf("no embedder set")
 	}
@@ -161,7 +161,7 @@ func (this *DiskCachedEmbeddingIndex) Vectorize(ctx context.Context, content str
 //     and calculating cosine distance
 // - Next we sort based on score
 func (this *DiskCachedEmbeddingIndex) SearchWithVector(ctx context.Context,
-	queryVector []float64, numResults int) ([]*VectorSearchResult, error) {
+	queryVector []float32, numResults int) ([]*VectorSearchResult, error) {
 	// Turn queryVector float array into a govector
 	query, err := govector.AsVector(queryVector)
 	if err != nil {

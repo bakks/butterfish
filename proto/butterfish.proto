@@ -25,5 +25,5 @@ message FileEmbeddings {
 message AnnotatedEmbedding {
   uint64 start = 2; // start index in bytes to the file chunk
   uint64 end = 3;   // end index in bytes to the file chunk
-  repeated double vector = 4;
+  repeated float vector = 4;
 }

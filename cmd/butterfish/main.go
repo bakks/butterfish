@@ -74,7 +74,7 @@ type CliConfig struct {
 		//Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
 		NoCommandPrompt       bool `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
 		LightColor            bool `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
-		MaxHistoryBlockTokens int  `short:"h" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
+		MaxHistoryBlockTokens int  `short:"H" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 	} `cmd:"" help:"${shell_help}"`
 
 	Plugin struct {

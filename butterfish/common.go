@@ -161,7 +161,7 @@ func readerToChannelWithPosition(input io.Reader, c chan<- *byteMsg, pos chan<- 
 			break
 		}
 
-		// if we find a cursor position, send it to the pos channel but leave it in
+		// if we find a cursor position, extract it from data and write it to the pos chan
 		row, col, found := parseCursorPos(buf[:n])
 		if found {
 			pos <- &cursorPosition{
@@ -178,7 +178,7 @@ func readerToChannelWithPosition(input io.Reader, c chan<- *byteMsg, pos chan<- 
 		}
 
 		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
-			log.Printf("got escape sequence: %x", buf)
+			log.Printf("Incomplete escape sequence: %x", buf[:n])
 			// We have downstream code that assumes full ANSI sequences, so we validate
 			// here, I've never seen this fire
 			panic("Got incomplete escape sequence")
