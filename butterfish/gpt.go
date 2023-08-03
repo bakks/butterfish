@@ -140,8 +140,8 @@ func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
 
 // We're doing completions through the chat API by default, this routes
 // to the legacy completion API if the model is the legacy model.
-func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
-	var result string
+func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
+	var result *util.CompletionResponse
 	var err error
 
 	if IsLegacyModel(request.Model) {
@@ -160,7 +160,7 @@ func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Wri
 	return result, err
 }
 
-func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	req := openai.CompletionRequest{
 		Prompt:      []string{request.Prompt},
 		Model:       request.Model,
@@ -190,17 +190,21 @@ func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer 
 		}
 
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		callback(response)
 	}
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
-	return strBuilder.String(), err
+	response := util.CompletionResponse{
+		Completion: strBuilder.String(),
+	}
+
+	return &response, err
 }
 
-func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	req := openai.ChatCompletionRequest{
 		Model: request.Model,
 		Messages: []openai.ChatCompletionMessage{
@@ -221,9 +225,21 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 	return this.doChatStreamCompletion(request.Ctx, req, writer)
 }
 
-func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error) {
+func convertToOpenaiFunctions(funcs []util.FunctionDefinition) []openai.FunctionDefinition {
+	out := []openai.FunctionDefinition{}
+	for _, f := range funcs {
+		out = append(out, openai.FunctionDefinition{
+			Name:        f.Name,
+			Description: f.Description,
+			Parameters:  f.Parameters,
+		})
+	}
+	return out
+}
+
+func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	if request.SystemMessage == "" {
-		return "", errors.New("system message required for full chat completion")
+		return nil, errors.New("system message required for full chat completion")
 	}
 	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
 	messages := append(gptHistory, openai.ChatCompletionMessage{
@@ -237,14 +253,17 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
+		Functions:   convertToOpenaiFunctions(request.Functions),
 	}
 
 	return this.doChatStreamCompletion(request.Ctx, req, writer)
 }
 
-func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatCompletionRequest, writer io.Writer) (string, error) {
+func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatCompletionRequest, printWriter io.Writer) (*util.CompletionResponse, error) {
 
-	strBuilder := strings.Builder{}
+	var responseContent strings.Builder
+	var functionName string
+	var functionArgs strings.Builder
 
 	callback := func(resp openai.ChatCompletionStreamResponse) {
 		if resp.Choices == nil || len(resp.Choices) == 0 {
@@ -252,12 +271,29 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 		}
 
 		text := resp.Choices[0].Delta.Content
+		functionCall := resp.Choices[0].Delta.FunctionCall
+
+		// When a function is streaming back we appear to get the function name
+		// always as one string (even if very long) followed by small chunks
+		// of tokens for the arguments
+		if functionCall != nil {
+			if functionCall.Name != "" {
+				functionName = functionCall.Name
+				printWriter.Write([]byte(functionName))
+				printWriter.Write([]byte("("))
+			}
+			if functionCall.Arguments != "" {
+				functionArgs.WriteString(functionCall.Arguments)
+				printWriter.Write([]byte(functionCall.Arguments))
+			}
+		}
+
 		if text == "" {
 			return
 		}
 
-		writer.Write([]byte(text))
-		strBuilder.WriteString(text)
+		printWriter.Write([]byte(text))
+		responseContent.WriteString(text)
 	}
 
 	this.printPrompt(ChatCompletionRequestMessagesString(req.Messages))
@@ -270,14 +306,25 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 		}
 
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
 		callback(response)
 	}
 
-	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
-	return strBuilder.String(), err
+	if functionName != "" {
+		functionArgs.WriteString(")")
+		printWriter.Write([]byte(")"))
+	}
+
+	fmt.Fprintf(printWriter, "\n") // GPT doesn't finish with a newline
+
+	response := util.CompletionResponse{
+		Completion:         responseContent.String(),
+		FunctionName:       functionName,
+		FunctionParameters: functionArgs.String(),
+	}
+	return &response, err
 }
 
 // Run a GPT completion request and return the response

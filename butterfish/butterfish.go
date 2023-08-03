@@ -113,7 +113,7 @@ type PromptLibrary interface {
 // A generic interface for a service that calls a large larguage model based
 // on input prompts.
 type LLM interface {
-	CompletionStream(request *util.CompletionRequest, writer io.Writer) (string, error)
+	CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error)
 	Completion(request *util.CompletionRequest) (string, error)
 	Embeddings(ctx context.Context, input []string) ([][]float32, error)
 }

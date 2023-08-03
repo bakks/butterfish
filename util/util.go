@@ -21,6 +21,19 @@ type CompletionRequest struct {
 	Temperature   float32
 	HistoryBlocks []HistoryBlock
 	SystemMessage string
+	Functions     []FunctionDefinition
+}
+
+type CompletionResponse struct {
+	Completion         string
+	FunctionName       string
+	FunctionParameters string
+}
+
+type FunctionDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters"`
 }
 
 type HistoryBlock struct {

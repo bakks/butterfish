@@ -28,7 +28,7 @@ var DefaultPrompts []Prompt = []Prompt{
 
 	{
 		Name:        GoalModeSystemMessage,
-		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. To execute a command, prefix it with 'RUN: '. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. Those keywords must be capitalized. If you don't have a goal respond with 'GOAL ACHIEVED'.",
+		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. To execute a command, call the command function. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then you can ask me questions. You must verify that the goal is achieved based on the output of commands. When verified, respond with 'GOAL ACHIEVED' or 'GOAL FAILED' if it isn't possible. Those keywords must be capitalized. If you don't have a goal respond with 'GOAL ACHIEVED'.",
 		OkToReplace: true,
 	},
 

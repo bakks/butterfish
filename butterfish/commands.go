@@ -473,12 +473,12 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 
 		// Find the last occurrence of '>' in the response and get the string
 		// from there to the end
-		lastGt := strings.LastIndex(response, ">")
+		lastGt := strings.LastIndex(response.Completion, ">")
 		if lastGt == -1 {
 			return nil
 		}
 
-		cmd = strings.TrimSpace(response[lastGt+1:])
+		cmd = strings.TrimSpace(response.Completion[lastGt+1:])
 
 		this.StylePrintf(this.Config.Styles.Question, "Run this command? [y/N]: ")
 

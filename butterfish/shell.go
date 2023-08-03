@@ -17,6 +17,7 @@ import (
 
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
+	"github.com/sashabaranov/go-openai/jsonschema"
 
 	"github.com/bakks/tiktoken-go"
 	"github.com/mitchellh/go-ps"
@@ -1067,13 +1068,30 @@ func (this *ShellState) GoalModeCommandResponse(status int, output string) {
 	this.goalModePrompt(prompt)
 }
 
+var goalModeFunctions = []util.FunctionDefinition{
+	{
+		Name:        "command",
+		Description: "Run a command in the shell to help achieve your goal",
+		Parameters: jsonschema.Definition{
+			Type: jsonschema.Object,
+			Properties: map[string]jsonschema.Definition{
+				"cmd": {
+					Type:        jsonschema.String,
+					Description: "The string command including any arguments, for example 'ls ~'",
+				},
+			},
+			Required: []string{"location"},
+		},
+	},
+}
+
 func (this *ShellState) goalModePrompt(lastPrompt string) {
 	this.setState(statePromptResponse)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.GoalModeSystemMessage,
-		"goal", this.GoalModeGoal)
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(
+		prompt.GoalModeSystemMessage, "goal", this.GoalModeGoal)
 	if err != nil {
 		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
 		log.Println(msg)
@@ -1095,6 +1113,7 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		Temperature:   0.8,
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
+		Functions:     goalModeFunctions,
 	}
 
 	// we run this in a goroutine so that we can still receive input
@@ -1306,10 +1325,11 @@ func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Wr
 	output, err := client.CompletionStream(request, writer)
 
 	toSend := []byte{}
-	if output != "" {
-		toSend = []byte(output)
+	if output != nil && output.Completion != "" {
+		toSend = []byte(output.Completion)
 	}
 
+	// handle any completion errors
 	if err != nil {
 		errStr := fmt.Sprintf("Error prompting LLM: %s\n", err)
 
