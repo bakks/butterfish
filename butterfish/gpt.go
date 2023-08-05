@@ -242,14 +242,16 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		return nil, errors.New("system message required for full chat completion")
 	}
 	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
-	messages := append(gptHistory, openai.ChatCompletionMessage{
-		Role:    "user",
-		Content: request.Prompt,
-	})
+	if request.Prompt != "" {
+		gptHistory = append(gptHistory, openai.ChatCompletionMessage{
+			Role:    "user",
+			Content: request.Prompt,
+		})
+	}
 
 	req := openai.ChatCompletionRequest{
 		Model:       request.Model,
-		Messages:    messages,
+		Messages:    gptHistory,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
@@ -299,6 +301,10 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 	this.printPrompt(ChatCompletionRequestMessagesString(req.Messages))
 	stream, err := this.client.CreateChatCompletionStream(ctx, req)
 
+	if err != nil {
+		return nil, err
+	}
+
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -313,7 +319,6 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 	}
 
 	if functionName != "" {
-		functionArgs.WriteString(")")
 		printWriter.Write([]byte(")"))
 	}
 

@@ -3,6 +3,7 @@ package butterfish
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -38,7 +39,7 @@ const PROMPT_PREFIX_ESCAPED = "\\033Q"
 const PROMPT_SUFFIX_ESCAPED = "\\033R"
 const EMOJI_DEFAULT = "🐠"
 const EMOJI_GOAL = "🟦"
-const EMOJI_GOAL_UNSAFE = "🟥"
+const EMOJI_GOAL_UNSAFE = "⚡"
 
 var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
 var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
@@ -89,6 +90,7 @@ const (
 	historyTypeShellInput
 	historyTypeShellOutput
 	historyTypeLLMOutput
+	historyTypeFunctionOutput
 )
 
 // Turn history type enum to a string
@@ -102,6 +104,8 @@ func HistoryTypeToString(historyType int) string {
 		return "Shell Output"
 	case historyTypeLLMOutput:
 		return "LLM Output"
+	case historyTypeFunctionOutput:
+		return "Function Output"
 	default:
 		return "Unknown"
 	}
@@ -307,7 +311,7 @@ type ShellState struct {
 	ChildOutReader          chan *byteMsg
 	ParentInReader          chan *byteMsg
 	CursorPosChan           chan *cursorPosition
-	PromptOutputChan        chan *byteMsg
+	PromptOutputChan        chan *util.CompletionResponse
 	PrintErrorChan          chan error
 	AutosuggestChan         chan *AutosuggestResult
 	History                 *ShellHistory
@@ -519,7 +523,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		CursorPosChan:           parentPositionChan,
 		PrintErrorChan:          make(chan error),
 		History:                 NewShellHistory(),
-		PromptOutputChan:        make(chan *byteMsg),
+		PromptOutputChan:        make(chan *util.CompletionResponse),
 		PromptAnswerWriter:      carriageReturnWriter,
 		Command:                 NewShellBuffer(),
 		Prompt:                  NewShellBuffer(),
@@ -543,33 +547,45 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.Mux()
 }
 
-//func rgbaToColorString(r, g, b, _ uint32) string {
-//	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r/255, g/255, b/255)
-//}
-
-// We expect the input string to end with a line containing "RUN: " followed by
-// the command to run. If no command is found we return ""
-func parseGoalModeCommand(input string) string {
-	if input == "" {
-		return ""
-	}
-	lines := strings.Split(input, "\n")
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "RUN: ") {
-			return strings.TrimPrefix(line, "RUN: ")
-		}
-	}
-
-	return ""
-}
-
 func (this *ShellState) Errorf(format string, args ...any) {
 	this.PrintErrorChan <- fmt.Errorf(format, args...)
 }
 
 func (this *ShellState) PrintError(err error) {
 	this.PrintErrorChan <- err
+}
+
+type CommandParams struct {
+	Cmd string `json:"cmd"`
+}
+
+func parseCommandParams(params string) (string, error) {
+	// unmarshal CommandParams from FunctionParameters
+	var commandParams CommandParams
+	err := json.Unmarshal([]byte(params), &commandParams)
+	return commandParams.Cmd, err
+}
+
+type UserInputParams struct {
+	Question string `json:"question"`
+}
+
+func parseUserInputParams(params string) (string, error) {
+	// unmarshal UserInputParams from FunctionParameters
+	var userInputParams UserInputParams
+	err := json.Unmarshal([]byte(params), &userInputParams)
+	return userInputParams.Question, err
+}
+
+type FinishParams struct {
+	Success bool `json:"success"`
+}
+
+func parseFinishParams(params string) (bool, error) {
+	// unmarshal FinishParams from FunctionParameters
+	var finishParams FinishParams
+	err := json.Unmarshal([]byte(params), &finishParams)
+	return finishParams.Success, err
 }
 
 // TODO add a diagram of streams here
@@ -636,7 +652,11 @@ func (this *ShellState) Mux() {
 
 		// We finished with prompt output response, go back to normal mode
 		case output := <-this.PromptOutputChan:
-			this.History.Append(historyTypeLLMOutput, string(output.Data))
+			historyData := output.Completion
+			if output.FunctionName != "" {
+				historyData += fmt.Sprintf("%s(%s)", output.FunctionName, output.FunctionParameters)
+			}
+			this.History.Append(historyTypeLLMOutput, historyData)
 
 			// If there is child output waiting to be printed, print that now
 			if len(childOutBuffer) > 0 {
@@ -649,33 +669,57 @@ func (this *ShellState) Mux() {
 			this.ChildIn.Write([]byte("\n"))
 
 			if this.GoalMode {
-				llmAsk := string(output.Data)
-				if strings.Contains(llmAsk, "GOAL ACHIEVED") {
-					log.Printf("Goal mode: goal achieved, exiting")
-					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
-					this.GoalMode = false
-					this.setState(stateNormal)
-					continue
-				}
-				if strings.Contains(llmAsk, "GOAL FAILED") {
-					log.Printf("Goal mode: goal failed, exiting")
-					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
-					this.GoalMode = false
-					this.setState(stateNormal)
-					continue
-				}
+				//llmAsk := output.Completion
 
-				goalModeCmd := parseGoalModeCommand(llmAsk)
-				if goalModeCmd != "" {
-					// Execute the given command on the local shell
-					log.Printf("Goal mode: running command: %s", goalModeCmd)
+				switch output.FunctionName {
+				case "command":
+					log.Printf("Goal mode command: %s", output.FunctionParameters)
 					this.GoalModeBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
-					fmt.Fprintf(this.ChildIn, "%s", goalModeCmd)
+					cmd, err := parseCommandParams(output.FunctionParameters)
+					if err != nil {
+						log.Printf("Error parsing command parameters: %s", err)
+						continue
+					}
+					fmt.Fprintf(this.ChildIn, "%s", cmd)
 					if this.GoalModeUnsafe {
 						fmt.Fprintf(this.ChildIn, "\n")
 					}
+					continue
+
+				case "user_input":
+					log.Printf("Goal mode user_input: %s", output.FunctionParameters)
+					this.GoalModeBuffer = ""
+					this.PromptSuffixCounter = 0
+					this.setState(stateNormal)
+					question, err := parseUserInputParams(output.FunctionParameters)
+					if err != nil {
+						log.Printf("Error parsing command parameters: %s", err)
+						continue
+					}
+
+					fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s\n", this.Color.Answer, question, this.Color.Command)
+					continue
+
+				case "finish":
+					log.Printf("Goal mode finishing: %s", output.FunctionParameters)
+					this.GoalModeBuffer = ""
+					this.PromptSuffixCounter = 0
+					this.setState(stateNormal)
+					success, err := parseFinishParams(output.FunctionParameters)
+					if err != nil {
+						log.Printf("Error parsing finish parameters: %s", err)
+						continue
+					}
+
+					result := "SUCCESS"
+					if !success {
+						result = "FAILURE"
+					}
+
+					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
+					this.GoalMode = false
 					continue
 				}
 
@@ -965,7 +1009,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 // because otherwise we would block the main thread.
 func (this *ShellState) SendPromptResponse(data string) {
 	go func() {
-		this.PromptOutputChan <- &byteMsg{Data: []byte(data)}
+		this.PromptOutputChan <- &util.CompletionResponse{Completion: data}
 	}()
 }
 
@@ -1080,9 +1124,54 @@ var goalModeFunctions = []util.FunctionDefinition{
 					Description: "The string command including any arguments, for example 'ls ~'",
 				},
 			},
-			Required: []string{"location"},
+			Required: []string{"cmd"},
 		},
 	},
+
+	{
+		Name:        "user_input",
+		Description: "Resolve an ambiguity in the goal or provide additional information or hand off a goal that can't be accomplished to the user.",
+		Parameters: jsonschema.Definition{
+			Type: jsonschema.Object,
+			Properties: map[string]jsonschema.Definition{
+				"question": {
+					Type:        jsonschema.String,
+					Description: "The question to ask the user",
+				},
+			},
+			Required: []string{"question"},
+		},
+	},
+
+	{
+		Name:        "finish",
+		Description: "Finish the goal and exit goal mode, call only if the goal is accomplished or multiple strategies have been attempted and the goal is impossible.",
+		Parameters: jsonschema.Definition{
+			Type: jsonschema.Object,
+			Properties: map[string]jsonschema.Definition{
+				"success": {
+					Type:        jsonschema.Boolean,
+					Description: "Whether the goal was accomplished",
+				},
+			},
+			Required: []string{"success"},
+		},
+	},
+}
+
+var goalModeFunctionsString string
+
+// serialize goalModeFunctions to json and cache in goalModeFunctionsString
+func getGoalModeFunctionsString() string {
+	if goalModeFunctionsString == "" {
+		bytes, err := json.Marshal(goalModeFunctions)
+		if err != nil {
+			log.Fatal(err)
+		}
+		goalModeFunctionsString = string(bytes)
+		log.Printf("goalModeFunctionsString: %s", goalModeFunctionsString)
+	}
+	return goalModeFunctionsString
 }
 
 func (this *ShellState) goalModePrompt(lastPrompt string) {
@@ -1099,7 +1188,7 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		return
 	}
 
-	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg)
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString())
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -1158,7 +1247,7 @@ func countAndTruncate(data string, encoder *tiktoken.Tiktoken, maxTokens int) (i
 
 // Prepare to call assembleChat() based on the ShellState variables for
 // calculating token limits.
-func (this *ShellState) AssembleChat(prompt, sysMsg string) (string, []util.HistoryBlock, error) {
+func (this *ShellState) AssembleChat(prompt, sysMsg, functions string) (string, []util.HistoryBlock, error) {
 	// How many tokens can this model handle
 	totalTokens := this.PromptMaxTokens
 	reserveForAnswer := this.TokensReservedForAnswer // leave available
@@ -1168,7 +1257,7 @@ func (this *ShellState) AssembleChat(prompt, sysMsg string) (string, []util.Hist
 	// How much for the total request (prompt, history, sys msg)
 	maxCombinedPromptTokens := totalTokens - reserveForAnswer
 
-	return assembleChat(prompt, sysMsg, this.History,
+	return assembleChat(prompt, sysMsg, functions, this.History,
 		this.Butterfish.Config.ShellPromptModel, this.getPromptEncoder(),
 		maxPromptTokens, maxHistoryBlockTokens, maxCombinedPromptTokens)
 }
@@ -1177,8 +1266,15 @@ func (this *ShellState) AssembleChat(prompt, sysMsg string) (string, []util.Hist
 // prompt and system message plus the history are within the token limit.
 // The prompt may be truncated based on maxPromptTokens.
 func assembleChat(
-	prompt, sysMsg string, history *ShellHistory, model string, encoder *tiktoken.Tiktoken,
-	maxPromptTokens, maxHistoryBlockTokens, maxTokens int) (string, []util.HistoryBlock, error) {
+	prompt string,
+	sysMsg string,
+	functions string,
+	history *ShellHistory,
+	model string,
+	encoder *tiktoken.Tiktoken,
+	maxPromptTokens int,
+	maxHistoryBlockTokens int,
+	maxTokens int) (string, []util.HistoryBlock, error) {
 
 	tokensPerMessage := NumTokensPerMessageForModel(model)
 
@@ -1200,7 +1296,19 @@ func assembleChat(
 
 	usedTokens += usedTokens + len(sysMsgTokens)
 	if usedTokens > maxTokens {
-		return "", nil, fmt.Errorf("System message too long, %d tokens", sysMsgTokens)
+		return "", nil, fmt.Errorf("System message too long, %d tokens", usedTokens)
+	}
+
+	// account for functions
+	functionTokens := encoder.Encode(functions, nil, nil)
+	log.Printf("Function tokens: %d\n", len(functionTokens))
+	if len(functionTokens) > 1028 {
+		log.Printf("WARNING: the functions are very long and are taking up %d tokens. This may cause you to hit the token limit.", functionTokens)
+	}
+
+	usedTokens += usedTokens + len(functionTokens)
+	if usedTokens > maxTokens {
+		return "", nil, fmt.Errorf("System message too long, %d tokens", usedTokens)
 	}
 
 	blocks, historyTokens := getHistoryBlocksByTokens(history, encoder,
@@ -1220,7 +1328,12 @@ func assembleChat(
 // the maxHistoryBlockTokens number. Each block will start at a baseline of
 // tokensPerMessage number of tokens.
 // We return the history blocks and the number of tokens it uses.
-func getHistoryBlocksByTokens(history *ShellHistory, encoder *tiktoken.Tiktoken, maxHistoryBlockTokens, maxTokens, tokensPerMessage int) ([]util.HistoryBlock, int) {
+func getHistoryBlocksByTokens(
+	history *ShellHistory,
+	encoder *tiktoken.Tiktoken,
+	maxHistoryBlockTokens,
+	maxTokens,
+	tokensPerMessage int) ([]util.HistoryBlock, int) {
 
 	blocks := []util.HistoryBlock{}
 	usedTokens := 0
@@ -1229,9 +1342,12 @@ func getHistoryBlocksByTokens(history *ShellHistory, encoder *tiktoken.Tiktoken,
 		msgTokens := tokensPerMessage
 
 		var roleString string
-		if block.Type == historyTypeLLMOutput {
+		switch block.Type {
+		case historyTypeLLMOutput:
 			roleString = "assistant"
-		} else {
+		case historyTypeFunctionOutput:
+			roleString = "function"
+		default:
 			roleString = "user"
 		}
 
@@ -1293,7 +1409,7 @@ func (this *ShellState) SendPrompt() {
 	}
 
 	prompt := this.Prompt.String()
-	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg)
+	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg, "")
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -1320,14 +1436,9 @@ func (this *ShellState) SendPrompt() {
 	this.Prompt.Clear()
 }
 
-func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Writer, outputChan chan *byteMsg, normalColor, errorColor string) {
+func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Writer, outputChan chan *util.CompletionResponse, normalColor, errorColor string) {
 	fmt.Fprintf(writer, "%s", normalColor)
 	output, err := client.CompletionStream(request, writer)
-
-	toSend := []byte{}
-	if output != nil && output.Completion != "" {
-		toSend = []byte(output.Completion)
-	}
 
 	// handle any completion errors
 	if err != nil {
@@ -1342,15 +1453,15 @@ func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Wr
 
 		if !strings.Contains(errStr, "context canceled") {
 			fmt.Fprintf(writer, "%s%s", errorColor, errStr)
-			// We want to put the error message in the history as well
-			toSend = append(toSend, []byte(errStr)...)
 		}
 	}
 
-	if len(toSend) > 0 {
-		// send any output + error for processing (e.g. adding to history)
-		outputChan <- &byteMsg{Data: toSend}
+	if output == nil && err != nil {
+		output = &util.CompletionResponse{Completion: err.Error()}
 	}
+
+	// send any output + error for processing (e.g. adding to history)
+	outputChan <- output
 }
 
 // When the user presses tab or a similar hotkey, we want to turn the
