@@ -55,23 +55,18 @@ alias bf="butterfish"
 
 You might use your local terminal for lots of everyday tasks - building code, using git, logging into remote machines, etc. Do you remember off the top of your head how to unpackage a .tar.gz file? No one does!
 
-Shell mode is an attempt to tightly integrate language models into your shell. Think Github Copilot for shell. The goals here are:
-
--   Make the user faster and more effective
--   Be unobtrusive, don't break current shell workflows
--   Don't require another window or using mouse
--   Use the recent shell history
+Shell mode is an attempt to tightly integrate LLMs into your shell. Think Github Copilot for shell.
 
 How does this work? Shell mode _wraps_ your shell rather than replacing it.
 
--   You run `butterfish shell` and get a transparent layer on top of your normal shell.
+-   You run `butterfish shell` and use your existing shell as normal
 -   You start a command with a capital letter to prompt the LLM, e.g. "How do I do..."
 -   You can autocomplete commands and prompt questions
 -   Prompts and autocomplete use local context for answers, like ChatGPT
 
-This pattern is shockingly effective - you can ask the LLM to solve the error that just printed, and if it suggests a command then autocomplete that command.
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell.gif" alt="Butterfish" width="500px" height="250px" />
 
-This is also very new code and there are likely bugs, please log issues in github.
+This pattern is shockingly effective - you can ask the LLM to solve the error that just printed, and if it suggests a command then autocomplete that command. The shell history is the LLM chat history!
 
 ```bash
 > butterfish shell --help
@@ -138,49 +133,8 @@ Flags:
 Shell mode defaults to using `gpt-3.5-turbo` for prompting, if you have access to GPT-4 you can use it with:
 
 ```bash
-butterfish shell -m 'gpt-4' -w 6000
+butterfish shell -m gpt-4
 ```
-
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell.gif" alt="Butterfish" width="500px" height="250px" />
-
-## Plugin Mode
-
-If you're looking for a way to accidentally delete your files, Plugin Mode is a way to grant ChatGPT plugins direct access to a machine. Example chat prompts:
-
--   What files are in my home directory?
--   Create a new Python project in ~/project using pip dependencies, provide a hello world script.
-
-Note this is not yet an official OpenAI plugin, please contact me if you're interested in this.
-
-<img src="https://github.com/bakks/butterfish/raw/plugin/assets/plugin.png" alt="Plugin Demo" width="500px" />
-
-This works by starting a local plugin client that connects to the Butterfish server and provides a session-specific token. You give the token to ChatGPT, which then is capable of executing commands on your local machine in response to a chat prompt.
-
-This is brand new and should be used with _extreme caution_. Everything is done over TLS but this probably insecure in ways I haven't considered and is basically an RCE by design.
-
-Here are local MacOS setup instructions:
-
-```bash
-brew install git go protoc protoc-gen-go protoc-gen-go-grpc
-git clone https://github.com/bakks/butterfish
-cd butterfish
-git fetch
-git checkout plugin
-make
-
-./bin/butterfish plugin
-```
-
-This should connect to the Butterfish server and give you a session specific token. Next:
-
-1. Copy your session token, it is a UUID printed when the above runs
-1. Go to [https://chat.openai.com/chat](https://chat.openai.com/chat)
-1. Open the plugin menu > plugin store. _You must be gated into plugins_.
-1. Click "Install an unverified plugin" in the bottom right corner
-1. For the plugin domain, enter `butterfi.sh`
-1. Approve unverified plugin - this is unverified
-1. When it asks for your HTTP token, enter the copied session token. You will need to reinstall and paste in a new token for _each_ time you start the local plugin process.
-1. You should now see the ChatGPT interface. ChatGPT will use its judgement for when to execute commands on your machine, which will be displayed in the output of the `butterfish plugin` command.
 
 ## CLI Examples
 

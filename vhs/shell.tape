@@ -1,18 +1,17 @@
 Output gif/shell.gif
 
 Require butterfish
+Set FontSize 28
+Set Padding 16
+Set Theme "Monokai Pro"
 
-Set FontSize 20
-Set Width 1000
-Set Height 500
-Set Framerate 30
-Set PlaybackSpeed 0.8
-Set Padding 10
+Set PlaybackSpeed 0.4
 
 Hide
 
 Type "cd ~" Enter
 Type "zsh" Enter
+Type "echo 'echo hello world' > test.sh" Enter
 Type "chmod -x test.sh" Enter
 Type "clear" Enter
 
@@ -30,15 +29,10 @@ Sleep 1s
 Enter
 Sleep 4s
 
-Type "What happened?"
+Type "What happened? Give me a fix"
 Sleep 1s
 Enter
-Sleep 12s
-
-Type "What does the +x thing mean?"
-Sleep 1s
-Enter
-Sleep 20s
+Sleep 18s
 
 Tab
 Sleep 1s
