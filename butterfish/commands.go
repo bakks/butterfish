@@ -332,6 +332,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 
 	case "indexquestion <question>":
+		this.initVectorIndex(nil)
 		input := options.Indexquestion.Question
 
 		if input == "" {

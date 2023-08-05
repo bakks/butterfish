@@ -128,7 +128,7 @@ Shell command:`,
 	{
 		Name:        PromptQuestion,
 		OkToReplace: true,
-		Prompt: `Answer this question about a file:"{filename}". Here are some snippets from the file separated by '---'.
+		Prompt: `Answer this question about files stored on disk. Here are some snippets from the file separated by '---'.
 '''
 {snippets}
 '''
