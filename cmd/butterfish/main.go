@@ -63,7 +63,8 @@ If you don't have OpenAI free credits then you'll need a subscription and you'll
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
-	Verbose bool `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
+	Verbose bool             `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
+	Version kong.VersionFlag `short:"V" default:"false" help:"Print version information and exit."`
 
 	Shell struct {
 		Bin                 string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
@@ -204,6 +205,7 @@ func main() {
 		kong.UsageOnError(),
 		kong.Vars{
 			"shell_help": shell_help,
+			"version":    getBuildInfo(),
 		})
 	if err != nil {
 		panic(err)
@@ -213,7 +215,7 @@ func main() {
 	cliParser.FatalIfErrorf(err)
 
 	config := makeButterfishConfig(cli)
-	config.BuildInfo = fmt.Sprintf("%s %s %s %s %s", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp)
+	config.BuildInfo = getBuildInfo()
 	ctx := context.Background()
 
 	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
