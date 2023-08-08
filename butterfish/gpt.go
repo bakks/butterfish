@@ -36,21 +36,18 @@ func IsLegacyModel(model string) bool {
 }
 
 type GPT struct {
-	client        *openai.Client
-	verbose       bool
-	useLogging    bool
-	verboseWriter io.Writer
+	client  *openai.Client
+	verbose bool
 }
 
 const gptClientTimeout = 300 * time.Second
 
-func NewGPT(token string, verbose bool, verboseWriter io.Writer) *GPT {
+func NewGPT(token string, verbose bool) *GPT {
 	client := openai.NewClient(token)
 
 	return &GPT{
-		client:        client,
-		verbose:       verbose,
-		verboseWriter: verboseWriter,
+		client:  client,
+		verbose: verbose,
 	}
 }
 
@@ -58,29 +55,79 @@ func (this *GPT) SetVerbose(verbose bool) {
 	this.verbose = verbose
 }
 
-func (this *GPT) SetVerboseLogging() {
-	this.useLogging = true
-	this.verbose = true
-}
-
 func (this *GPT) printPrompt(prompt string) {
 	this.Printf("↑ ---\n%s\n-----\n", prompt)
+}
+
+func (this *GPT) logFullRequest(req openai.ChatCompletionRequest) {
+	if !this.verbose {
+		return
+	}
+	LogCompletionRequest(req)
 }
 
 func (this *GPT) printResponse(response string) {
 	this.Printf("↓ ---\n%s\n-----\n", response)
 }
 
-func (this *GPT) Printf(format string, args ...any) {
-	if !this.verbose {
-		return
+func LogCompletionRequest(req openai.ChatCompletionRequest) {
+	meta := fmt.Sprintf("model:       %s\ntemperature: %f\nmax_tokens:  %d",
+		req.Model, req.Temperature, req.MaxTokens)
+
+	historyBoxes := []LoggingBox{}
+	for _, history := range req.Messages {
+		var color int
+
+		switch history.Role {
+		case "user":
+			color = 4
+		case "assistant":
+			color = 5
+		case "system":
+			color = 6
+		case "function":
+			color = 3
+		}
+
+		historyBoxes = append(historyBoxes, LoggingBox{
+			Title:   history.Role,
+			Content: history.Content,
+			Color:   color,
+		})
 	}
 
-	if this.useLogging {
-		log.Printf(format, args...)
-	} else {
-		fmt.Fprintf(this.verboseWriter, format, args...)
+	box := LoggingBox{
+		Title:   " Completion Request /v1/chat/completions ",
+		Content: meta,
+		Color:   0,
+		Children: []LoggingBox{
+			{
+				Title:    "Messages",
+				Children: historyBoxes,
+				Color:    1,
+			},
+		},
 	}
+
+	functionBoxes := []LoggingBox{}
+
+	for _, function := range req.Functions {
+		functionBoxes = append(functionBoxes, LoggingBox{
+			Title:   function.Name,
+			Content: fmt.Sprintf("%s\n%v", function.Description, function.Parameters),
+			Color:   3,
+		})
+	}
+
+	if len(functionBoxes) > 0 {
+		box.Children = append(box.Children, LoggingBox{
+			Title:    "Functions",
+			Children: functionBoxes,
+			Color:    2,
+		})
+	}
+
+	PrintLoggingBox(box)
 }
 
 func ChatCompletionRequestMessagesString(msgs []openai.ChatCompletionMessage) string {
@@ -298,7 +345,7 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 		responseContent.WriteString(text)
 	}
 
-	this.printPrompt(ChatCompletionRequestMessagesString(req.Messages))
+	this.logFullRequest(req)
 	stream, err := this.client.CreateChatCompletionStream(ctx, req)
 
 	if err != nil {
@@ -414,14 +461,14 @@ func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatComple
 const GPTEmbeddingsMaxTokens = 8192
 const GPTEmbeddingsModel = openai.AdaEmbeddingV2
 
-func withExponentialBackoff(writer io.Writer, f func() error) error {
+func withExponentialBackoff(f func() error) error {
 	for i := 0; ; i++ {
 		err := f()
 
 		if err != nil && strings.Contains(err.Error(), "429:requests") {
 			// TODO should probably have a better error detection
 			sleepTime := time.Duration(math.Pow(1.6, float64(i+1))) * time.Second
-			fmt.Fprintf(writer, "Rate limited, sleeping for %s\n", sleepTime)
+			log.Printf("Rate limited, sleeping for %s\n", sleepTime)
 			time.Sleep(sleepTime)
 
 			if i > 6 {
@@ -455,7 +502,7 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float32, e
 
 	result := [][]float32{}
 
-	err := withExponentialBackoff(this.verboseWriter, func() error {
+	err := withExponentialBackoff(func() error {
 		resp, err := this.client.CreateEmbeddings(ctx, req)
 		if err != nil {
 			return err

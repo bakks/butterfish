@@ -1,11 +1,15 @@
 package butterfish
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"regexp"
 	"strconv"
+	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // See https://platform.openai.com/docs/models/overview
@@ -397,4 +401,152 @@ func prettyHex(data []byte) string {
 	}
 
 	return hexLine + "\n" + asciiLine
+}
+
+type LoggingBox struct {
+	Title    string
+	Content  string
+	Children []LoggingBox
+	Color    int
+}
+
+// Box drawing characters with curved corners
+const NW_CORNER = "╭"
+const NE_CORNER = "╮"
+const SW_CORNER = "╰"
+const SE_CORNER = "╯"
+const H_LINE = "─"
+const V_LINE = "│"
+const BOX_WIDTH = 80
+
+var BOX_COLORS = []string{
+	"\033[38;2;119;221;221m",
+	"\033[38;2;253;122;72m",
+	"\033[38;2;253;253;150m",
+	"\033[38;2;119;221;119m",
+	"\033[38;2;174;198;207m",
+	"\033[38;2;119;158;203m",
+	"\033[38;2;177;156;217m",
+	"\033[38;2;255;177;209m",
+}
+
+// Given a loggingbox and a writer, write boxes with lines and width 80.
+// The boxes can be nested, and the title will be placed in the top line of
+// the box.
+func PrintLoggingBox(box LoggingBox) {
+	// create a writer to a string buffer
+	buf := new(bytes.Buffer)
+	buf.WriteString("\n")
+	printLoggingBox(box, buf, 0, []string{})
+	buf.WriteString("\033[0m")
+	log.Println(buf.String())
+}
+
+// wrap a string based on a rune array, don't worry about spacing or word wrapping
+func wrapStringRunes(s string, width int) []string {
+	runes := []rune(s)
+	lines := []string{}
+	line := ""
+	for _, r := range runes {
+		if len(line)+1 > width {
+			// Start a new line
+			lines = append(lines, line)
+			line = string(r)
+		} else {
+			// Add to the current line
+			if line == "" {
+				line = string(r)
+			} else {
+				line += string(r)
+			}
+		}
+	}
+	lines = append(lines, line)
+	return lines
+}
+
+func printLoggingBox(box LoggingBox, writer io.Writer, depth int, colors []string) {
+	//indent := strings.Repeat(V_LINE, depth)
+	indent := ""
+	for i := 0; i < depth; i++ {
+		indent += colors[i] + V_LINE
+	}
+	boxColor := BOX_COLORS[box.Color]
+	indentFull := indent + boxColor + V_LINE
+	indent += "\033[0m"
+	indentFull += "\033[0m"
+
+	indentRight := ""
+	for i := depth - 1; i >= 0; i-- {
+		indentRight += colors[i] + V_LINE
+	}
+	indentRightFull := boxColor + V_LINE + indentRight
+
+	//indentFull := strings.Repeat(V_LINE, depth+1)
+	indentLen := depth
+	indentFullLen := depth + 1
+
+	// Print the title
+	topline := fmt.Sprintf("%s%s%s%s%s%s%s\n",
+		indent,
+		boxColor,
+		NW_CORNER,
+		box.Title,
+		strings.Repeat(H_LINE, BOX_WIDTH-len(box.Title)-2-indentLen*2),
+		NE_CORNER,
+		indentRight)
+
+	writer.Write([]byte(topline))
+
+	// Print the content, wrap lines if necessary
+	if box.Content != "" {
+		content := stripANSI(box.Content)
+		contentLines := strings.Split(content, "\n")
+		wrappedContentLines := []string{}
+		boxWidth := BOX_WIDTH - 2*(depth+1)
+
+		for _, line := range contentLines {
+			wrappedLines := wrapStringRunes(line, boxWidth)
+			wrappedContentLines = append(wrappedContentLines, wrappedLines...)
+		}
+
+		for _, line := range wrappedContentLines {
+			lineWidth := runewidth.StringWidth(line)
+			paddingLen := BOX_WIDTH - lineWidth - indentFullLen*2
+			padding := ""
+			if paddingLen > 0 {
+				padding = strings.Repeat(" ", paddingLen)
+			}
+
+			line = fmt.Sprintf("%s%s%s%s\n",
+				indentFull,
+				line,
+				padding,
+				indentRightFull)
+			writer.Write([]byte(line))
+		}
+	}
+
+	// Print the children
+	for _, child := range box.Children {
+		printLoggingBox(child, writer, depth+1, append(colors, boxColor))
+	}
+
+	// Print the bottom line
+	bottomLine := fmt.Sprintf("%s%s%s%s%s%s\n",
+		indent,
+		boxColor,
+		SW_CORNER,
+		strings.Repeat(H_LINE, BOX_WIDTH-indentLen*2-2),
+		SE_CORNER,
+		indentRight)
+	writer.Write([]byte(bottomLine))
+}
+
+func (this *GPT) Printf(format string, args ...any) {
+	if !this.verbose {
+		return
+	}
+
+	log.Printf(format, args...)
 }

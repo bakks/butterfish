@@ -431,11 +431,7 @@ func initLLM(config *ButterfishConfig) (LLM, error) {
 	} else if config.OpenAIToken != "" && config.LLMClient != nil {
 		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
 	} else if config.OpenAIToken != "" {
-		verboseWriter := util.NewStyledWriter(os.Stdout, config.Styles.Grey)
-		gpt := NewGPT(config.OpenAIToken, config.Verbose, verboseWriter)
-		if config.ShellMode && config.Verbose {
-			gpt.SetVerboseLogging()
-		}
+		gpt := NewGPT(config.OpenAIToken, config.Verbose)
 		return gpt, nil
 	} else {
 		return config.LLMClient, nil
