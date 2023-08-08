@@ -66,8 +66,35 @@ func (this *GPT) logFullRequest(req openai.ChatCompletionRequest) {
 	LogCompletionRequest(req)
 }
 
+func (this *GPT) logFullResponse(resp util.CompletionResponse) {
+	if !this.verbose {
+		return
+	}
+	LogCompletionResponse(resp)
+}
+
 func (this *GPT) printResponse(response string) {
 	this.Printf("↓ ---\n%s\n-----\n", response)
+}
+
+func LogCompletionResponse(resp util.CompletionResponse) {
+	box := LoggingBox{
+		Title:   " Completion Response /v1/chat/completions ",
+		Content: resp.Completion,
+		Color:   0,
+	}
+
+	if resp.FunctionName != "" {
+		box.Children = []LoggingBox{
+			{
+				Title:   "Function Call",
+				Content: fmt.Sprintf("%s\n%s", resp.FunctionName, resp.FunctionParameters),
+				Color:   2,
+			},
+		}
+	}
+
+	PrintLoggingBox(box)
 }
 
 func LogCompletionRequest(req openai.ChatCompletionRequest) {
@@ -112,9 +139,10 @@ func LogCompletionRequest(req openai.ChatCompletionRequest) {
 	functionBoxes := []LoggingBox{}
 
 	for _, function := range req.Functions {
+		// list function parameters in a string
 		functionBoxes = append(functionBoxes, LoggingBox{
 			Title:   function.Name,
-			Content: fmt.Sprintf("%s\n%v", function.Description, function.Parameters),
+			Content: fmt.Sprintf("%s\n%s", function.Description, function.Parameters),
 			Color:   3,
 		})
 	}
@@ -376,6 +404,7 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 		FunctionName:       functionName,
 		FunctionParameters: functionArgs.String(),
 	}
+	this.logFullResponse(response)
 	return &response, err
 }
 
