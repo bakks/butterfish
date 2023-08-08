@@ -64,7 +64,7 @@ If you don't have OpenAI free credits then you'll need a subscription and you'll
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
 	Verbose bool             `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
-	Version kong.VersionFlag `short:"V" default:"false" help:"Print version information and exit."`
+	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
 
 	Shell struct {
 		Bin                 string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
