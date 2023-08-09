@@ -542,11 +542,3 @@ func printLoggingBox(box LoggingBox, writer io.Writer, depth int, colors []strin
 		indentRight)
 	writer.Write([]byte(bottomLine))
 }
-
-func (this *GPT) Printf(format string, args ...any) {
-	if !this.verbose {
-		return
-	}
-
-	log.Printf(format, args...)
-}

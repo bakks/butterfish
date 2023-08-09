@@ -335,7 +335,9 @@ type ShellState struct {
 }
 
 func (this *ShellState) setState(state int) {
-	log.Printf("State change: %s -> %s", stateNames[this.State], stateNames[state])
+	if this.Butterfish.Config.Verbose > 1 {
+		log.Printf("State change: %s -> %s", stateNames[this.State], stateNames[state])
+	}
 	this.State = state
 }
 
@@ -1203,6 +1205,7 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
 		Functions:     goalModeFunctions,
+		Verbose:       this.Butterfish.Config.Verbose > 0,
 	}
 
 	// we run this in a goroutine so that we can still receive input
@@ -1423,6 +1426,7 @@ func (this *ShellState) SendPrompt() {
 		Temperature:   0.7,
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
+		Verbose:       this.Butterfish.Config.Verbose > 0,
 	}
 
 	this.History.Append(historyTypePrompt, this.Prompt.String())
@@ -1683,6 +1687,7 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		command, llmPrompt,
 		this.Butterfish.LLMClient,
 		this.Butterfish.Config.ShellAutosuggestModel,
+		this.Butterfish.Config.Verbose > 1,
 		this.AutosuggestChan)
 }
 
@@ -1693,6 +1698,7 @@ func RequestCancelableAutosuggest(
 	prompt string,
 	llmClient LLM,
 	model string,
+	verbose bool,
 	autosuggestChan chan<- *AutosuggestResult) {
 
 	if delay > 0 {
@@ -1708,9 +1714,10 @@ func RequestCancelableAutosuggest(
 		Model:       model,
 		MaxTokens:   256,
 		Temperature: 0.7,
+		Verbose:     verbose,
 	}
 
-	output, err := llmClient.Completion(request)
+	response, err := llmClient.Completion(request)
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
 		log.Printf("Autosuggest error: %s", err)
 		if strings.Contains(err.Error(), ERR_429) {
@@ -1720,7 +1727,10 @@ func RequestCancelableAutosuggest(
 	}
 
 	// Clean up wrapping whitespace
-	output = strings.TrimSpace(output)
+	output := ""
+	if response != nil {
+		output = strings.TrimSpace(response.Completion)
+	}
 
 	// if output is wrapped in quotes, remove quotes
 	if len(output) > 1 && output[0] == '"' && output[len(output)-1] == '"' {

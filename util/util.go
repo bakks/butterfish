@@ -22,6 +22,7 @@ type CompletionRequest struct {
 	HistoryBlocks []HistoryBlock
 	SystemMessage string
 	Functions     []FunctionDefinition
+	Verbose       bool
 }
 
 type CompletionResponse struct {

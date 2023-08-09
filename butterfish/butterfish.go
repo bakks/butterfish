@@ -34,8 +34,11 @@ import (
 // - Check if the cursor has moved back before doing autocomplete
 
 type ButterfishConfig struct {
-	// Verbose mode, prints out more information like raw OpenAI communication
-	Verbose bool
+	// Verbose mode, prints out more information like raw OpenAI communication.
+	// 0 = no verbose output
+	// 1 = verbose output
+	// 2 = very verbose output
+	Verbose int
 
 	// build variables
 	BuildInfo string
@@ -114,8 +117,8 @@ type PromptLibrary interface {
 // on input prompts.
 type LLM interface {
 	CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error)
-	Completion(request *util.CompletionRequest) (string, error)
-	Embeddings(ctx context.Context, input []string) ([][]float32, error)
+	Completion(request *util.CompletionRequest) (*util.CompletionResponse, error)
+	Embeddings(ctx context.Context, input []string, verbose bool) ([][]float32, error)
 }
 
 type ButterfishCtx struct {
@@ -188,7 +191,7 @@ func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
 
 	return &ButterfishConfig{
-		Verbose:              false,
+		Verbose:              0,
 		ColorScheme:          colorScheme,
 		Styles:               ColorSchemeToStyles(colorScheme),
 		GencmdModel:          BestCompletionModel,
@@ -302,7 +305,7 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 }
 
 func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float32, error) {
-	return this.LLMClient.Embeddings(ctx, content)
+	return this.LLMClient.Embeddings(ctx, content, this.Config.Verbose > 0)
 }
 
 // A local printf that writes to the butterfishctx out using a lipgloss style
@@ -332,7 +335,7 @@ func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
 	out := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
 	index := embedding.NewDiskCachedEmbeddingIndex(this, out)
 
-	if this.Config.Verbose {
+	if this.Config.Verbose > 0 {
 		index.SetOutput(this.Out)
 	}
 
@@ -431,7 +434,7 @@ func initLLM(config *ButterfishConfig) (LLM, error) {
 	} else if config.OpenAIToken != "" && config.LLMClient != nil {
 		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
 	} else if config.OpenAIToken != "" {
-		gpt := NewGPT(config.OpenAIToken, config.Verbose)
+		gpt := NewGPT(config.OpenAIToken)
 		return gpt, nil
 	} else {
 		return config.LLMClient, nil
@@ -450,7 +453,7 @@ func initPromptLibrary(config *ButterfishConfig) (PromptLibrary, error) {
 		return nil, err
 	}
 
-	return NewDiskPromptLibrary(promptPath, config.Verbose, verboseWriter)
+	return NewDiskPromptLibrary(promptPath, config.Verbose > 0, verboseWriter)
 }
 
 func NewButterfish(ctx context.Context, config *ButterfishConfig) (*ButterfishCtx, error) {

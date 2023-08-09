@@ -32,7 +32,7 @@ const description = `Do useful things with LLMs from the command line, with a be
 
 Butterfish is a command line tool for working with LLMs. It has two modes: CLI command mode, used to prompt LLMs, summarize files, and manage embeddings, and Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
 
-Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml.
+Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log.
 
 To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
 
@@ -59,11 +59,22 @@ Here are special Butterfish commands:
 
 If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000).`
 
+type VerboseFlag bool
+
+var verboseCount int
+
+// this hook technique seems to always be called at least once even if the
+// flag is not used but that's fine for now
+func (v *VerboseFlag) BeforeResolve() error {
+	verboseCount++
+	return nil
+}
+
 // Kong configuration for shell arguments (shell meaning when butterfish is
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
-	Verbose bool             `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts."`
+	Verbose VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometime to log file). Use multiple times for more verbosity, e.g. -vv."`
 	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
 
 	Shell struct {
@@ -179,7 +190,7 @@ func getOpenAIToken() string {
 
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
-	config.Verbose = options.Verbose
+	config.Verbose = verboseCount
 	config.OpenAIToken = getOpenAIToken()
 	config.PromptLibraryPath = defaultPromptPath
 
@@ -213,6 +224,8 @@ func main() {
 
 	parsedCmd, err := cliParser.Parse(os.Args[1:])
 	cliParser.FatalIfErrorf(err)
+
+	fmt.Printf("Verbose Count: %d\n", verboseCount)
 
 	config := makeButterfishConfig(cli)
 	config.BuildInfo = getBuildInfo()

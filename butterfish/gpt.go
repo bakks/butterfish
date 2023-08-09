@@ -36,45 +36,17 @@ func IsLegacyModel(model string) bool {
 }
 
 type GPT struct {
-	client  *openai.Client
-	verbose bool
+	client *openai.Client
 }
 
 const gptClientTimeout = 300 * time.Second
 
-func NewGPT(token string, verbose bool) *GPT {
+func NewGPT(token string) *GPT {
 	client := openai.NewClient(token)
 
 	return &GPT{
-		client:  client,
-		verbose: verbose,
+		client: client,
 	}
-}
-
-func (this *GPT) SetVerbose(verbose bool) {
-	this.verbose = verbose
-}
-
-func (this *GPT) printPrompt(prompt string) {
-	this.Printf("↑ ---\n%s\n-----\n", prompt)
-}
-
-func (this *GPT) logFullRequest(req openai.ChatCompletionRequest) {
-	if !this.verbose {
-		return
-	}
-	LogCompletionRequest(req)
-}
-
-func (this *GPT) logFullResponse(resp util.CompletionResponse) {
-	if !this.verbose {
-		return
-	}
-	LogCompletionResponse(resp)
-}
-
-func (this *GPT) printResponse(response string) {
-	this.Printf("↓ ---\n%s\n-----\n", response)
 }
 
 func LogCompletionResponse(resp util.CompletionResponse) {
@@ -97,7 +69,27 @@ func LogCompletionResponse(resp util.CompletionResponse) {
 	PrintLoggingBox(box)
 }
 
-func LogCompletionRequest(req openai.ChatCompletionRequest) {
+func LogCompletionRequest(req openai.CompletionRequest) {
+	meta := fmt.Sprintf("model:       %s\ntemperature: %f\nmax_tokens:  %d",
+		req.Model, req.Temperature, req.MaxTokens)
+
+	box := LoggingBox{
+		Title:   " Completion Request /v1/completions ",
+		Content: meta,
+		Color:   0,
+		Children: []LoggingBox{
+			{
+				Title:   "Prompt",
+				Content: req.Prompt.(string),
+				Color:   1,
+			},
+		},
+	}
+
+	PrintLoggingBox(box)
+}
+
+func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 	meta := fmt.Sprintf("model:       %s\ntemperature: %f\nmax_tokens:  %d",
 		req.Model, req.Temperature, req.MaxTokens)
 
@@ -193,8 +185,8 @@ func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []
 
 // We're doing completions through the chat API by default, this routes
 // to the legacy completion API if the model is the legacy model.
-func (this *GPT) Completion(request *util.CompletionRequest) (string, error) {
-	var result string
+func (this *GPT) Completion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
+	var result *util.CompletionResponse
 	var err error
 
 	if IsLegacyModel(request.Model) {
@@ -255,7 +247,9 @@ func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer 
 		strBuilder.WriteString(text)
 	}
 
-	this.printPrompt(request.Prompt)
+	if request.Verbose {
+		LogCompletionRequest(req)
+	}
 	stream, err := this.client.CreateCompletionStream(request.Ctx, req)
 
 	for {
@@ -274,6 +268,10 @@ func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer 
 
 	response := util.CompletionResponse{
 		Completion: strBuilder.String(),
+	}
+
+	if request.Verbose {
+		LogCompletionResponse(response)
 	}
 
 	return &response, err
@@ -297,7 +295,7 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 		N:           1,
 	}
 
-	return this.doChatStreamCompletion(request.Ctx, req, writer)
+	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
 }
 
 func convertToOpenaiFunctions(funcs []util.FunctionDefinition) []openai.FunctionDefinition {
@@ -333,10 +331,11 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		Functions:   convertToOpenaiFunctions(request.Functions),
 	}
 
-	return this.doChatStreamCompletion(request.Ctx, req, writer)
+	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
 }
 
-func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatCompletionRequest, printWriter io.Writer) (*util.CompletionResponse, error) {
+func (this *GPT) doChatStreamCompletion(
+	ctx context.Context, req openai.ChatCompletionRequest, printWriter io.Writer, verbose bool) (*util.CompletionResponse, error) {
 
 	var responseContent strings.Builder
 	var functionName string
@@ -373,7 +372,9 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 		responseContent.WriteString(text)
 	}
 
-	this.logFullRequest(req)
+	if verbose {
+		LogChatCompletionRequest(req)
+	}
 	stream, err := this.client.CreateChatCompletionStream(ctx, req)
 
 	if err != nil {
@@ -404,12 +405,15 @@ func (this *GPT) doChatStreamCompletion(ctx context.Context, req openai.ChatComp
 		FunctionName:       functionName,
 		FunctionParameters: functionArgs.String(),
 	}
-	this.logFullResponse(response)
+
+	if verbose {
+		LogCompletionResponse(response)
+	}
 	return &response, err
 }
 
 // Run a GPT completion request and return the response
-func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, error) {
+func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	req := openai.CompletionRequest{
 		Model:       request.Model,
 		MaxTokens:   request.MaxTokens,
@@ -417,23 +421,32 @@ func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (string, erro
 		Prompt:      request.Prompt,
 	}
 
-	this.printPrompt(request.Prompt)
+	if request.Verbose {
+		LogCompletionRequest(req)
+	}
+
 	resp, err := this.client.CreateCompletion(request.Ctx, req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	text := resp.Choices[0].Text
 	// clean whitespace prefix and suffix from text
 	text = strings.TrimSpace(text)
 
-	this.printResponse(text)
-	return text, nil
+	response := util.CompletionResponse{
+		Completion: text,
+	}
+
+	if request.Verbose {
+		LogCompletionResponse(response)
+	}
+	return &response, nil
 }
 
-func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, error) {
+func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	if request.SystemMessage == "" {
-		return "", errors.New("system message is required for full chat completion")
+		return nil, errors.New("system message is required for full chat completion")
 	}
 
 	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
@@ -450,10 +463,10 @@ func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (string, er
 		N:           1,
 	}
 
-	return this.doChatCompletion(request.Ctx, req)
+	return this.doChatCompletion(request.Ctx, req, request.Verbose)
 }
 
-func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, error) {
+func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	req := openai.ChatCompletionRequest{
 		Model: request.Model,
 		Messages: []openai.ChatCompletionMessage{
@@ -471,20 +484,29 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (string, 
 		N:           1,
 	}
 
-	return this.doChatCompletion(request.Ctx, req)
+	return this.doChatCompletion(request.Ctx, req, request.Verbose)
 }
 
-func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (string, error) {
-	this.printPrompt(ChatCompletionRequestMessagesString(request.Messages))
+func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatCompletionRequest, verbose bool) (*util.CompletionResponse, error) {
+	if verbose {
+		LogChatCompletionRequest(request)
+	}
+
 	resp, err := this.client.CreateChatCompletion(ctx, request)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	responseText := resp.Choices[0].Message.Content
 
-	this.printResponse(responseText)
-	return responseText, nil
+	response := util.CompletionResponse{
+		Completion: responseText,
+	}
+
+	if verbose {
+		LogCompletionResponse(response)
+	}
+	return &response, nil
 }
 
 const GPTEmbeddingsMaxTokens = 8192
@@ -509,13 +531,13 @@ func withExponentialBackoff(f func() error) error {
 	}
 }
 
-func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float32, error) {
+func (this *GPT) Embeddings(ctx context.Context, input []string, verbose bool) ([][]float32, error) {
 	req := openai.EmbeddingRequest{
 		Input: input,
 		Model: GPTEmbeddingsModel,
 	}
 
-	if this.verbose {
+	if verbose {
 		summary := fmt.Sprintf("Embedding %d strings: [", len(input))
 		for i, s := range input {
 			if i > 0 {
@@ -526,7 +548,7 @@ func (this *GPT) Embeddings(ctx context.Context, input []string) ([][]float32, e
 			summary += s[:util.Min(20, len(s))]
 		}
 		summary += "\n]"
-		this.Printf("%s\n", summary)
+		fmt.Printf("%s\n", summary)
 	}
 
 	result := [][]float32{}

@@ -433,8 +433,8 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 		return "", err
 	}
 
-	this.updateCommandRegister(resp)
-	return resp, nil
+	this.updateCommandRegister(resp.Completion)
+	return resp.Completion, nil
 }
 
 // Execute a command in a loop, if the exit status is non-zero then we call
@@ -538,7 +538,7 @@ func (this *ButterfishCtx) execCommand(cmd string) (*executeResult, error) {
 		cmd = this.CommandRegister
 	}
 
-	if this.Config.Verbose {
+	if this.Config.Verbose > 0 {
 		this.StylePrintf(this.Config.Styles.Question, "exec> %s\n", cmd)
 	}
 	return executeCommand(this.Ctx, cmd, this.Out)
@@ -633,7 +633,7 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 		if err != nil {
 			return err
 		}
-		facts.WriteString(resp)
+		facts.WriteString(resp.Completion)
 		facts.WriteString("\n")
 	}
 
