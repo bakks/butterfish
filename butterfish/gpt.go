@@ -89,6 +89,20 @@ func LogCompletionRequest(req openai.CompletionRequest) {
 	PrintLoggingBox(box)
 }
 
+// function to accept a string and replace non basic printable ascii characters with
+// their hex values
+func replaceNonAscii(s string) string {
+	out := []rune{}
+	for _, r := range s {
+		if !(r >= 33 && r < 127) {
+			out = append(out, []rune(fmt.Sprintf("\\x%02x", r))...)
+		} else {
+			out = append(out, r)
+		}
+	}
+	return string(out)
+}
+
 func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 	meta := fmt.Sprintf("model:       %s\ntemperature: %f\nmax_tokens:  %d",
 		req.Model, req.Temperature, req.MaxTokens)

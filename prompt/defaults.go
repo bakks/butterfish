@@ -39,7 +39,7 @@ var DefaultPrompts []Prompt = []Prompt{
 '''
 {history}
 '''.
-If a command was recently suggested by the assistant and it matches the start of the command, suggest that. This is the start of the command: '{command}'.`,
+If a command appears recently in history it matches the start of the command, suggest that. This is the start of the command: '{command}'.`,
 	},
 
 	{
@@ -49,7 +49,7 @@ If a command was recently suggested by the assistant and it matches the start of
 '''
 {history}
 '''
-If a command was recently suggested by the assistant, suggest that.
+If a command appears recently in history, suggest that.
 `,
 	},
 

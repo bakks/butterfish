@@ -117,6 +117,10 @@ type Tokenization struct {
 	Data        string // tokenized and truncated content
 }
 
+// HistoryBuffer keeps a content buffer, plus an enum of the type of content
+// (user prompt, shell output, etc), plus a cache of tokenizations of the
+// content. Tokenizations are cached for specific encodings, for example
+// newer models use a different encoding than older models.
 type HistoryBuffer struct {
 	Type    int
 	Content *ShellBuffer
@@ -151,7 +155,7 @@ func (this *HistoryBuffer) GetTokenization(encoding string, length int) (string,
 }
 
 // ShellHistory keeps a record of past shell history and LLM interaction in
-// a slice of util.HistoryBlock objects. You can add a new block, append to
+// a slice of HistoryBuffer objects. You can add a new block, append to
 // the last block, and get the the last n bytes of the history as an array of
 // HistoryBlocks.
 type ShellHistory struct {
@@ -473,6 +477,18 @@ func (this *ShellState) ParsePS1(data string) (int, int, string) {
 	return ParsePS1(data, regex, currIcon)
 }
 
+// zsh appears to use this sequence to clear formatting and the rest of the line
+// before printing a prompt
+var ZSH_CLEAR_REGEX = regexp.MustCompile("^\x1b\\[1m\x1b\\[3m%\x1b\\[23m\x1b\\[1m\x1b\\[0m\x20+\x0d\x20\x0d")
+
+func (this *ShellState) FilterChildOut(data string) bool {
+	if len(data) > 0 && strings.HasPrefix(data, "\x1b[1m") && ZSH_CLEAR_REGEX.MatchString(data) {
+		return true
+	}
+
+	return false
+}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
@@ -738,12 +754,7 @@ func (this *ShellState) Mux() {
 				return
 			}
 
-			//log.Printf("Got child output:\n%x", childOutMsg.Data)
-
 			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
-			//			if prompts != 0 {
-			//				log.Printf("Child exited with status %d", lastStatus)
-			//			}
 			this.PromptSuffixCounter += prompts
 
 			// If we're actively printing a response we buffer child output
@@ -759,7 +770,7 @@ func (this *ShellState) Mux() {
 			// If we're getting child output while typing in a shell command, this
 			// could mean the user is paging through old commands, or doing a tab
 			// completion, or something unknown, so we don't want to add to history.
-			if this.State != stateShell {
+			if this.State != stateShell && !this.FilterChildOut(string(childOutMsg.Data)) {
 				this.History.Append(historyTypeShellOutput, childOutStr)
 			}
 			this.ParentOut.Write([]byte(childOutStr))
@@ -1095,8 +1106,6 @@ func (this *ShellState) GoalModeStart() {
 
 	prompt := "Start now."
 	log.Printf("Starting goal mode: %s", this.GoalModeGoal)
-	this.History.Append(historyTypePrompt, prompt)
-
 	this.goalModePrompt(prompt)
 }
 
@@ -1356,12 +1365,12 @@ func getHistoryBlocksByTokens(
 
 		// add tokens for role
 		msgTokens += len(encoder.Encode(roleString, nil, nil))
-		contentStr := block.Content.String()
 
 		// check existing block tokenizations
 		content, contentTokens, ok := block.GetTokenization(encoder.EncoderName(), block.Content.Size())
 
 		if !ok { // cache miss
+			contentStr := block.Content.String()
 			// avoid processing super long strings with a ceiling
 			ceiling := maxHistoryBlockTokens * 4
 			contentLen := len(contentStr)
