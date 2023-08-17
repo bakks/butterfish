@@ -122,9 +122,13 @@ type Tokenization struct {
 // content. Tokenizations are cached for specific encodings, for example
 // newer models use a different encoding than older models.
 type HistoryBuffer struct {
-	Type    int
-	Content *ShellBuffer
+	Type           int
+	Content        *ShellBuffer
+	FunctionName   string
+	FunctionParams string
+
 	// This is to cache tokenization plus truncation of the content
+	// It maps from encoding name to the tokenization of the output
 	Tokenizations map[string]Tokenization
 }
 
@@ -196,6 +200,38 @@ func (this *ShellHistory) Append(historyType int, data string) {
 
 	// if the history type doesn't match we fall through and add a new block
 	this.add(historyType, data)
+}
+
+func (this *ShellHistory) AddFunctionCall(name, params string) {
+	this.Blocks = append(this.Blocks, &HistoryBuffer{
+		Type:           historyTypeLLMOutput,
+		FunctionName:   name,
+		FunctionParams: params,
+		Content:        NewShellBuffer(),
+	})
+}
+
+func (this *ShellHistory) AppendFunctionOutput(name, data string) {
+	// if data is empty, we don't want to add a new block
+	if len(data) == 0 {
+		return
+	}
+
+	numBlocks := len(this.Blocks)
+	var lastBlock *HistoryBuffer
+	// if we have a block already, and it matches the type, append to it
+	if numBlocks > 0 {
+		lastBlock = this.Blocks[numBlocks-1]
+		if lastBlock.Type == historyTypeFunctionOutput && lastBlock.FunctionName == name {
+			lastBlock.Content.Write(data)
+			return
+		}
+	}
+
+	// if the history type doesn't match we fall through and add a new block
+	this.add(historyTypeFunctionOutput, data)
+	lastBlock = this.Blocks[numBlocks]
+	lastBlock.FunctionName = name
 }
 
 func (this *ShellHistory) NewBlock() {
@@ -311,6 +347,7 @@ type ShellState struct {
 	GoalModeBuffer          string
 	GoalModeGoal            string
 	GoalModeUnsafe          bool
+	ActiveFunction          string
 	PromptSuffixCounter     int
 	ChildOutReader          chan *byteMsg
 	ParentInReader          chan *byteMsg
@@ -573,6 +610,14 @@ func (this *ShellState) PrintError(err error) {
 	this.PrintErrorChan <- err
 }
 
+// We're asking GPT to generate bash commands, which can use some escapes
+// like \' which aren't valid JSON but are valid bash. This function identifies
+// those and adds an extra escape so that the JSON is valid.
+func AddDoubleEscapesForJSON(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	return s
+}
+
 type CommandParams struct {
 	Cmd string `json:"cmd"`
 }
@@ -580,7 +625,8 @@ type CommandParams struct {
 func parseCommandParams(params string) (string, error) {
 	// unmarshal CommandParams from FunctionParameters
 	var commandParams CommandParams
-	err := json.Unmarshal([]byte(params), &commandParams)
+	cleanParams := AddDoubleEscapesForJSON(params)
+	err := json.Unmarshal([]byte(cleanParams), &commandParams)
 	return commandParams.Cmd, err
 }
 
@@ -668,13 +714,16 @@ func (this *ShellState) Mux() {
 
 			this.ShowAutosuggest(buffer, result, col-1, this.TerminalWidth)
 
-		// We finished with prompt output response, go back to normal mode
+		// We got an LLM prompt response, handle the response by adding to history,
+		// calling functions returned, etc.
 		case output := <-this.PromptOutputChan:
 			historyData := output.Completion
-			if output.FunctionName != "" {
-				historyData += fmt.Sprintf("%s(%s)", output.FunctionName, output.FunctionParameters)
+			if historyData != "" {
+				this.History.Append(historyTypeLLMOutput, historyData)
 			}
-			this.History.Append(historyTypeLLMOutput, historyData)
+			if output.FunctionName != "" {
+				this.History.AddFunctionCall(output.FunctionName, output.FunctionParameters)
+			}
 
 			// If there is child output waiting to be printed, print that now
 			if len(childOutBuffer) > 0 {
@@ -687,7 +736,6 @@ func (this *ShellState) Mux() {
 			this.ChildIn.Write([]byte("\n"))
 
 			if this.GoalMode {
-				//llmAsk := output.Completion
 
 				switch output.FunctionName {
 				case "command":
@@ -695,11 +743,17 @@ func (this *ShellState) Mux() {
 					this.GoalModeBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
+					this.ActiveFunction = "command"
 					cmd, err := parseCommandParams(output.FunctionParameters)
 					if err != nil {
-						log.Printf("Error parsing command parameters: %s", err)
+						// we failed to parse the command json, send error back to model
+						log.Printf("Error parsing function arguments: %s", err)
+						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
+						this.GoalModeCommandResponse(-1, "")
 						continue
 					}
+					log.Printf("Goal mode command: %s", cmd)
 					fmt.Fprintf(this.ChildIn, "%s", cmd)
 					if this.GoalModeUnsafe {
 						fmt.Fprintf(this.ChildIn, "\n")
@@ -709,11 +763,14 @@ func (this *ShellState) Mux() {
 				case "user_input":
 					log.Printf("Goal mode user_input: %s", output.FunctionParameters)
 					this.GoalModeBuffer = ""
-					this.PromptSuffixCounter = 0
+					this.PromptSuffixCounter = -999999
 					this.setState(stateNormal)
 					question, err := parseUserInputParams(output.FunctionParameters)
 					if err != nil {
-						log.Printf("Error parsing command parameters: %s", err)
+						log.Printf("Error parsing function arguments: %s", err)
+						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
+						this.GoalModeCommandResponse(-1, "")
 						continue
 					}
 
@@ -723,11 +780,13 @@ func (this *ShellState) Mux() {
 				case "finish":
 					log.Printf("Goal mode finishing: %s", output.FunctionParameters)
 					this.GoalModeBuffer = ""
-					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
 					success, err := parseFinishParams(output.FunctionParameters)
 					if err != nil {
-						log.Printf("Error parsing finish parameters: %s", err)
+						log.Printf("Error parsing function arguments: %s", err)
+						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
+						this.GoalModeCommandResponse(-1, "")
 						continue
 					}
 
@@ -739,9 +798,22 @@ func (this *ShellState) Mux() {
 					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
 					this.GoalMode = false
 					continue
-				}
 
-				this.PromptSuffixCounter = -10000
+				case "":
+					log.Printf("No function called in goal mode")
+					modelStr := fmt.Sprintf("You must call a function in goal mode responses.")
+					this.History.Append(historyTypePrompt, modelStr)
+					this.GoalModeCommandResponse(-1, "")
+					continue
+
+				default:
+					log.Printf("Invalid function name called in goal mode: %s", output.FunctionName)
+					modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
+					this.History.AppendFunctionOutput(output.FunctionName, modelStr)
+					this.GoalModeCommandResponse(-1, "")
+					continue
+
+				}
 			}
 
 			this.RequestAutosuggest(0, "")
@@ -763,22 +835,34 @@ func (this *ShellState) Mux() {
 				continue
 			}
 
+			endOfFunctionCall := false
 			if this.GoalMode {
 				this.GoalModeBuffer += childOutStr
+				if this.PromptSuffixCounter >= 2 {
+					// this means that since starting to collect command function call
+					// output, we've seen two prompts, which means the function call
+					// is done and we can send the response back to the model
+					endOfFunctionCall = true
+				}
 			}
 
 			// If we're getting child output while typing in a shell command, this
 			// could mean the user is paging through old commands, or doing a tab
 			// completion, or something unknown, so we don't want to add to history.
 			if this.State != stateShell && !this.FilterChildOut(string(childOutMsg.Data)) {
-				this.History.Append(historyTypeShellOutput, childOutStr)
+				if this.ActiveFunction != "" {
+					this.History.AppendFunctionOutput(this.ActiveFunction, childOutStr)
+				} else {
+					this.History.Append(historyTypeShellOutput, childOutStr)
+				}
 			}
 			this.ParentOut.Write([]byte(childOutStr))
 
-			if this.GoalMode && this.PromptSuffixCounter >= 2 {
+			if endOfFunctionCall {
 				// move cursor to the beginning of the line and clear the line
 				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
-				this.GoalModeCommandResponse(lastStatus, this.GoalModeBuffer)
+				this.GoalModeCommandResponse(lastStatus, "")
+				this.ActiveFunction = ""
 				this.GoalModeBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
@@ -854,11 +938,16 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			// Ctrl-C while in goal mode
 			fmt.Fprintf(this.PromptAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
 			this.GoalMode = false
+			if this.Command != nil {
+				this.Command.Clear()
+			}
+			if this.Prompt != nil {
+				this.Prompt.Clear()
+			}
 			this.setState(stateNormal)
 		}
 
 		// Check if the first character is uppercase or a bang
-		// TODO handle the case where this input is more than a single character, contains other stuff like carriage return, etc
 		if unicode.IsUpper(rune(data[0])) || data[0] == '!' {
 			this.setState(statePrompting)
 			this.Prompt.Clear()
@@ -1351,29 +1440,33 @@ func getHistoryBlocksByTokens(
 	usedTokens := 0
 
 	history.IterateBlocks(func(block *HistoryBuffer) bool {
-		msgTokens := tokensPerMessage
-
-		var roleString string
-		switch block.Type {
-		case historyTypeLLMOutput:
-			roleString = "assistant"
-		case historyTypeFunctionOutput:
-			roleString = "function"
-		default:
-			roleString = "user"
+		if block.Content.Size() == 0 && block.FunctionName == "" {
+			// empty block, skip
+			return true
 		}
+		msgTokens := tokensPerMessage
+		roleString := ShellHistoryTypeToRole(block.Type)
 
 		// add tokens for role
 		msgTokens += len(encoder.Encode(roleString, nil, nil))
 
+		if block.FunctionName != "" {
+			// add tokens for function name
+			msgTokens += len(encoder.Encode(block.FunctionName, nil, nil))
+		}
+		if block.FunctionParams != "" {
+			// add tokens for function params
+			msgTokens += len(encoder.Encode(block.FunctionParams, nil, nil))
+		}
+
 		// check existing block tokenizations
-		content, contentTokens, ok := block.GetTokenization(encoder.EncoderName(), block.Content.Size())
+		contentLen := block.Content.Size()
+		content, contentTokens, ok := block.GetTokenization(encoder.EncoderName(), contentLen)
 
 		if !ok { // cache miss
 			contentStr := block.Content.String()
 			// avoid processing super long strings with a ceiling
 			ceiling := maxHistoryBlockTokens * 4
-			contentLen := len(contentStr)
 			if contentLen > ceiling {
 				contentStr = contentStr[:ceiling]
 			}
@@ -1394,8 +1487,10 @@ func getHistoryBlocksByTokens(
 
 		usedTokens += msgTokens
 		newBlock := util.HistoryBlock{
-			Type:    block.Type,
-			Content: content,
+			Type:           block.Type,
+			Content:        content,
+			FunctionName:   block.FunctionName,
+			FunctionParams: block.FunctionParams,
 		}
 
 		// we prepend the block so that the history is in the correct order

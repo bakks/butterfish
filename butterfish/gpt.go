@@ -51,7 +51,7 @@ func NewGPT(token string) *GPT {
 
 func LogCompletionResponse(resp util.CompletionResponse) {
 	box := LoggingBox{
-		Title:   " Completion Response /v1/chat/completions ",
+		Title:   "Completion Response /v1/chat/completions",
 		Content: resp.Completion,
 		Color:   0,
 	}
@@ -108,10 +108,11 @@ func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 		req.Model, req.Temperature, req.MaxTokens)
 
 	historyBoxes := []LoggingBox{}
-	for _, history := range req.Messages {
-		var color int
+	for _, message := range req.Messages {
+		color := 0
+		title := message.Role
 
-		switch history.Role {
+		switch message.Role {
 		case "user":
 			color = 4
 		case "assistant":
@@ -120,17 +121,30 @@ func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 			color = 6
 		case "function":
 			color = 3
+			title = fmt.Sprintf("%s: %s", message.Role, message.Name)
 		}
 
-		historyBoxes = append(historyBoxes, LoggingBox{
-			Title:   history.Role,
-			Content: history.Content,
+		historyBox := LoggingBox{
+			Title:   title,
+			Content: message.Content,
 			Color:   color,
-		})
+		}
+
+		if message.FunctionCall != nil {
+			historyBox.Children = []LoggingBox{
+				{
+					Title:   "Function Call",
+					Content: fmt.Sprintf("%s\n%s", message.FunctionCall.Name, message.FunctionCall.Arguments),
+					Color:   3,
+				},
+			}
+		}
+
+		historyBoxes = append(historyBoxes, historyBox)
 	}
 
 	box := LoggingBox{
-		Title:   " Completion Request /v1/chat/completions ",
+		Title:   "Completion Request /v1/chat/completions",
 		Content: meta,
 		Color:   0,
 		Children: []LoggingBox{
@@ -173,7 +187,43 @@ func ChatCompletionRequestMessagesString(msgs []openai.ChatCompletionMessage) st
 	return strings.Join(out, "\n")
 }
 
-func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []openai.ChatCompletionMessage {
+func ShellHistoryTypeToRole(t int) string {
+	switch t {
+	case historyTypeLLMOutput:
+		return "assistant"
+	case historyTypeFunctionOutput:
+		return "function"
+	default:
+		return "user"
+	}
+}
+
+func ShellHistoryBlockToGPTChat(block *util.HistoryBlock) *openai.ChatCompletionMessage {
+	role := ShellHistoryTypeToRole(block.Type)
+	name := ""
+	var function *openai.FunctionCall
+
+	if role == "function" {
+		// this case means this is a function call response and thus name should
+		// be the function name
+		name = block.FunctionName
+	} else if role == "assistant" && block.FunctionName != "" {
+		// the assistant returned a function call
+		function = &openai.FunctionCall{
+			Name:      block.FunctionName,
+			Arguments: block.FunctionParams,
+		}
+	}
+
+	return &openai.ChatCompletionMessage{
+		Role:         role,
+		Content:      block.Content,
+		Name:         name,
+		FunctionCall: function,
+	}
+}
+
+func ShellHistoryBlocksToGPTChat(systemMsg string, blocks []util.HistoryBlock) []openai.ChatCompletionMessage {
 	out := []openai.ChatCompletionMessage{
 		{
 			Role:    "system",
@@ -182,16 +232,11 @@ func ShellHistoryBlockToGPTChat(systemMsg string, blocks []util.HistoryBlock) []
 	}
 
 	for _, block := range blocks {
-		role := "user"
-		if block.Type == historyTypeLLMOutput {
-			role = "assistant"
+		if block.Content == "" && block.FunctionName == "" {
+			continue
 		}
-
-		nextBlock := openai.ChatCompletionMessage{
-			Role:    role,
-			Content: block.Content,
-		}
-		out = append(out, nextBlock)
+		nextBlock := ShellHistoryBlockToGPTChat(&block)
+		out = append(out, *nextBlock)
 	}
 
 	return out
@@ -292,6 +337,10 @@ func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer 
 }
 
 func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
+	if request.SystemMessage == "" {
+		return nil, errors.New("system message required for full chat completion")
+	}
+
 	req := openai.ChatCompletionRequest{
 		Model: request.Model,
 		Messages: []openai.ChatCompletionMessage{
@@ -325,10 +374,12 @@ func convertToOpenaiFunctions(funcs []util.FunctionDefinition) []openai.Function
 }
 
 func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
-	if request.SystemMessage == "" {
-		return nil, errors.New("system message required for full chat completion")
+	gptHistory := ShellHistoryBlocksToGPTChat(request.SystemMessage, request.HistoryBlocks)
+
+	if len(gptHistory) == 0 || gptHistory[0].Role != "system" {
+		return nil, errors.New("System message required for full chat completion")
 	}
-	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
+
 	if request.Prompt != "" {
 		gptHistory = append(gptHistory, openai.ChatCompletionMessage{
 			Role:    "user",
@@ -459,19 +510,22 @@ func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (*util.Comple
 }
 
 func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
-	if request.SystemMessage == "" {
-		return nil, errors.New("system message is required for full chat completion")
+	gptHistory := ShellHistoryBlocksToGPTChat(request.SystemMessage, request.HistoryBlocks)
+
+	if request.Prompt != "" {
+		gptHistory = append(gptHistory, openai.ChatCompletionMessage{
+			Role:    "user",
+			Content: request.Prompt,
+		})
 	}
 
-	gptHistory := ShellHistoryBlockToGPTChat(request.SystemMessage, request.HistoryBlocks)
-	messages := append(gptHistory, openai.ChatCompletionMessage{
-		Role:    "user",
-		Content: request.Prompt,
-	})
+	if len(gptHistory) == 0 || gptHistory[0].Role != "system" {
+		return nil, errors.New("System message required for full chat completion")
+	}
 
 	req := openai.ChatCompletionRequest{
 		Model:       request.Model,
-		Messages:    messages,
+		Messages:    gptHistory,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
@@ -481,6 +535,10 @@ func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (*util.Comp
 }
 
 func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
+	if request.SystemMessage == "" {
+		return nil, errors.New("system message is required for full chat completion")
+	}
+
 	req := openai.ChatCompletionRequest{
 		Model: request.Model,
 		Messages: []openai.ChatCompletionMessage{

@@ -486,13 +486,15 @@ func printLoggingBox(box LoggingBox, writer io.Writer, depth int, colors []strin
 	indentLen := depth
 	indentFullLen := depth + 1
 
+	title := fmt.Sprintf(" %s ", box.Title)
+
 	// Print the title
 	topline := fmt.Sprintf("%s%s%s%s%s%s%s\n",
 		indent,
 		boxColor,
 		NW_CORNER,
-		box.Title,
-		strings.Repeat(H_LINE, BOX_WIDTH-len(box.Title)-2-indentLen*2),
+		title,
+		strings.Repeat(H_LINE, BOX_WIDTH-len(title)-2-indentLen*2),
 		NE_CORNER,
 		indentRight)
 

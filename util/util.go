@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/afero"
 )
 
+// We define types for calling LLM APIs here because I don't want the internal
+// interfaces to depend on OpenAI-specific types.
 type CompletionRequest struct {
 	Ctx           context.Context
 	Prompt        string
@@ -38,8 +40,10 @@ type FunctionDefinition struct {
 }
 
 type HistoryBlock struct {
-	Type    int
-	Content string
+	Type           int
+	Content        string
+	FunctionName   string
+	FunctionParams string
 }
 
 func (this HistoryBlock) String() string {
