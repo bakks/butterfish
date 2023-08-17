@@ -558,15 +558,6 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 
-	//	if this.Config.ShellPluginMode {
-	//		client, err := this.StartPluginClient()
-	//		if err != nil {
-	//			panic(err)
-	//		}
-	//
-	//		go client.Mux(this.Ctx)
-	//	}
-
 	shellState := &ShellState{
 		Butterfish:              this,
 		ParentOut:               parentOut,
@@ -622,12 +613,28 @@ type CommandParams struct {
 	Cmd string `json:"cmd"`
 }
 
+var commandRegex = regexp.MustCompile("^\\s*\\{\\s*\"cmd\"\\s*:\\s*\"(.*)\"\\s*\\}\\s*$")
+
+// Parse the arguments from the command function returned in a Chat completion.
+// We parse this with a regex rather than unmarshalling because the command
+// may contain unescaped quotes, which would cause the unmarshal to fail.
 func parseCommandParams(params string) (string, error) {
-	// unmarshal CommandParams from FunctionParameters
-	var commandParams CommandParams
-	cleanParams := AddDoubleEscapesForJSON(params)
-	err := json.Unmarshal([]byte(cleanParams), &commandParams)
-	return commandParams.Cmd, err
+	// get cmd value using commandRegex
+	matches := commandRegex.FindStringSubmatch(params)
+	if len(matches) != 2 {
+		return "", fmt.Errorf("Unable to parse command params: %s", params)
+	}
+	cmd := matches[1]
+
+	// check for an uneven number of quotes
+	if strings.Count(cmd, "\"")%2 == 1 {
+		log.Printf("Uneven number of double quotes in command: %s", cmd)
+	}
+	if strings.Count(cmd, "'")%2 == 1 {
+		log.Printf("Uneven number of single quotes in command: %s", cmd)
+	}
+
+	return cmd, nil
 }
 
 type UserInputParams struct {
@@ -844,6 +851,8 @@ func (this *ShellState) Mux() {
 					// is done and we can send the response back to the model
 					endOfFunctionCall = true
 				}
+			} else if this.ActiveFunction != "" {
+				this.ActiveFunction = ""
 			}
 
 			// If we're getting child output while typing in a shell command, this
@@ -920,6 +929,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		if data[0] == 0x03 {
 			this.PromptResponseCancel()
 			this.PromptResponseCancel = nil
+			this.GoalMode = false
 			return data[1:]
 		}
 

@@ -225,8 +225,6 @@ func main() {
 	parsedCmd, err := cliParser.Parse(os.Args[1:])
 	cliParser.FatalIfErrorf(err)
 
-	fmt.Printf("Verbose Count: %d\n", verboseCount)
-
 	config := makeButterfishConfig(cli)
 	config.BuildInfo = getBuildInfo()
 	ctx := context.Background()
