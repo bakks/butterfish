@@ -63,8 +63,8 @@ type VerboseFlag bool
 
 var verboseCount int
 
-// this hook technique seems to always be called at least once even if the
-// flag is not used but that's fine for now
+// This is a hook to count how many times the verbose flag is set, e.g. -vvv,
+// but apparently it's always called at least once even if no flag is set
 func (v *VerboseFlag) BeforeResolve() error {
 	verboseCount++
 	return nil
@@ -74,7 +74,7 @@ func (v *VerboseFlag) BeforeResolve() error {
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
-	Verbose VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometime to log file). Use multiple times for more verbosity, e.g. -vv."`
+	Verbose VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
 	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
 
 	Shell struct {
@@ -190,9 +190,12 @@ func getOpenAIToken() string {
 
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
-	config.Verbose = verboseCount
 	config.OpenAIToken = getOpenAIToken()
 	config.PromptLibraryPath = defaultPromptPath
+
+	if options.Verbose {
+		config.Verbose = verboseCount
+	}
 
 	return config
 }
@@ -218,6 +221,7 @@ func main() {
 			"shell_help": shell_help,
 			"version":    getBuildInfo(),
 		})
+
 	if err != nil {
 		panic(err)
 	}
@@ -258,7 +262,6 @@ func main() {
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellColorDark = !cli.Shell.LightColor
 		config.ShellMode = true
-		//config.ShellPluginMode = cli.Shell.Plugin
 		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
 
