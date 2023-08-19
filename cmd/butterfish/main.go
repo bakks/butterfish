@@ -36,7 +36,7 @@ Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env an
 
 To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
 
-If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
+If you do not have OpenAI free credits then you will need a subscription and you will need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend by disabling shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `
 const license = "MIT License - Copyright (c) 2023 Peter Bakkum"
 const defaultEnvPath = "~/.config/butterfish/butterfish.env"
@@ -48,7 +48,7 @@ Use:
   - Type a normal command, like 'ls -l' and press enter to execute it
   - Start a command with a capital letter to send it to GPT, like 'How do I recursively find local .py files?'
   - Autosuggest will print command completions, press tab to fill them in
-  - GPT will be able to see your shell history, so you can ask contextual questions like 'why didn't my last command work?'
+  - GPT will be able to see your shell history, so you can ask contextual questions like 'why didnt my last command work?'
 	- Start a command with ! to enter Goal Mode, in which GPT will act as an Agent attempting to accomplish your goal by executing commands, for example '!Run make in this directory and debug any problems'.
 	- Start a command with !! to enter Unsafe Goal Mode, in which GPT will execute commands without confirmation. USE WITH CAUTION.
 
@@ -57,7 +57,7 @@ Here are special Butterfish commands:
   - Status : Show the current Butterfish configuration.
   - History : Print out the history that would be sent in a GPT prompt.
 
-If you don't have OpenAI free credits then you'll need a subscription and you'll need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend here by disabling shell autosuggest (-A) or increasing  the autosuggest timeout (e.g. -t 2000).`
+If you do not have OpenAI free credits then you will need a subscription and you will need to pay for OpenAI API use. Autosuggest will probably be the most expensive feature. You can reduce spend by disabling shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).`
 
 type VerboseFlag bool
 
