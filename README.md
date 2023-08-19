@@ -103,7 +103,10 @@ shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).
 
 Flags:
   -h, --help                       Show context-sensitive help.
-  -v, --verbose                    Verbose mode, prints full LLM prompts.
+  -v, --verbose                    Verbose mode, prints full LLM prompts
+                                   (sometime to log file). Use multiple times
+                                   for more verbosity, e.g. -vv.
+  -V, --version                    Print version information and exit.
 
   -b, --bin=STRING                 Shell to use (e.g. /bin/zsh), defaults to
                                    $SHELL.
@@ -122,7 +125,7 @@ Flags:
                                    Mode.
   -l, --light-color                Light color mode, appropriate for a terminal
                                    with a white(ish) background
-  -h, --max-history-block-tokens=512
+  -H, --max-history-block-tokens=512
                                    Maximum number of tokens of each block of
                                    history. For example, if a command has a very
                                    long output, it will be truncated to this
@@ -163,7 +166,10 @@ Arguments:
 
 Flags:
   -h, --help                     Show context-sensitive help.
-  -v, --verbose                  Verbose mode, prints full LLM prompts.
+  -v, --verbose                  Verbose mode, prints full LLM prompts (sometime
+                                 to log file). Use multiple times for more
+                                 verbosity, e.g. -vv.
+  -V, --version                  Print version information and exit.
 
   -m, --model="gpt-3.5-turbo"    GPT model to use for the prompt.
   -n, --num-tokens=1024          Maximum number of tokens to generate.
@@ -196,57 +202,15 @@ Arguments:
 
 Flags:
   -h, --help       Show context-sensitive help.
-  -v, --verbose    Verbose mode, prints full LLM prompts.
+  -v, --verbose    Verbose mode, prints full LLM prompts (sometime to log file).
+                   Use multiple times for more verbosity, e.g. -vv.
+  -V, --version    Print version information and exit.
 
   -f, --force      Execute the command without prompting.
 
 ```
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/gencmd.gif" alt="Butterfish" width="500px" height="250px" />
-
-### `rewrite` - Rewrite a file with LLM instructions
-
-```
-butterfish rewrite -I "Add comments to all functions" < main.go
-butterfish rewrite -i ./Makefile "Add a command for updating go modules"
-```
-
-```bash
-> butterfish rewrite --help
-Usage: butterfish rewrite <prompt>
-
-Rewrite a file using a prompt, must specify either a file path or provide piped
-input, and can output to stdout, output to a given file, or edit the input file
-in-place. This command uses the OpenAI edit API rather than the completion API.
-
-Arguments:
-  <prompt>    Instruction to the model on how to rewrite.
-
-Flags:
-  -h, --help                 Show context-sensitive help.
-  -v, --verbose              Verbose mode, prints full LLM prompts.
-
-  -i, --inputfile=STRING     Source file for content to rewrite. If not set then
-                             there must be piped input.
-  -o, --outputfile=STRING    File to write the rewritten output to.
-  -I, --inplace              Rewrite the input file in place. This is
-                             potentially destructive, use with caution! Cannot
-                             be set at the same time as the outputfile flag.
-  -m, --model="code-davinci-edit-001"
-                             GPT model to use for editing. At compile time
-                             this should be either 'code-davinci-edit-001' or
-                             'text-davinci-edit-001'.
-  -T, --temperature=0.6      Temperature to use for the prompt, higher
-                             temperature indicates more freedom/randomness when
-                             generating each token.
-  -c, --chunk-size=4000      Number of bytes to rewrite at a time if the file
-                             must be split up.
-  -C, --max-chunks=128       Maximum number of chunks to rewrite from a specific
-                             file.
-
-```
-
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/rewrite.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `summarize` - Get a semantic summary of file content
 
@@ -271,7 +235,10 @@ Arguments:
 
 Flags:
   -h, --help               Show context-sensitive help.
-  -v, --verbose            Verbose mode, prints full LLM prompts.
+  -v, --verbose            Verbose mode, prints full LLM prompts (sometime to
+                           log file). Use multiple times for more verbosity,
+                           e.g. -vv.
+  -V, --version            Print version information and exit.
 
   -c, --chunk-size=3600    Number of bytes to summarize at a time if the file
                            must be split up.
@@ -316,7 +283,8 @@ command mode, used to prompt LLMs, summarize files, and manage embeddings, and
 Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
 
 Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env
-and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml.
+and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml. Butterfish
+logs to the system temp dir, usually to /var/tmp/butterfish.log.
 
 To print the full prompts and responses from the OpenAI API, use the --verbose
 flag. Support can be found at https://github.com/bakks/butterfish.
@@ -327,12 +295,14 @@ probably be the most expensive part. You can reduce spend here by disabling
 shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).
 See "butterfish shell --help".
 
-v0.1.0 darwin amd64 (commit efb4b0a) (built 2023-06-07T01:45:25Z) MIT License -
+v0.1.6 darwin amd64 (commit 6d4dafe) (built 2023-08-17T08:21:44Z) MIT License -
 Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.
-  -v, --verbose    Verbose mode, prints full LLM prompts.
+  -v, --verbose    Verbose mode, prints full LLM prompts (sometime to log file).
+                   Use multiple times for more verbosity, e.g. -vv.
+  -V, --version    Print version information and exit.
 
 Commands:
   shell
@@ -388,12 +358,6 @@ Commands:
     Generate a shell command from a prompt, i.e. pass in what you want, a shell
     command will be generated. Accepts piped input. You can use the -f command
     to execute it sight-unseen.
-
-  rewrite <prompt>
-    Rewrite a file using a prompt, must specify either a file path or provide
-    piped input, and can output to stdout, output to a given file, or edit the
-    input file in-place. This command uses the OpenAI edit API rather than the
-    completion API.
 
   exec [<command> ...]
     Execute a command and try to debug problems. The command can either passed
