@@ -383,6 +383,10 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 func (this *ButterfishCtx) Prompt(promptStr string, model string, maxTokens int, temperature float32) error {
 	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
 	sysMsg, err := this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
+	if err != nil {
+		return err
+	}
+
 	req := &util.CompletionRequest{
 		Ctx:           this.Ctx,
 		Prompt:        promptStr,
@@ -418,16 +422,22 @@ func (this *ButterfishCtx) diffStrings(a, b string) string {
 // Given a description of functionality, we call GPT to generate a shell
 // command
 func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
-	prompt, err := this.PromptLibrary.GetPrompt("generate_command", "content", description)
+	promptStr, err := this.PromptLibrary.GetPrompt("generate_command", "content", description)
+	if err != nil {
+		return "", err
+	}
+
+	sysMsg, err := this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
 	if err != nil {
 		return "", err
 	}
 	req := &util.CompletionRequest{
-		Ctx:         this.Ctx,
-		Prompt:      prompt,
-		Model:       this.Config.GencmdModel,
-		MaxTokens:   this.Config.GencmdMaxTokens,
-		Temperature: this.Config.GencmdTemperature,
+		Ctx:           this.Ctx,
+		Prompt:        promptStr,
+		Model:         this.Config.GencmdModel,
+		MaxTokens:     this.Config.GencmdMaxTokens,
+		Temperature:   this.Config.GencmdTemperature,
+		SystemMessage: sysMsg,
 	}
 
 	resp, err := this.LLMClient.Completion(req)
