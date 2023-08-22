@@ -362,11 +362,12 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 
 		req := &util.CompletionRequest{
-			Ctx:         this.Ctx,
-			Prompt:      prompt,
-			Model:       options.Indexquestion.Model,
-			MaxTokens:   options.Indexquestion.NumTokens,
-			Temperature: options.Indexquestion.Temperature,
+			Ctx:           this.Ctx,
+			Prompt:        prompt,
+			Model:         options.Indexquestion.Model,
+			MaxTokens:     options.Indexquestion.NumTokens,
+			Temperature:   options.Indexquestion.Temperature,
+			SystemMessage: "N/A",
 		}
 
 		_, err = this.LLMClient.CompletionStream(req, this.Out)
@@ -454,8 +455,11 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 	for {
 		result, err := this.execCommand(cmd)
+		if err != nil {
+			return err
+		}
 		// If the command succeeded, we're done
-		if err == nil {
+		if result.Status == 0 {
 			return nil
 		}
 
@@ -472,11 +476,12 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 		styleWriter := util.NewStyledWriter(this.Out, this.Config.Styles.Highlight)
 
 		req := &util.CompletionRequest{
-			Ctx:         this.Ctx,
-			Prompt:      prompt,
-			Model:       this.Config.ExeccheckModel,
-			MaxTokens:   this.Config.ExeccheckMaxTokens,
-			Temperature: this.Config.ExeccheckTemperature,
+			Ctx:           this.Ctx,
+			Prompt:        prompt,
+			Model:         this.Config.ExeccheckModel,
+			MaxTokens:     this.Config.ExeccheckMaxTokens,
+			Temperature:   this.Config.ExeccheckTemperature,
+			SystemMessage: "N/A",
 		}
 
 		response, err := this.LLMClient.CompletionStream(req, styleWriter)
@@ -515,7 +520,7 @@ type executeResult struct {
 // Function that executes a command on the local host as a child and streams
 // the stdout/stderr to a writer. If the context is cancelled then the child
 // process is killed.
-// Returns an executeResult with status and last output if status != 0
+// Returns an executeResult with status and last output
 func executeCommand(ctx context.Context, cmd string, out io.Writer) (*executeResult, error) {
 	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
 	cacheWriter := util.NewCacheWriter(out)
@@ -608,10 +613,11 @@ func (this *ButterfishCtx) updateCommandRegister(cmd string) {
 func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
 	req := &util.CompletionRequest{
-		Ctx:         this.Ctx,
-		Model:       this.Config.SummarizeModel,
-		MaxTokens:   this.Config.SummarizeMaxTokens,
-		Temperature: this.Config.SummarizeTemperature,
+		Ctx:           this.Ctx,
+		Model:         this.Config.SummarizeModel,
+		MaxTokens:     this.Config.SummarizeMaxTokens,
+		Temperature:   this.Config.SummarizeTemperature,
+		SystemMessage: "N/A",
 	}
 
 	if len(chunks) == 1 {
