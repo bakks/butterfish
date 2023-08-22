@@ -380,17 +380,19 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	return nil
 }
 
-func (this *ButterfishCtx) Prompt(prompt string, model string, maxTokens int, temperature float32) error {
+func (this *ButterfishCtx) Prompt(promptStr string, model string, maxTokens int, temperature float32) error {
 	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
+	sysMsg, err := this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
 	req := &util.CompletionRequest{
-		Ctx:         this.Ctx,
-		Prompt:      prompt,
-		Model:       model,
-		MaxTokens:   maxTokens,
-		Temperature: temperature,
+		Ctx:           this.Ctx,
+		Prompt:        promptStr,
+		Model:         model,
+		MaxTokens:     maxTokens,
+		Temperature:   temperature,
+		SystemMessage: sysMsg,
 	}
 
-	_, err := this.LLMClient.CompletionStream(req, writer)
+	_, err = this.LLMClient.CompletionStream(req, writer)
 	return err
 }
 

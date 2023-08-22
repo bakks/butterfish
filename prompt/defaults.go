@@ -7,6 +7,7 @@ const (
 	PromptSummarizeListOfFacts       = "summarize_list_of_facts"
 	PromptGenerateCommand            = "generate_command"
 	PromptQuestion                   = "question"
+	PromptSystemMessage              = "prompt_system_message"
 	PromptShellAutosuggestCommand    = "shell_autocomplete_command"
 	PromptShellAutosuggestNewCommand = "shell_autocomplete_new_command"
 	PromptShellAutosuggestPrompt     = "shell_autocomplete_prompt"
@@ -19,6 +20,12 @@ const (
 // OkToReplace field (in the yaml file) is false.
 
 var DefaultPrompts []Prompt = []Prompt{
+
+	{
+		Name:        PromptSystemMessage,
+		Prompt:      "You are an assistant that helps the user in a Unix shell. Make your answers technical but succinct.",
+		OkToReplace: true,
+	},
 
 	{
 		Name:        PromptShellSystemMessage,
