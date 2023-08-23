@@ -743,6 +743,7 @@ func (this *ShellState) Mux() {
 			this.ChildIn.Write([]byte("\n"))
 
 			if this.GoalMode {
+				this.ActiveFunction = output.FunctionName
 
 				switch output.FunctionName {
 				case "command":
@@ -750,14 +751,12 @@ func (this *ShellState) Mux() {
 					this.GoalModeBuffer = ""
 					this.PromptSuffixCounter = 0
 					this.setState(stateNormal)
-					this.ActiveFunction = "command"
 					cmd, err := parseCommandParams(output.FunctionParameters)
 					if err != nil {
 						// we failed to parse the command json, send error back to model
 						log.Printf("Error parsing function arguments: %s", err)
 						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
-						this.GoalModeCommandResponse(-1, "")
+						this.GoalModeFunctionResponse(modelStr)
 						continue
 					}
 					log.Printf("Goal mode command: %s", cmd)
@@ -776,8 +775,7 @@ func (this *ShellState) Mux() {
 					if err != nil {
 						log.Printf("Error parsing function arguments: %s", err)
 						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
-						this.GoalModeCommandResponse(-1, "")
+						this.GoalModeFunctionResponse(modelStr)
 						continue
 					}
 
@@ -793,7 +791,7 @@ func (this *ShellState) Mux() {
 						log.Printf("Error parsing function arguments: %s", err)
 						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
 						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
-						this.GoalModeCommandResponse(-1, "")
+						this.GoalModeFunctionResponse(modelStr)
 						continue
 					}
 
@@ -810,14 +808,13 @@ func (this *ShellState) Mux() {
 					log.Printf("No function called in goal mode")
 					modelStr := fmt.Sprintf("You must call a function in goal mode responses.")
 					this.History.Append(historyTypePrompt, modelStr)
-					this.GoalModeCommandResponse(-1, "")
+					this.GoalModeFunctionResponse("")
 					continue
 
 				default:
 					log.Printf("Invalid function name called in goal mode: %s", output.FunctionName)
 					modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
-					this.History.AppendFunctionOutput(output.FunctionName, modelStr)
-					this.GoalModeCommandResponse(-1, "")
+					this.GoalModeFunctionResponse(modelStr)
 					continue
 
 				}
@@ -870,7 +867,11 @@ func (this *ShellState) Mux() {
 			if endOfFunctionCall {
 				// move cursor to the beginning of the line and clear the line
 				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
-				this.GoalModeCommandResponse(lastStatus, "")
+				var status string
+				if this.ActiveFunction == "command" {
+					status = fmt.Sprintf("Exit Code: %d\n", lastStatus)
+				}
+				this.GoalModeFunctionResponse(status)
 				this.ActiveFunction = ""
 				this.GoalModeBuffer = ""
 				this.PromptSuffixCounter = 0
@@ -1216,10 +1217,13 @@ func (this *ShellState) GoalModeChat() {
 	this.goalModePrompt(prompt)
 }
 
-func (this *ShellState) GoalModeCommandResponse(status int, output string) {
-	log.Printf("Goal mode response: %d\n", status)
-	prompt := fmt.Sprintf("%s\nExit code: %d\n", output, status)
-	this.goalModePrompt(prompt)
+func (this *ShellState) GoalModeFunctionResponse(output string) {
+	log.Printf("Goal mode response: %s\n", output)
+	if output != "" {
+		this.History.AppendFunctionOutput(this.ActiveFunction, output)
+	}
+	this.ActiveFunction = ""
+	this.goalModePrompt("")
 }
 
 var goalModeFunctions = []util.FunctionDefinition{
