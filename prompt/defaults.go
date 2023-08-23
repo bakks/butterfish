@@ -1,18 +1,18 @@
 package prompt
 
 const (
-	PromptFixCommand                 = "fix_command"
-	PromptSummarize                  = "summarize"
-	PromptSummarizeFacts             = "summarize_facts"
-	PromptSummarizeListOfFacts       = "summarize_list_of_facts"
-	PromptGenerateCommand            = "generate_command"
-	PromptQuestion                   = "question"
-	PromptSystemMessage              = "prompt_system_message"
-	PromptShellAutosuggestCommand    = "shell_autocomplete_command"
-	PromptShellAutosuggestNewCommand = "shell_autocomplete_new_command"
-	PromptShellAutosuggestPrompt     = "shell_autocomplete_prompt"
-	PromptShellSystemMessage         = "shell_system_message"
-	GoalModeSystemMessage            = "goal_mode_system_message"
+	PromptFixCommand           = "fix_command"
+	PromptSummarize            = "summarize"
+	PromptSummarizeFacts       = "summarize_facts"
+	PromptSummarizeListOfFacts = "summarize_list_of_facts"
+	PromptGenerateCommand      = "generate_command"
+	PromptQuestion             = "question"
+	PromptSystemMessage        = "prompt_system_message"
+	ShellAutosuggestCommand    = "shell_autocomplete_command"
+	ShellAutosuggestNewCommand = "shell_autocomplete_new_command"
+	ShellAutosuggestPrompt     = "shell_autocomplete_prompt"
+	ShellSystemMessage         = "shell_system_message"
+	GoalModeSystemMessage      = "goal_mode_system_message"
 )
 
 // These are the default prompts used for Butterfish, they will be written
@@ -28,7 +28,7 @@ var DefaultPrompts []Prompt = []Prompt{
 	},
 
 	{
-		Name:        PromptShellSystemMessage,
+		Name:        ShellSystemMessage,
 		Prompt:      "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and examples but keep your answers succinct.",
 		OkToReplace: true,
 	},
@@ -40,7 +40,7 @@ var DefaultPrompts []Prompt = []Prompt{
 	},
 
 	{
-		Name:        PromptShellAutosuggestCommand,
+		Name:        ShellAutosuggestCommand,
 		OkToReplace: true,
 		Prompt: `The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is recent history:
 '''
@@ -50,7 +50,7 @@ If a command appears recently in history it matches the start of the command, su
 	},
 
 	{
-		Name:        PromptShellAutosuggestNewCommand,
+		Name:        ShellAutosuggestNewCommand,
 		OkToReplace: true,
 		Prompt: `The user is using a Unix shell but hasn't yet entered anything. Suggest a unix command based on previous assistant output like an example. If the user has entered a command recently which failed, suggest a fixed version of that command. Respond with only the shell command, do not add comments or quotations. Do not suggest in natural language, suggest as a unix shell command. Here is recent history:
 '''
@@ -61,7 +61,7 @@ If a command appears recently in history, suggest that.
 	},
 
 	{
-		Name:        PromptShellAutosuggestPrompt,
+		Name:        ShellAutosuggestPrompt,
 		OkToReplace: true,
 		Prompt: `The user is asking a natural language question likely related to a unix shell command or to programming. Complete the question and include the start of the question in the answer. Do not answer the question. Respond only with the completion. Here is some recent context and history from the user's shell:
 '''

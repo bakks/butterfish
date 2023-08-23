@@ -1521,7 +1521,7 @@ func (this *ShellState) SendPrompt() {
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellSystemMessage)
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellSystemMessage)
 	if err != nil {
 		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
 		log.Println(msg)
@@ -1781,16 +1781,16 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 
 	if len(command) == 0 {
 		// command completion when we haven't started a command
-		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestNewCommand,
+		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellAutosuggestNewCommand,
 			"history", historyStr)
 	} else if !unicode.IsUpper(rune(command[0])) {
 		// command completion when we have started typing a command
-		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestCommand,
+		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellAutosuggestCommand,
 			"history", historyStr,
 			"command", command)
 	} else {
 		// prompt completion, like we're asking a question
-		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.PromptShellAutosuggestPrompt,
+		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellAutosuggestPrompt,
 			"history", historyStr,
 			"command", command)
 	}
