@@ -6,6 +6,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestFixCommandParse(t *testing.T) {
+	str1 := `
+Foo bar foo bar
+
+> command arg1 arg2 "arg3 arg4" arg5 -v
+
+Foo bar foo bar`
+
+	cmd, err := fixCommandParse(str1)
+	assert.Nil(t, err)
+	assert.Equal(t, "command arg1 arg2 \"arg3 arg4\" arg5 -v", cmd)
+
+	str2 := `
+Foo bar foo bar
+
+` + "```" + `
+command arg1 arg2 "arg3 arg4" arg5 -v
+` + "```" + `
+
+Foo bar foo bar`
+
+	cmd, err = fixCommandParse(str2)
+	assert.Nil(t, err)
+	assert.Equal(t, "command arg1 arg2 \"arg3 arg4\" arg5 -v", cmd)
+}
+
 // A golang test for ShellBuffer
 func TestShellBuffer(t *testing.T) {
 	buffer := NewShellBuffer()

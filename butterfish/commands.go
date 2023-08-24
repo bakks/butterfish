@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -450,6 +451,33 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 	return resp.Completion, nil
 }
 
+// We're parsing the results from an LLM requesting a command fix, we expect
+// that there will be natural language text in the string and the command
+// will appear somewhere like:
+// > command
+// or like
+// ```
+// command
+// ```
+// If there are multiple commands we just take the first one.
+func fixCommandParse(s string) (string, error) {
+	// regex for the > pattern
+	re1 := regexp.MustCompile(`\n> (.*)`)
+	matches := re1.FindStringSubmatch(s)
+	if len(matches) == 2 {
+		return strings.TrimSpace(matches[1]), nil
+	}
+
+	// regex for the ``` pattern
+	re2 := regexp.MustCompile("```\n(.*)\n```")
+	matches = re2.FindStringSubmatch(s)
+	if len(matches) == 2 {
+		return strings.TrimSpace(matches[1]), nil
+	}
+
+	return "", errors.New("Could not find command in response")
+}
+
 // Execute a command in a loop, if the exit status is non-zero then we call
 // GPT to give us a fixed command and ask the user if they want to run it
 func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
@@ -489,14 +517,10 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 			return err
 		}
 
-		// Find the last occurrence of '>' in the response and get the string
-		// from there to the end
-		lastGt := strings.LastIndex(response.Completion, ">")
-		if lastGt == -1 {
-			return nil
+		cmd, err = fixCommandParse(response.Completion)
+		if err != nil {
+			return err
 		}
-
-		cmd = strings.TrimSpace(response.Completion[lastGt+1:])
 
 		this.StylePrintf(this.Config.Styles.Question, "Run this command? [y/N]: ")
 
