@@ -1,12 +1,12 @@
-Output gif/shell.gif
+Output gif/shell3.gif
 
 Set CursorBlink false
 Require butterfish
 
-Set FontSize 22
+Set FontSize 26
 Set Padding 14
 Set Theme "Monokai Pro"
-Set PlaybackSpeed 1.0
+Set PlaybackSpeed 0.8
 Set Framerate 20
 
 Hide
@@ -22,7 +22,8 @@ Enter
 
 Sleep 2s Show
 
-Type "butterfish shell"
+
+Type "butterfish shell -m gpt-4"
 Sleep 1s
 Enter
 Sleep 2s
@@ -32,30 +33,22 @@ Sleep 1s
 Enter
 Sleep 4s
 
-Type "How do I rename all js files to ts files?"
+Type "Are these files executable?
 Sleep 1s
 Enter
-Sleep 10s
+Sleep 15s
+
+Type "How do I make foo.js executable?"
+Sleep 1s
+Enter
+Sleep 12s
 
 Tab
 Sleep 1s
 Enter
-Sleep 5s
-
-Type "Give me another command"
-Sleep 1s
-Enter
-Sleep 10s
-
-Type "for "
-Sleep 2s
-Tab
-Sleep 1s
-Enter
-Sleep 5s
+Sleep 4s
 
 Type "ls"
 Sleep 1s
 Enter
-Sleep 20s
-
+Sleep 30s

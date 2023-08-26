@@ -1,23 +1,24 @@
 Output gif/question.gif
 
+Set CursorBlink false
 Require butterfish
 
-Set FontSize 18
-Set Width 1000
-Set Height 500
-Set Framerate 30
-Set PlaybackSpeed 1
-Set Padding 10
+Set FontSize 28
+Set Padding 14
+Set Theme "Monokai Pro"
+Set PlaybackSpeed 1.0
+Set Framerate 20
 
-Hide Sleep 2s Show
+Hide
 
-Type "butterfish index ."
-Sleep 1s
+Type "cd ~/butterfish"
+Enter
+Type "clear"
 Enter
 
-Sleep 5s
+Sleep 2s Show
 
-Type "butterfish question 'What are the butterfish configuration options in code? Give a summary and print the relevant struct.'"
+Type "butterfish indexquestion 'What are some butterfish command line flags?'"
 Sleep 1s
 Enter
 

@@ -1,27 +1,31 @@
 Output gif/index.gif
 
+Set CursorBlink false
 Require butterfish
 
-Set FontSize 18
-Set Width 1000
-Set Height 500
-Set Framerate 30
-Set PlaybackSpeed 1
-Set Padding 10
+Set FontSize 20
+Set Padding 14
+Set Theme "Monokai Pro"
+Set PlaybackSpeed 1.0
+Set Framerate 20
 
-Hide Sleep 2s Show
+Hide
 
 Type "cd ~/butterfish"
-Sleep 1s
 Enter
-Sleep 1s
+Type "butterfish clearindex"
+Enter
+Type "clear"
+Enter
 
-Type "butterfish index ."
+Sleep 2s Show
+
+Type "butterfish index README.md"
 Sleep 3s
 Enter
-Sleep 20s
+Sleep 5s
 
-Type "butterfish indexsearch -r 2 'Executing a command and checking the results'"
+Type "butterfish indexsearch -r 2 'summarize command'"
 Sleep 3s
 Enter
 Sleep 30s
