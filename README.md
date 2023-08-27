@@ -6,7 +6,7 @@ A shell with AI superpowers
 
 ## What is this thing?
 
-Butterfish is for people who work from the command line, it adds AI prompting to your shell (bash, zsh) with OpenAI.
+Butterfish is for people who work from the command line, it adds AI prompting to your shell (bash, zsh) with OpenAI. Think Github Copilot for shell.
 
 Here's how it works: use your shell as normal, start a command with a capital letter to prompt the AI. The AI sees the shell history, so you can ask contextual questions like "why did that command fail?".
 
@@ -20,20 +20,30 @@ This is a magical UX pattern -- you get high-context AI help exactly when you wa
 -   Autocomplete shell commands (this uses recent history)
 -   "Give me a pasta recipe" (this is a ChatGPT interface so it's not just for shell stuff!)
 
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell3.gif" alt="Butterfish" width="500px" height="250px" />
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell3.gif" alt="Demo of Butterfish Shell" width="500px" height="250px" />
 
 Feedback and external contribution is very welcome! Butterfish is open source under the MIT license. We hope that you find it useful!
 
+### Prompt Transparency
+
+Many AI-enabled products obscure the prompt (instructional text) sent to the AI model. Butterfish makes this transparent and configurable.
+
+To see the raw AI requests / responses you can run Butterfish in verbose mode (`butterfish shell -v`) and watch the log file (`/var/tmp/butterfish.log` on MacOS). For more verbosity, use `-vv`.
+
+To configure the prompts you can edit `~/.config/butterfish/prompts.yaml`.
+
+<img src="https://github.com/bakks/butterfish/raw/main/assets/verbose.png" alt="The verbose output of Butterfish Shell showing raw AI prompts" height="400px" />
+
 ## Installation / Authentication
 
-Butterfish works on MacOS and Linux. You can install via Homebrew:
+Butterfish works on MacOS and Linux. You can install via Homebrew on MacOS:
 
 ```bash
 brew install bakks/bakks/butterfish
 butterfish prompt "Is this thing working?"
 ```
 
-You can also install with `go install`, which is recommended for Linux:
+You can also install with `go install`:
 
 ```bash
 go install github.com/bakks/butterfish/cmd/butterfish@latest
@@ -56,15 +66,11 @@ alias bf="butterfish"
 
 ## Shell Mode
 
-You might use your local terminal for lots of everyday tasks - building code, using git, logging into remote machines, etc. Do you remember off the top of your head how to unpackage a .tar.gz file? No one does!
-
-Shell mode is an attempt to tightly integrate LLMs into your shell. Think Github Copilot for shell.
-
 How does this work? Shell mode _wraps_ your shell rather than replacing it.
 
 -   You run `butterfish shell` and use your existing shell as normal
 -   You start a command with a capital letter to prompt the LLM, e.g. "How do I do..."
--   You can autocomplete commands and prompt questions
+-   You can autocomplete commands and prompt questions with `Tab`
 -   Prompts and autocomplete use local context for answers, like ChatGPT
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell2.gif" alt="Butterfish" width="500px" height="250px" />
@@ -464,18 +470,7 @@ A goal of Butterfish is to make prompts transparent and easily editable. Butterf
 
 ```
 
-If you want to see the exact communication between Butterfish and the OpenAI API then set the verbose flag (`-v`) when you run Butterfish, this will print the full prompt and response. For example:
-
-```
-butterfish -v gencmd "find all go files"
-Loaded 7 prompts from /Users/bakks/.config/butterfish/prompts.yaml
-↑ ---
-Write a shell command that accomplishes the following goal. Respond with only the shell command.
-'''
-find all go files
-'''
-...
-```
+If you want to see the exact communication between Butterfish and the OpenAI API then set the verbose flag (`-v`) when you run Butterfish, this will print the full prompt and response either to the terminal or to a log file.
 
 #### Example
 
