@@ -14,6 +14,8 @@ This is a magical UX pattern -- you get high-context AI help exactly when you wa
 
 ### What can you do with Butterfish Shell?
 
+Once you run `butterfish shell` you can do the following things from the command line:
+
 -   "Give me a command to do x"
 -   "Why did that command fail?"
 -   "!Run make in this directory, debug problems" (this acts as an agent)
@@ -40,14 +42,16 @@ Butterfish works on MacOS and Linux. You can install via Homebrew on MacOS:
 
 ```bash
 brew install bakks/bakks/butterfish
-butterfish prompt "Is this thing working?"
+butterfish shell
+Is this thing working? # Type this literally into the CLI
 ```
 
 You can also install with `go install`:
 
 ```bash
 go install github.com/bakks/butterfish/cmd/butterfish@latest
-$(go env GOPATH)/bin/butterfish prompt "Is this thing working?"
+$(go env GOPATH)/bin/butterfish shell
+Is this thing working? # Type this literally into the CLI
 ```
 
 The first invocation will prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
