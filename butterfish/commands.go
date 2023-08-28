@@ -230,6 +230,11 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 
 		content, err := ioutil.ReadFile(targetFile)
+
+		if this.Config.Verbose > 0 {
+			this.StylePrintf(this.Config.Styles.Question, "%s\n", string(content))
+		}
+
 		return this.Prompt(
 			string(content),
 			options.Prompt.Model,
