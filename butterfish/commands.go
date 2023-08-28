@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
+	"github.com/mitchellh/go-homedir"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 
@@ -55,6 +56,14 @@ type CliCommandConfig struct {
 		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo."`
+
+	Promptedit struct {
+		File        string  `short:"f" default:"~/.config/butterfish/prompt.txt" help:"Cached prompt file to use." optional:""`
+		Editor      string  `short:"e" default:"" help:"Editor to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-3.5-turbo" help:"GPT model to use for the prompt."`
+		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+	} `cmd:"" help:"Like the prompt command, but this opens a local file with your default editor (set with the EDITOR env var) that will then be passed as a prompt in the LLM call."`
 
 	Summarize struct {
 		Files     []string `arg:"" help:"File paths to summarize." optional:""`
@@ -181,6 +190,48 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 		return this.Prompt(
 			input,
+			options.Prompt.Model,
+			options.Prompt.NumTokens,
+			options.Prompt.Temperature)
+
+	case "promptedit":
+		targetFile := options.Promptedit.File
+		editor := options.Promptedit.Editor
+
+		targetFile, err := homedir.Expand(targetFile)
+		if err != nil {
+			return err
+		}
+
+		// get EDITOR env var if not specified
+		if editor == "" {
+			editor = os.Getenv("EDITOR")
+		}
+		if editor == "" {
+			editor = "vi"
+			if this.Config.Verbose > 0 {
+				this.StylePrintf(this.Config.Styles.Grey, "Defaulting to %s for editor, you can set this with --editor or the EDITOR env var\n", editor)
+			}
+		}
+
+		if this.Config.Verbose > 0 {
+			this.StylePrintf(this.Config.Styles.Grey, "%s %s\n", editor, targetFile)
+		}
+
+		cmd := exec.Command(editor, targetFile)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Env = os.Environ()
+
+		err = cmd.Run()
+		if err != nil {
+			return err
+		}
+
+		content, err := ioutil.ReadFile(targetFile)
+		return this.Prompt(
+			string(content),
 			options.Prompt.Model,
 			options.Prompt.NumTokens,
 			options.Prompt.Temperature)
