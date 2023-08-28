@@ -440,7 +440,13 @@ func (this *GPT) doChatStreamCompletion(
 	if verbose {
 		LogChatCompletionRequest(req)
 	}
-	stream, err := this.client.CreateChatCompletionStream(ctx, req)
+	var stream *openai.ChatCompletionStream
+
+	err := withExponentialBackoff(func() error {
+		var innerErr error
+		stream, innerErr = this.client.CreateChatCompletionStream(ctx, req)
+		return innerErr
+	})
 
 	if err != nil {
 		return nil, err
@@ -563,8 +569,13 @@ func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatComple
 	if verbose {
 		LogChatCompletionRequest(request)
 	}
+	var resp openai.ChatCompletionResponse
 
-	resp, err := this.client.CreateChatCompletion(ctx, request)
+	err := withExponentialBackoff(func() error {
+		var innerErr error
+		resp, innerErr = this.client.CreateChatCompletion(ctx, request)
+		return innerErr
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -588,14 +599,14 @@ func withExponentialBackoff(f func() error) error {
 	for i := 0; ; i++ {
 		err := f()
 
-		if err != nil && strings.Contains(err.Error(), "429:requests") {
+		if err != nil && strings.Contains(err.Error(), "429") {
 			// TODO should probably have a better error detection
 			sleepTime := time.Duration(math.Pow(1.6, float64(i+1))) * time.Second
 			log.Printf("Rate limited, sleeping for %s\n", sleepTime)
 			time.Sleep(sleepTime)
 
-			if i > 6 {
-				return fmt.Errorf("Getting 429s from GPT-3, giving up after %d retries", i)
+			if i > 3 {
+				return fmt.Errorf("Getting 429s from OpenAI API, this means you're hitting the rate limit, giving up after %d retries", i)
 			}
 			continue
 		}
