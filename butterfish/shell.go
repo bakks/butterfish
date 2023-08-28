@@ -567,7 +567,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		ChildOutReader:          childOutReader,
 		ParentInReader:          parentInReader,
 		CursorPosChan:           parentPositionChan,
-		PrintErrorChan:          make(chan error),
+		PrintErrorChan:          make(chan error, 8),
 		History:                 NewShellHistory(),
 		PromptOutputChan:        make(chan *util.CompletionResponse),
 		PromptAnswerWriter:      carriageReturnWriter,
@@ -671,8 +671,11 @@ func (this *ShellState) Mux() {
 			return
 
 		case err := <-this.PrintErrorChan:
+			log.Printf("Error: %s", err.Error())
 			this.History.Append(historyTypeShellOutput, err.Error())
 			fmt.Fprintf(this.ParentOut, "%s%s", this.Color.Error, err.Error())
+			this.setState(stateNormal)
+			fmt.Fprintf(this.ChildIn, "\n")
 
 		// The CursorPosChan produces cursor positions seen in the parent input,
 		// which have then been cleaned from the incoming text. If we find a
@@ -1294,7 +1297,9 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	this.PromptResponseCancel = cancel
 
 	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(
-		prompt.GoalModeSystemMessage, "goal", this.GoalModeGoal)
+		prompt.GoalModeSystemMessage,
+		"goal", this.GoalModeGoal,
+		"sysinfo", GetSystemInfo())
 	if err != nil {
 		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
 		log.Println(msg)
@@ -1521,10 +1526,10 @@ func (this *ShellState) SendPrompt() {
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellSystemMessage)
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellSystemMessage,
+		"sysinfo", GetSystemInfo())
 	if err != nil {
-		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
-		log.Println(msg)
+		msg := fmt.Errorf("Could not retrieve prompting system message: %s", err)
 		this.PrintError(msg)
 		return
 	}

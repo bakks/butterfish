@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -543,4 +544,23 @@ func printLoggingBox(box LoggingBox, writer io.Writer, depth int, colors []strin
 		SE_CORNER,
 		indentRight)
 	writer.Write([]byte(bottomLine))
+}
+
+var sysInfo string
+
+func GetSystemInfo() string {
+	// cache this
+	if sysInfo != "" {
+		return sysInfo
+	}
+
+	// run uname -a
+	cmd := exec.Command("uname", "-a")
+	out, err := cmd.Output()
+	if err != nil {
+		log.Println("Error running uname -a: ", err)
+		return ""
+	}
+	sysInfo = string(out)
+	return sysInfo
 }
