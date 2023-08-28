@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,9 +23,7 @@ import (
 
 var ( // these are filled in at build time
 	BuildVersion   string
-	BuildArch      string
 	BuildCommit    string
-	BuildOs        string
 	BuildTimestamp string
 )
 
@@ -201,7 +200,9 @@ func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 }
 
 func getBuildInfo() string {
-	return fmt.Sprintf("%s %s %s\n(commit %s) (built %s)\n%s\n", BuildVersion, BuildOs, BuildArch, BuildCommit, BuildTimestamp, license)
+	buildOs := runtime.GOOS
+	buildArch := runtime.GOARCH
+	return fmt.Sprintf("%s %s %s\n(commit %s) (built %s)\n%s\n", BuildVersion, buildOs, buildArch, BuildCommit, BuildTimestamp, license)
 }
 
 func main() {

@@ -2,7 +2,7 @@
 gofiles := $(shell find . -name '*.go' -type f -not -path "./vendor/*")
 buildtime := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 commit := $(shell bash ./bin/gitcommit.sh)
-flags := -X main.BuildVersion=dev -X main.BuildArch=dev -X main.BuildCommit=${commit} -X main.BuildTimestamp=${buildtime} -X main.BuildOs=dev
+flags := -X main.BuildVersion=dev -X main.BuildCommit=${commit} -X main.BuildTimestamp=${buildtime}
 
 all: build test
 
