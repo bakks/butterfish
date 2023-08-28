@@ -8,7 +8,7 @@ A shell with AI superpowers
 
 Butterfish is for people who work from the command line, it adds AI prompting to your shell (bash, zsh) with OpenAI. Think Github Copilot for shell.
 
-Here's how it works: use your shell as normal, start a command with a capital letter to prompt the AI. The AI sees the shell history, so you can ask contextual questions like "why did that command fail?".
+Here's how it works: use your shell as normal, start a command with a capital letter to prompt the AI. The AI sees the shell history, so you can ask contextual questions like "Why did that command fail?".
 
 This is a magical UX pattern -- you get high-context AI help exactly when you want it, NO COPY/PASTING.
 
@@ -17,7 +17,7 @@ This is a magical UX pattern -- you get high-context AI help exactly when you wa
 -   "Give me a command to do x"
 -   "Why did that command fail?"
 -   "!Run make in this directory, debug problems" (this acts as an agent)
--   Autocomplete shell commands (this uses recent history)
+-   Autocomplete shell commands (if the AI 'verbally' suggested a command it will appear)
 -   "Give me a pasta recipe" (this is a ChatGPT interface so it's not just for shell stuff!)
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell3.gif" alt="Demo of Butterfish Shell" width="500px" height="250px" />
@@ -26,7 +26,7 @@ Feedback and external contribution is very welcome! Butterfish is open source un
 
 ### Prompt Transparency
 
-Many AI-enabled products obscure the prompt (instructional text) sent to the AI model. Butterfish makes this transparent and configurable.
+Many AI-enabled products obscure the prompt (instructional text) sent to the AI model, Butterfish makes it transparent and configurable.
 
 To see the raw AI requests / responses you can run Butterfish in verbose mode (`butterfish shell -v`) and watch the log file (`/var/tmp/butterfish.log` on MacOS). For more verbosity, use `-vv`.
 
@@ -34,7 +34,7 @@ To configure the prompts you can edit `~/.config/butterfish/prompts.yaml`.
 
 <img src="https://github.com/bakks/butterfish/raw/main/assets/verbose.png" alt="The verbose output of Butterfish Shell showing raw AI prompts" height="400px" />
 
-## Installation / Authentication
+## Installation & Authentication
 
 Butterfish works on MacOS and Linux. You can install via Homebrew on MacOS:
 
@@ -68,14 +68,22 @@ alias bf="butterfish"
 
 How does this work? Shell mode _wraps_ your shell rather than replacing it.
 
--   You run `butterfish shell` and use your existing shell as normal
+-   You run `butterfish shell` and use your existing shell as normal, this is tested with zsh and bash
 -   You start a command with a capital letter to prompt the LLM, e.g. "How do I do..."
 -   You can autocomplete commands and prompt questions with `Tab`
 -   Prompts and autocomplete use local context for answers, like ChatGPT
 
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/shell2.gif" alt="Butterfish" width="500px" height="250px" />
 
-This pattern is shockingly effective - you can ask the LLM to solve the error that just printed, and if it suggests a command then autocomplete that command. The shell history is the LLM chat history!
+This pattern is shockingly effective because your shell history becomes the AI chat context. For example, if you `cat` a file to print it out then the AI will see it. If you tried a command that failed, the AI can see the command and the error.
+
+Shell mode defaults to using `gpt-3.5-turbo` for prompting, if you have access to GPT-4 you can use it with:
+
+```bash
+butterfish shell -m gpt-4
+```
+
+### Shell Mode Command Reference
 
 ```bash
 > butterfish shell --help
@@ -140,12 +148,6 @@ Flags:
                                    long output, it will be truncated to this
                                    length when sending the shell's history.
 
-```
-
-Shell mode defaults to using `gpt-3.5-turbo` for prompting, if you have access to GPT-4 you can use it with:
-
-```bash
-butterfish shell -m gpt-4
 ```
 
 ### Goal Mode
