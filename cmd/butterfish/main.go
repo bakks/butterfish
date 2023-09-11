@@ -77,22 +77,15 @@ type CliConfig struct {
 	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
 
 	Shell struct {
-		Bin                 string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		PromptModel         string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
-		AutosuggestDisabled bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel    string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
-		AutosuggestTimeout  int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
-		//Plugin                   bool   `short:"p" default:"false" help:"Enable plugin mode, which enables ChatGPT to execute commands itself while responding to prompts."`
-		NoCommandPrompt       bool `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
-		LightColor            bool `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
-		MaxHistoryBlockTokens int  `short:"H" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
+		Bin                   string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
+		PromptModel           string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
+		AutosuggestDisabled   bool   `short:"A" default:"false" help:"Disable autosuggest."`
+		AutosuggestModel      string `short:"a" default:"text-davinci-003" help:"Model for autosuggest"`
+		AutosuggestTimeout    int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive)."`
+		NoCommandPrompt       bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
+		LightColor            bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+		MaxHistoryBlockTokens int    `short:"H" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 	} `cmd:"" help:"${shell_help}"`
-
-	Plugin struct {
-		NoPrompt bool   `short:"f" default:"false" help:"Execute remote commands without manual confirmation."`
-		Hostname string `short:"H" default:"grpc.butterfi.sh" help:"Hostname of the Butterfish plugin server."`
-		Port     int    `short:"p" default:"443" help:"Port of the Butterfish plugin server."`
-	} `cmd:"" help:"Run a ChatGPT Plugin client that allows remote command execution on the local machine."`
 
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
@@ -267,35 +260,6 @@ func main() {
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
 
 		bf.RunShell(ctx, config)
-
-	case "plugin":
-		logfileName := initLogging(ctx)
-		fmt.Printf("Logging to %s\n", logfileName)
-
-		butterfishCtx, err := bf.NewButterfish(ctx, config)
-		if err != nil {
-			fmt.Fprintf(errorWriter, err.Error())
-			os.Exit(5)
-		}
-		//butterfishCtx.Config.Styles.PrintTestColors()
-
-		hostname := cli.Plugin.Hostname
-		port := cli.Plugin.Port
-
-		client, err := butterfishCtx.StartPluginClient(hostname, port)
-		if err != nil {
-			fmt.Fprintf(errorWriter, err.Error())
-			os.Exit(6)
-		}
-
-		go func() {
-			err := client.Mux(ctx)
-			if err != nil {
-				fmt.Fprintf(errorWriter, err.Error())
-				os.Exit(10)
-			}
-		}()
-		butterfishCtx.PluginFrontend(client)
 
 	default:
 		butterfishCtx, err := bf.NewButterfish(ctx, config)

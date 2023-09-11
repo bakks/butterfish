@@ -1352,8 +1352,11 @@ func (this *ShellState) HandleLocalPrompt() bool {
 
 // Given an encoder, a string, and a maximum number of takens, we count the
 // number of tokens in the string and truncate to the max tokens if the would
-// exceed it.
-func countAndTruncate(data string, encoder *tiktoken.Tiktoken, maxTokens int) (int, string, bool) {
+// exceed it. Returns the number of tokens, the truncated string, and a bool
+// indicating whether the string was truncated.
+func countAndTruncate(data string,
+	encoder *tiktoken.Tiktoken,
+	maxTokens int) (int, string, bool) {
 	tokens := encoder.Encode(data, nil, nil)
 	truncated := false
 	if len(tokens) >= maxTokens {
