@@ -248,8 +248,8 @@ func (this *GPT) Completion(request *util.CompletionRequest) (*util.CompletionRe
 	var result *util.CompletionResponse
 	var err error
 
-	if IsLegacyModel(request.Model) {
-		result, err = this.LegacyCompletion(request)
+	if IsCompletionModel(request.Model) {
+		result, err = this.InstructCompletion(request)
 	} else if request.HistoryBlocks == nil {
 		result, err = this.SimpleChatCompletion(request)
 	} else {
@@ -264,14 +264,20 @@ func (this *GPT) Completion(request *util.CompletionRequest) (*util.CompletionRe
 	return result, err
 }
 
+// If the model is legacy or ends with -instruct then it should use completion
+// api, otherwise it should use the chat api.
+func IsCompletionModel(modelName string) bool {
+	return IsLegacyModel(modelName) || strings.HasSuffix(modelName, "-instruct")
+}
+
 // We're doing completions through the chat API by default, this routes
 // to the legacy completion API if the model is the legacy model.
 func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	var result *util.CompletionResponse
 	var err error
 
-	if IsLegacyModel(request.Model) {
-		result, err = this.LegacyCompletionStream(request, writer)
+	if IsCompletionModel(request.Model) {
+		result, err = this.InstructCompletionStream(request, writer)
 	} else if request.HistoryBlocks == nil {
 		result, err = this.SimpleChatCompletionStream(request, writer)
 	} else {
@@ -286,7 +292,7 @@ func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Wri
 	return result, err
 }
 
-func (this *GPT) LegacyCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
+func (this *GPT) InstructCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	req := openai.CompletionRequest{
 		Prompt:      []string{request.Prompt},
 		Model:       request.Model,
@@ -484,7 +490,7 @@ func (this *GPT) doChatStreamCompletion(
 }
 
 // Run a GPT completion request and return the response
-func (this *GPT) LegacyCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
+func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	req := openai.CompletionRequest{
 		Model:       request.Model,
 		MaxTokens:   request.MaxTokens,

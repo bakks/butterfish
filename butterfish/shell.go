@@ -1730,13 +1730,7 @@ func (this *ShellState) ClearAutosuggest(colorStr string) {
 func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
 	if this.AutosuggestEncoder == nil {
 		modelName := this.Butterfish.Config.ShellAutosuggestModel
-		encodingName := tiktoken.MODEL_TO_ENCODING[modelName]
-		if encodingName == "" {
-			log.Printf("WARNING: Encoder for autosuggest model %s not found, using default", modelName)
-			encodingName = "text-davinci-003"
-		}
-
-		encoder, err := tiktoken.GetEncoding(encodingName)
+		encoder, err := tiktoken.EncodingForModel(modelName)
 		if err != nil {
 			panic(fmt.Sprintf("Error getting encoder for autosuggest model %s: %s", modelName, err))
 		}
