@@ -70,15 +70,17 @@ I will give you the user's shell history including assistant messages. Respond w
 	{
 		Name:        ShellAutosuggestNewCommand,
 		OkToReplace: true,
-		Prompt: `You are a unix shell command autocompleter. I will give you the user's history, predict a new command they might run. You will find good suggestions in the user's history. The user might have asked a question and you might have suggested a command, if that is recent then suggest that command. Do not predict command output or explanation. Prediction should be a single line.
+		Prompt: `You are a unix shell command predictor. I will give you the user's history, predict a new command they might run. You will find good suggestions in the user's history. The user might have asked a question and you might have suggested a command, if that is recent then suggest that command. Only predict a unix shell command, do not predict output. Provide a single line of text for the response.
 
-Examples of good suggestions:
+Examples of good predictions:
 - git status
 - ls -l
 
 Start of history:
 -------------
 {history}
+-------------
+Predicted command:
 `,
 	},
 

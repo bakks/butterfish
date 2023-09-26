@@ -1098,6 +1098,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				// We'll likely have a pending autosuggest in the background, cancel it
 				this.AutosuggestCancel()
 			}
+			newAutosuggestDelay := 2500 * time.Millisecond
+			this.RequestAutosuggest(newAutosuggestDelay, "")
 
 			return data[index+1:]
 
@@ -1859,7 +1861,7 @@ func RequestCancelableAutosuggest(
 	}
 
 	totalTokens := 1600 // limit autosuggest to 1600 tokens for cost reasons
-	reserveForAnswer := 256
+	reserveForAnswer := 64
 
 	encoder, err := tiktoken.EncodingForModel(model)
 	if err != nil {
