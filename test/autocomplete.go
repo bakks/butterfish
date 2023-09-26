@@ -294,7 +294,7 @@ func main() {
 	client = openai.NewClient(token)
 	testContext := testContext{client, 5}
 
-	for _, config := range configs2 {
+	for _, config := range configs {
 		fmt.Printf("Running %s\n", config.Name)
 		fullScore := 0.0
 

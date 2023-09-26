@@ -515,7 +515,6 @@ func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.Comp
 		return nil, err
 	}
 
-	log.Printf("InstructCompletion Response: %+v\n", resp)
 	text := resp.Choices[0].Text
 	// clean whitespace prefix and suffix from text
 	text = strings.TrimSpace(text)
