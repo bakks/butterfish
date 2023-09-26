@@ -1653,13 +1653,8 @@ func (this *ShellState) ShowAutosuggest(
 	//log.Printf("ShowAutosuggest: %s", result.Suggestion)
 
 	if result.Command != buffer.String() {
-		// this is an old result, it doesn't match the current command buffer
+		// this is an old result, it doesn't match the current command/prompt buffer
 		log.Printf("Autosuggest result is old, ignoring. Expected: %s, got: %s", buffer.String(), result.Command)
-		return
-	}
-
-	if strings.Contains(result.Suggestion, "\n") {
-		// if result.Suggestion has newlines then discard it
 		return
 	}
 
@@ -1675,6 +1670,11 @@ func (this *ShellState) ShowAutosuggest(
 
 	suggestion := result.Suggestion
 
+	// if the suggestion is multiple lines grab the first one
+	if strings.Contains(suggestion, "\n") {
+		suggestion = strings.Split(suggestion, "\n")[0]
+	}
+
 	// if suggestion starts with "prediction: " remove that
 	// this is a dumb artifact of autosuggest few-shot learning
 	const predictionPrefix = "prediction: "
@@ -1682,10 +1682,15 @@ func (this *ShellState) ShowAutosuggest(
 		suggestion = suggestion[len(predictionPrefix):]
 	}
 
-	if result.Command != "" && strings.HasPrefix(
-		strings.ToLower(suggestion), strings.ToLower(result.Command)) {
-		// if the suggestion starts with the original command, remove original text
-		suggestion = suggestion[len(result.Command):]
+	if result.Command != "" {
+		if strings.HasPrefix(
+			strings.ToLower(suggestion), strings.ToLower(result.Command)) {
+			// if the suggestion starts with the original command, remove original text
+			suggestion = suggestion[len(result.Command):]
+		} else if this.State == stateShell {
+			// the prefix strategy is required for commands
+			return
+		}
 	}
 
 	// Print out autocomplete suggestion
@@ -1890,11 +1895,9 @@ func RequestCancelableAutosuggest(
 		return
 	}
 
-	output := strings.TrimSpace(response.Completion)
-
 	autoSuggest := &AutosuggestResult{
 		Command:    currCommand,
-		Suggestion: output,
+		Suggestion: response.Completion,
 	}
 	autosuggestChan <- autoSuggest
 }

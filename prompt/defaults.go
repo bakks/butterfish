@@ -61,7 +61,7 @@ prediction: find . -name "*.go"
 prompt: How do I do a recursive find? """ find . -name "*.go" """ > find .
 prediction: find . -name "*.go"
 
-I will give you the user's shell history including assistant messages. Predict the full command, respond with only the prediction, no quotes. This is the start of shell history:
+I will give you the user's shell history including assistant messages. Respond with only the prediction, no quotes. This is the start of shell history:
 -------------
 {history}
 > {command}`,
@@ -70,7 +70,7 @@ I will give you the user's shell history including assistant messages. Predict t
 	{
 		Name:        ShellAutosuggestNewCommand,
 		OkToReplace: true,
-		Prompt: `You are a unix shell command autocompleter. I will give you the user's history, predict a new command they might run. You will find good suggestions in the user's history. The user might have asked a question and you might have suggested a command, if that is recent then suggest that command. Do not include command output or explanation.
+		Prompt: `You are a unix shell command autocompleter. I will give you the user's history, predict a new command they might run. You will find good suggestions in the user's history. The user might have asked a question and you might have suggested a command, if that is recent then suggest that command. Do not predict command output or explanation. Prediction should be a single line.
 
 Examples of good suggestions:
 - git status
@@ -85,7 +85,7 @@ Start of history:
 	{
 		Name:        ShellAutosuggestPrompt,
 		OkToReplace: true,
-		Prompt: `You are a unix shell question autocompleter. I will give you the user's history, predict a question they might ask in a single sentence. Do not predict an answer to that question. Include the start of the question in the suggestion.
+		Prompt: `You are a unix shell question autocompleter. The user has started asking a natural language question, predict the rest of the question. Do not predict an answer to that question. Include the start of the question in your answer.
 
 This is the start of shell history:
 -------------
