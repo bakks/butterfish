@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -164,6 +165,7 @@ func (this *HistoryBuffer) GetTokenization(encoding string, length int) (string,
 // HistoryBlocks.
 type ShellHistory struct {
 	Blocks []*HistoryBuffer
+	mutex  sync.Mutex
 }
 
 func NewShellHistory() *ShellHistory {
@@ -182,6 +184,9 @@ func (this *ShellHistory) add(historyType int, block string) {
 }
 
 func (this *ShellHistory) Append(historyType int, data string) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
 	// if data is empty, we don't want to add a new block
 	if len(data) == 0 {
 		return
@@ -203,6 +208,9 @@ func (this *ShellHistory) Append(historyType int, data string) {
 }
 
 func (this *ShellHistory) AddFunctionCall(name, params string) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
 	this.Blocks = append(this.Blocks, &HistoryBuffer{
 		Type:           historyTypeLLMOutput,
 		FunctionName:   name,
@@ -212,6 +220,9 @@ func (this *ShellHistory) AddFunctionCall(name, params string) {
 }
 
 func (this *ShellHistory) AppendFunctionOutput(name, data string) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
 	// if data is empty, we don't want to add a new block
 	if len(data) == 0 {
 		return
@@ -234,15 +245,11 @@ func (this *ShellHistory) AppendFunctionOutput(name, data string) {
 	lastBlock.FunctionName = name
 }
 
-func (this *ShellHistory) NewBlock() {
-	length := len(this.Blocks)
-	if length > 0 {
-		this.add(this.Blocks[length-1].Type, "")
-	}
-}
-
 // Go back in history for a certain number of bytes.
 func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util.HistoryBlock {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
 	var blocks []util.HistoryBlock
 
 	for i := len(this.Blocks) - 1; i >= 0 && numBytes > 0; i-- {
@@ -271,6 +278,9 @@ func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util
 }
 
 func (this *ShellHistory) IterateBlocks(cb func(block *HistoryBuffer) bool) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
 	for i := len(this.Blocks) - 1; i >= 0; i-- {
 		cont := cb(this.Blocks[i])
 		if !cont {
@@ -279,6 +289,7 @@ func (this *ShellHistory) IterateBlocks(cb func(block *HistoryBuffer) bool) {
 	}
 }
 
+// This is not thread safe
 func (this *ShellHistory) LogRecentHistory() {
 	blocks := this.GetLastNBytes(2000, 512)
 	log.Printf("Recent history: =======================================")
@@ -1658,26 +1669,24 @@ func (this *ShellState) ShowAutosuggest(
 		return
 	}
 
-	if result.Command != "" &&
-		!strings.HasPrefix(
-			strings.ToLower(result.Suggestion),
-			strings.ToLower(result.Command)) {
-		// test that the command is equal to the beginning of the suggestion
-		log.Printf("Autosuggest result is invalid, ignoring")
-		return
-	}
-
-	if result.Suggestion == buffer.String() {
+	if result.Suggestion == strings.TrimSpace(buffer.String()) {
 		// if the suggestion is the same as the command, ignore it
 		return
 	}
 
+	suggestion := result.Suggestion
+
+	if result.Command != "" && strings.HasPrefix(
+		strings.ToLower(suggestion), strings.ToLower(result.Command)) {
+		// if the suggestion starts with the original command, remove original text
+		suggestion = suggestion[len(result.Command):]
+	}
+
 	// Print out autocomplete suggestion
 	cmdLen := buffer.Size()
-	suggToAdd := result.Suggestion[cmdLen:]
 	jumpForward := cmdLen - buffer.Cursor()
 
-	this.LastAutosuggest = suggToAdd
+	this.LastAutosuggest = suggestion
 
 	this.AutosuggestBuffer = NewShellBuffer()
 	this.AutosuggestBuffer.SetPromptLength(cursorCol)
@@ -1685,7 +1694,8 @@ func (this *ShellState) ShowAutosuggest(
 
 	// Use autosuggest buffer to get the bytes to write the greyed out
 	// autosuggestion and then move the cursor back to the original position
-	buf := this.AutosuggestBuffer.WriteAutosuggest(suggToAdd, jumpForward, this.Color.Autosuggest)
+	buf := this.AutosuggestBuffer.WriteAutosuggest(
+		suggestion, jumpForward, this.Color.Autosuggest)
 
 	this.ParentOut.Write([]byte(buf))
 }
@@ -1755,6 +1765,7 @@ func (this *ShellState) getPromptEncoder() *tiktoken.Tiktoken {
 	return this.PromptEncoder
 }
 
+// rewrite this for autosuggest
 func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) {
 	if !this.AutosuggestEnabled {
 		return
@@ -1771,30 +1782,18 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		return
 	}
 
-	maxTokensPerHistoryBlock := this.Butterfish.Config.ShellMaxHistoryBlockTokens
-	maxTokens := 1500 // Send a total of 1500 history tokens if available
-
-	historyBlocks, _ := getHistoryBlocksByTokens(this.History, this.getAutosuggestEncoder(),
-		maxTokensPerHistoryBlock, maxTokens, 4)
-
-	historyStr := HistoryBlocksToString(historyBlocks)
-	var llmPrompt string
+	var suggestPrompt string
 	var err error
 
 	if len(command) == 0 {
 		// command completion when we haven't started a command
-		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellAutosuggestNewCommand,
-			"history", historyStr)
+		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestNewCommand)
 	} else if !unicode.IsUpper(rune(command[0])) {
 		// command completion when we have started typing a command
-		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellAutosuggestCommand,
-			"history", historyStr,
-			"command", command)
+		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestCommand)
 	} else {
 		// prompt completion, like we're asking a question
-		llmPrompt, err = this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellAutosuggestPrompt,
-			"history", historyStr,
-			"command", command)
+		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestPrompt)
 	}
 
 	if err != nil {
@@ -1803,22 +1802,31 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 	}
 
 	go RequestCancelableAutosuggest(
-		this.AutosuggestCtx, delay,
-		command, llmPrompt,
+		this.AutosuggestCtx,
+		delay,
+		command,
+		suggestPrompt,
 		this.Butterfish.LLMClient,
 		this.Butterfish.Config.ShellAutosuggestModel,
 		this.Butterfish.Config.Verbose > 1,
+		this.History,
+		this.Butterfish.Config.ShellMaxHistoryBlockTokens,
 		this.AutosuggestChan)
+
 }
 
+// This is a function rather than a routine to isolate the concurrent steps
+// taken when this is a goroutine. That's why it has so many args.
 func RequestCancelableAutosuggest(
 	ctx context.Context,
 	delay time.Duration,
 	currCommand string,
-	prompt string,
+	rawPrompt string,
 	llmClient LLM,
 	model string,
 	verbose bool,
+	history *ShellHistory,
+	maxHistoryBlockTokens int,
 	autosuggestChan chan<- *AutosuggestResult) {
 
 	if delay > 0 {
@@ -1828,37 +1836,55 @@ func RequestCancelableAutosuggest(
 		return
 	}
 
+	totalTokens := 1600 // limit autosuggest to 1600 tokens for cost reasons
+	reserveForAnswer := 256
+
+	encoder, err := tiktoken.EncodingForModel(model)
+	if err != nil {
+		panic(fmt.Sprintf("Error getting encoder for prompt model %s: %s", model, err))
+	}
+
+	historyBlocks, _ := getHistoryBlocksByTokens(history, encoder,
+		maxHistoryBlockTokens, totalTokens-reserveForAnswer, 4)
+
+	historyStr := HistoryBlocksToString(historyBlocks)
+	var prmpt string
+
+	if currCommand != "" {
+		prmpt, err = prompt.Interpolate(rawPrompt,
+			"history", historyStr,
+			"command", currCommand)
+	} else {
+		prmpt, err = prompt.Interpolate(rawPrompt,
+			"history", historyStr)
+	}
+
+	if err != nil {
+		log.Printf("Autosuggest error: %s", err)
+		return
+	}
+
 	request := &util.CompletionRequest{
 		Ctx:         ctx,
-		Prompt:      prompt,
+		Prompt:      prmpt,
 		Model:       model,
-		MaxTokens:   256,
-		Temperature: 0.7,
+		MaxTokens:   reserveForAnswer,
+		Temperature: 0.2,
 		Verbose:     verbose,
 	}
 
 	response, err := llmClient.Completion(request)
-	if err != nil && !strings.Contains(err.Error(), "context canceled") {
-		log.Printf("Autosuggest error: %s", err)
-		if strings.Contains(err.Error(), ERR_429) {
-			log.Printf(ERR_429_HELP)
+	if err != nil {
+		if !strings.Contains(err.Error(), "context canceled") {
+			log.Printf("Autosuggest error: %s", err)
+			if strings.Contains(err.Error(), ERR_429) {
+				log.Printf(ERR_429_HELP)
+			}
 		}
 		return
 	}
 
-	// Clean up wrapping whitespace
-	output := ""
-	if response != nil {
-		output = strings.TrimSpace(response.Completion)
-	}
-
-	// if output is wrapped in quotes, remove quotes
-	if len(output) > 1 && output[0] == '"' && output[len(output)-1] == '"' {
-		output = output[1 : len(output)-1]
-	}
-
-	// Clean up wrapping whitespace
-	output = strings.TrimSpace(output)
+	output := strings.TrimSpace(response.Completion)
 
 	autoSuggest := &AutosuggestResult{
 		Command:    currCommand,

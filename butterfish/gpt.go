@@ -49,9 +49,9 @@ func NewGPT(token string) *GPT {
 	}
 }
 
-func LogCompletionResponse(resp util.CompletionResponse) {
+func LogCompletionResponse(resp util.CompletionResponse, id string) {
 	box := LoggingBox{
-		Title:   "Completion Response /v1/chat/completions",
+		Title:   "Completion Response " + id,
 		Content: resp.Completion,
 		Color:   0,
 	}
@@ -316,6 +316,7 @@ func (this *GPT) InstructCompletionStream(request *util.CompletionRequest, write
 		LogCompletionRequest(req)
 	}
 	stream, err := this.client.CreateCompletionStream(request.Ctx, req)
+	var id string
 
 	for {
 		response, err := stream.Recv()
@@ -328,6 +329,7 @@ func (this *GPT) InstructCompletionStream(request *util.CompletionRequest, write
 		}
 
 		callback(response)
+		id = response.ID
 	}
 	fmt.Fprintf(writer, "\n") // GPT doesn't finish with a newline
 
@@ -336,7 +338,7 @@ func (this *GPT) InstructCompletionStream(request *util.CompletionRequest, write
 	}
 
 	if request.Verbose {
-		LogCompletionResponse(response)
+		LogCompletionResponse(response, id)
 	}
 
 	return &response, err
@@ -368,6 +370,10 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 }
 
 func convertToOpenaiFunctions(funcs []util.FunctionDefinition) []openai.FunctionDefinition {
+	if funcs == nil {
+		return nil
+	}
+
 	out := []openai.FunctionDefinition{}
 	for _, f := range funcs {
 		out = append(out, openai.FunctionDefinition{
@@ -458,6 +464,7 @@ func (this *GPT) doChatStreamCompletion(
 		return nil, err
 	}
 
+	var id string
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -469,6 +476,7 @@ func (this *GPT) doChatStreamCompletion(
 		}
 
 		callback(response)
+		id = response.ID
 	}
 
 	if functionName != "" {
@@ -484,7 +492,7 @@ func (this *GPT) doChatStreamCompletion(
 	}
 
 	if verbose {
-		LogCompletionResponse(response)
+		LogCompletionResponse(response, id)
 	}
 	return &response, err
 }
@@ -507,6 +515,7 @@ func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.Comp
 		return nil, err
 	}
 
+	log.Printf("InstructCompletion Response: %+v\n", resp)
 	text := resp.Choices[0].Text
 	// clean whitespace prefix and suffix from text
 	text = strings.TrimSpace(text)
@@ -516,7 +525,7 @@ func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.Comp
 	}
 
 	if request.Verbose {
-		LogCompletionResponse(response)
+		LogCompletionResponse(response, resp.ID)
 	}
 	return &response, nil
 }
@@ -541,6 +550,7 @@ func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (*util.Comp
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
+		Functions:   convertToOpenaiFunctions(request.Functions),
 	}
 
 	return this.doChatCompletion(request.Ctx, req, request.Verbose)
@@ -571,6 +581,7 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (*util.Co
 	return this.doChatCompletion(request.Ctx, req, request.Verbose)
 }
 
+// TODO: this doesn't handle functions
 func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatCompletionRequest, verbose bool) (*util.CompletionResponse, error) {
 	if verbose {
 		LogChatCompletionRequest(request)
@@ -592,8 +603,14 @@ func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatComple
 		Completion: responseText,
 	}
 
+	funcCall := resp.Choices[0].Message.FunctionCall
+	if funcCall != nil {
+		response.FunctionName = funcCall.Name
+		response.FunctionParameters = funcCall.Arguments
+	}
+
 	if verbose {
-		LogCompletionResponse(response)
+		LogCompletionResponse(response, resp.ID)
 	}
 	return &response, nil
 }

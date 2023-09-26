@@ -63,21 +63,45 @@ func (this *DiskPromptLibrary) GetPrompt(name string, args ...string) (string, e
 		return "", errors.New("Prompt not found")
 	}
 	prompt := this.Prompts[index]
-	fields := getFields(prompt.Prompt)
 
-	// check that the number of fields matches the number of arguments
-	if len(fields)*2 != len(args) {
-		fieldNames := strings.Join(fields, ", ")
-		return "", fmt.Errorf("Incorrect number of fields provided, prompt %s requires fields (%s)", prompt.Name, fieldNames)
+	// interpolate the prompt string
+	promptString, err := Interpolate(prompt.Prompt, args...)
+
+	return promptString, err
+}
+
+// Fetch a prompt with a given name, interpolating later
+func (this *DiskPromptLibrary) GetUninterpolatedPrompt(name string) (string, error) {
+
+	// first find the prompt given the name
+	index := this.ContainsPromptNamed(name)
+	if index == -1 {
+		return "", errors.New("Prompt not found")
 	}
+	prompt := this.Prompts[index]
 
+	return prompt.Prompt, nil
+}
+
+func (this *DiskPromptLibrary) InterpolatePrompt(prompt string, args ...string) (string, error) {
+	return Interpolate(prompt, args...)
+}
+
+func Interpolate(p string, args ...string) (string, error) {
 	// turn args into a map
 	argMap := make(map[string]string)
 	for i := 0; i < len(args); i += 2 {
 		argMap[args[i]] = args[i+1]
 	}
 
-	promptString := prompt.Prompt
+	fields := getFields(p)
+	promptString := p
+
+	// check that the number of fields matches the number of arguments
+	if len(fields)*2 != len(args) {
+		fieldNames := strings.Join(fields, ", ")
+		return "", fmt.Errorf("Incorrect number of fields provided, prompt requires fields (%s)", fieldNames)
+	}
 
 	// interpolate fields using the argMap
 	for _, field := range fields {
@@ -85,7 +109,7 @@ func (this *DiskPromptLibrary) GetPrompt(name string, args ...string) (string, e
 		value, ok := argMap[fieldName]
 		if !ok {
 			fieldNames := strings.Join(fields, ", ")
-			return "", fmt.Errorf("Missing field %s, prompt %s requires fields (%s)", field, name, fieldNames)
+			return "", fmt.Errorf("Missing field %s, prompt requires fields (%s)", field, fieldNames)
 		}
 		promptString = strings.Replace(promptString, field, value, -1)
 	}

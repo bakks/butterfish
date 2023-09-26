@@ -111,6 +111,9 @@ type PromptLibrary interface {
 	// returned. If a variable is not found, or an argument is passed that doesn't
 	// have a corresponding variable, an error is returned.
 	GetPrompt(name string, args ...string) (string, error)
+
+	GetUninterpolatedPrompt(name string) (string, error)
+	InterpolatePrompt(prompt string, args ...string) (string, error)
 }
 
 // A generic interface for a service that calls a large larguage model based
