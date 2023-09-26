@@ -1094,12 +1094,23 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			this.History.Append(historyTypeShellInput, this.Command.String())
 			this.Command = NewShellBuffer()
 
+			if this.AutosuggestCancel != nil {
+				// We'll likely have a pending autosuggest in the background, cancel it
+				this.AutosuggestCancel()
+			}
+
 			return data[index+1:]
 
 		} else if data[0] == 0x03 { // Ctrl-C
 			this.Command.Clear()
 			this.setState(stateNormal)
 			this.ChildIn.Write([]byte{data[0]})
+
+			if this.AutosuggestCancel != nil {
+				// We'll likely have a pending autosuggest in the background, cancel it
+				this.AutosuggestCancel()
+			}
+
 			return data[1:]
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
