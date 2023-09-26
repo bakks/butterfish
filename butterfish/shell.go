@@ -353,27 +353,26 @@ type ShellState struct {
 	AutosuggestMaxTokens int
 
 	// The current state of the shell
-	State                   int
-	GoalMode                bool
-	GoalModeBuffer          string
-	GoalModeGoal            string
-	GoalModeUnsafe          bool
-	ActiveFunction          string
-	PromptSuffixCounter     int
-	ChildOutReader          chan *byteMsg
-	ParentInReader          chan *byteMsg
-	CursorPosChan           chan *cursorPosition
-	PromptOutputChan        chan *util.CompletionResponse
-	PrintErrorChan          chan error
-	AutosuggestChan         chan *AutosuggestResult
-	History                 *ShellHistory
-	PromptAnswerWriter      io.Writer
-	Prompt                  *ShellBuffer
-	PromptResponseCancel    context.CancelFunc
-	Command                 *ShellBuffer
-	TerminalWidth           int
-	Color                   *ShellColorScheme
-	TokensReservedForAnswer int
+	State                int
+	GoalMode             bool
+	GoalModeBuffer       string
+	GoalModeGoal         string
+	GoalModeUnsafe       bool
+	ActiveFunction       string
+	PromptSuffixCounter  int
+	ChildOutReader       chan *byteMsg
+	ParentInReader       chan *byteMsg
+	CursorPosChan        chan *cursorPosition
+	PromptOutputChan     chan *util.CompletionResponse
+	PrintErrorChan       chan error
+	AutosuggestChan      chan *AutosuggestResult
+	History              *ShellHistory
+	PromptAnswerWriter   io.Writer
+	Prompt               *ShellBuffer
+	PromptResponseCancel context.CancelFunc
+	Command              *ShellBuffer
+	TerminalWidth        int
+	Color                *ShellColorScheme
 	// these are used to estimate number of tokens
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
@@ -570,27 +569,26 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 
 	shellState := &ShellState{
-		Butterfish:              this,
-		ParentOut:               parentOut,
-		ChildIn:                 childIn,
-		Sigwinch:                sigwinch,
-		State:                   stateNormal,
-		ChildOutReader:          childOutReader,
-		ParentInReader:          parentInReader,
-		CursorPosChan:           parentPositionChan,
-		PrintErrorChan:          make(chan error, 8),
-		History:                 NewShellHistory(),
-		PromptOutputChan:        make(chan *util.CompletionResponse),
-		PromptAnswerWriter:      carriageReturnWriter,
-		Command:                 NewShellBuffer(),
-		Prompt:                  NewShellBuffer(),
-		TerminalWidth:           termWidth,
-		AutosuggestEnabled:      this.Config.ShellAutosuggestEnabled,
-		AutosuggestChan:         make(chan *AutosuggestResult),
-		Color:                   colorScheme,
-		PromptMaxTokens:         NumTokensForModel(this.Config.ShellPromptModel),
-		AutosuggestMaxTokens:    NumTokensForModel(this.Config.ShellAutosuggestModel),
-		TokensReservedForAnswer: 512,
+		Butterfish:           this,
+		ParentOut:            parentOut,
+		ChildIn:              childIn,
+		Sigwinch:             sigwinch,
+		State:                stateNormal,
+		ChildOutReader:       childOutReader,
+		ParentInReader:       parentInReader,
+		CursorPosChan:        parentPositionChan,
+		PrintErrorChan:       make(chan error, 8),
+		History:              NewShellHistory(),
+		PromptOutputChan:     make(chan *util.CompletionResponse),
+		PromptAnswerWriter:   carriageReturnWriter,
+		Command:              NewShellBuffer(),
+		Prompt:               NewShellBuffer(),
+		TerminalWidth:        termWidth,
+		AutosuggestEnabled:   this.Config.ShellAutosuggestEnabled,
+		AutosuggestChan:      make(chan *AutosuggestResult),
+		Color:                colorScheme,
+		PromptMaxTokens:      NumTokensForModel(this.Config.ShellPromptModel),
+		AutosuggestMaxTokens: NumTokensForModel(this.Config.ShellAutosuggestModel),
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
@@ -1318,7 +1316,8 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		return
 	}
 
-	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString())
+	tokensForAnswer := 1024
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString(), tokensForAnswer)
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -1328,8 +1327,8 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		Ctx:           requestCtx,
 		Prompt:        lastPrompt,
 		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     2048,
-		Temperature:   0.8,
+		MaxTokens:     tokensForAnswer,
+		Temperature:   0.6,
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
 		Functions:     goalModeFunctions,
@@ -1381,11 +1380,10 @@ func countAndTruncate(data string,
 
 // Prepare to call assembleChat() based on the ShellState variables for
 // calculating token limits.
-func (this *ShellState) AssembleChat(prompt, sysMsg, functions string) (string, []util.HistoryBlock, error) {
+func (this *ShellState) AssembleChat(prompt, sysMsg, functions string, reserveForAnswer int) (string, []util.HistoryBlock, error) {
 	// How many tokens can this model handle
 	totalTokens := this.PromptMaxTokens
-	reserveForAnswer := this.TokensReservedForAnswer // leave available
-	maxPromptTokens := 512                           // for the prompt specifically
+	maxPromptTokens := 512 // for the prompt specifically
 	// for each individual history block
 	maxHistoryBlockTokens := this.Butterfish.Config.ShellMaxHistoryBlockTokens
 	// How much for the total request (prompt, history, sys msg)
@@ -1549,7 +1547,8 @@ func (this *ShellState) SendPrompt() {
 	}
 
 	prompt := this.Prompt.String()
-	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg, "")
+	tokensReservedForAnswer := 512
+	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg, "", tokensReservedForAnswer)
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -1559,7 +1558,7 @@ func (this *ShellState) SendPrompt() {
 		Ctx:           requestCtx,
 		Prompt:        prompt,
 		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     this.TokensReservedForAnswer,
+		MaxTokens:     tokensReservedForAnswer,
 		Temperature:   0.7,
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
