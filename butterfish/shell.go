@@ -1676,6 +1676,13 @@ func (this *ShellState) ShowAutosuggest(
 
 	suggestion := result.Suggestion
 
+	// if suggestion starts with "prediction: " remove that
+	// this is a dumb artifact of autosuggest few-shot learning
+	const predictionPrefix = "prediction: "
+	if strings.HasPrefix(suggestion, predictionPrefix) {
+		suggestion = suggestion[len(predictionPrefix):]
+	}
+
 	if result.Command != "" && strings.HasPrefix(
 		strings.ToLower(suggestion), strings.ToLower(result.Command)) {
 		// if the suggestion starts with the original command, remove original text
