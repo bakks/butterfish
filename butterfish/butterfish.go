@@ -77,6 +77,8 @@ type ButterfishConfig struct {
 	// how long to wait between when the user stos typing and we ask for an
 	// autosuggest
 	ShellAutosuggestTimeout time.Duration
+	// timeout specifically for a fresh prompt suggestion
+	ShellNewlineAutosuggestTimeout time.Duration
 	// Maximum tokens that a single history line-item can consume
 	ShellMaxHistoryBlockTokens int
 

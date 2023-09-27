@@ -845,6 +845,15 @@ func (this *ShellState) Mux() {
 			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
 			this.PromptSuffixCounter += prompts
 
+			if prompts > 0 && this.State == stateNormal && !this.GoalMode {
+				// If we get a prompt and we're at the start of a command
+				// then we should request autosuggest
+				newAutosuggestDelay := this.Butterfish.Config.ShellNewlineAutosuggestTimeout
+				if newAutosuggestDelay >= 0 {
+					this.RequestAutosuggest(newAutosuggestDelay, "")
+				}
+			}
+
 			// If we're actively printing a response we buffer child output
 			if this.State == statePromptResponse {
 				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
@@ -1098,8 +1107,6 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				// We'll likely have a pending autosuggest in the background, cancel it
 				this.AutosuggestCancel()
 			}
-			newAutosuggestDelay := 2500 * time.Millisecond
-			this.RequestAutosuggest(newAutosuggestDelay, "")
 
 			return data[index+1:]
 
