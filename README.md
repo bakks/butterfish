@@ -105,7 +105,7 @@ Use:
     recursively find local .py files?'
   - Autosuggest will print command completions, press tab to fill them in
   - GPT will be able to see your shell history, so you can ask contextual
-    questions like 'why didn't my last command work?'
+    questions like 'why didnt my last command work?'
   - Start a command with ! to enter Goal Mode, in which GPT will act as an Agent
     attempting to accomplish your goal by executing commands, for example '!Run
     make in this directory and debug any problems'.
@@ -117,15 +117,15 @@ Here are special Butterfish commands:
   - Status : Show the current Butterfish configuration.
   - History : Print out the history that would be sent in a GPT prompt.
 
-If you don't have OpenAI free credits then you'll need a subscription and you'll
-need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will
-probably be the most expensive part. You can reduce spend here by disabling
-shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).
+If you do not have OpenAI free credits then you will need a subscription and
+you will need to pay for OpenAI API use. Autosuggest will probably be the most
+expensive feature. You can reduce spend by disabling shell autosuggest (-A) or
+increasing the autosuggest timeout (e.g. -t 2000).
 
 Flags:
   -h, --help                       Show context-sensitive help.
   -v, --verbose                    Verbose mode, prints full LLM prompts
-                                   (sometime to log file). Use multiple times
+                                   (sometimes to log file). Use multiple times
                                    for more verbosity, e.g. -vv.
   -V, --version                    Print version information and exit.
 
@@ -135,11 +135,15 @@ Flags:
                                    Model for when the user manually enters a
                                    prompt.
   -A, --autosuggest-disabled       Disable autosuggest.
-  -a, --autosuggest-model="text-davinci-003"
+  -a, --autosuggest-model="gpt-3.5-turbo-instruct"
                                    Model for autosuggest
-  -t, --autosuggest-timeout=500    Delay after typing before autosuggest (lower
+  -t, --autosuggest-timeout=400    Delay after typing before autosuggest (lower
                                    values trigger more calls and are more
-                                   expensive).
+                                   expensive). In milliseconds.
+  -T, --newline-autosuggest-timeout=2500
+                                   Timeout for autosuggest on a fresh line, i.e.
+                                   before a command has started. Negative values
+                                   disable. In milliseconds.
   -p, --no-command-prompt          Don't change command prompt (shell PS1
                                    variable). If not set, an emoji will be added
                                    to the prompt as a reminder you're in Shell
@@ -225,9 +229,9 @@ Arguments:
 
 Flags:
   -h, --help                     Show context-sensitive help.
-  -v, --verbose                  Verbose mode, prints full LLM prompts (sometime
-                                 to log file). Use multiple times for more
-                                 verbosity, e.g. -vv.
+  -v, --verbose                  Verbose mode, prints full LLM prompts
+                                 (sometimes to log file). Use multiple times for
+                                 more verbosity, e.g. -vv.
   -V, --version                  Print version information and exit.
 
   -m, --model="gpt-3.5-turbo"    GPT model to use for the prompt.
@@ -261,8 +265,8 @@ Arguments:
 
 Flags:
   -h, --help       Show context-sensitive help.
-  -v, --verbose    Verbose mode, prints full LLM prompts (sometime to log file).
-                   Use multiple times for more verbosity, e.g. -vv.
+  -v, --verbose    Verbose mode, prints full LLM prompts (sometimes to log
+                   file). Use multiple times for more verbosity, e.g. -vv.
   -V, --version    Print version information and exit.
 
   -f, --force      Execute the command without prompting.
@@ -294,7 +298,7 @@ Arguments:
 
 Flags:
   -h, --help               Show context-sensitive help.
-  -v, --verbose            Verbose mode, prints full LLM prompts (sometime to
+  -v, --verbose            Verbose mode, prints full LLM prompts (sometimes to
                            log file). Use multiple times for more verbosity,
                            e.g. -vv.
   -V, --version            Print version information and exit.
@@ -348,19 +352,19 @@ logs to the system temp dir, usually to /var/tmp/butterfish.log.
 To print the full prompts and responses from the OpenAI API, use the --verbose
 flag. Support can be found at https://github.com/bakks/butterfish.
 
-If you don't have OpenAI free credits then you'll need a subscription and you'll
-need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will
-probably be the most expensive part. You can reduce spend here by disabling
+If you do not have OpenAI free credits then you will need a subscription and you
+will need to pay for OpenAI API use. If you're using Shell Mode, autosuggest
+will probably be the most expensive part. You can reduce spend by disabling
 shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000).
 See "butterfish shell --help".
 
-v0.1.6 darwin amd64 (commit 6d4dafe) (built 2023-08-17T08:21:44Z) MIT License -
+v0.1.12 darwin amd64 (commit 0c115fa) (built 2023-09-27T19:12:29Z) MIT License -
 Copyright (c) 2023 Peter Bakkum
 
 Flags:
   -h, --help       Show context-sensitive help.
-  -v, --verbose    Verbose mode, prints full LLM prompts (sometime to log file).
-                   Use multiple times for more verbosity, e.g. -vv.
+  -v, --verbose    Verbose mode, prints full LLM prompts (sometimes to log
+                   file). Use multiple times for more verbosity, e.g. -vv.
   -V, --version    Print version information and exit.
 
 Commands:
@@ -377,7 +381,7 @@ Commands:
         recursively find local .py files?'
       - Autosuggest will print command completions, press tab to fill them in
       - GPT will be able to see your shell history, so you can ask contextual
-        questions like 'why didn't my last command work?'
+        questions like 'why didnt my last command work?'
       - Start a command with ! to enter Goal Mode, in which GPT will act as
         an Agent attempting to accomplish your goal by executing commands,
         for example '!Run make in this directory and debug any problems'.
@@ -389,15 +393,10 @@ Commands:
       - Status : Show the current Butterfish configuration.
       - History : Print out the history that would be sent in a GPT prompt.
 
-    If you don't have OpenAI free credits then you'll need a subscription
-    and you'll need to pay for OpenAI API use. If you're using Shell Mode,
-    autosuggest will probably be the most expensive part. You can reduce spend
-    here by disabling shell autosuggest (-A) or increasing the autosuggest
-    timeout (e.g. -t 2000).
-
-  plugin
-    Run a ChatGPT Plugin client that allows remote command execution on the
-    local machine.
+    If you do not have OpenAI free credits then you will need a subscription and
+    you will need to pay for OpenAI API use. Autosuggest will probably be the
+    most expensive feature. You can reduce spend by disabling shell autosuggest
+    (-A) or increasing the autosuggest timeout (e.g. -t 2000).
 
   prompt [<prompt> ...]
     Run an LLM prompt without wrapping, stream results back. This is a
@@ -405,6 +404,11 @@ Commands:
     This accepts piped input, if there is both piped input and a prompt then
     they will be concatenated together (prompt first). It is recommended that
     you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo.
+
+  promptedit
+    Like the prompt command, but this opens a local file with your default
+    editor (set with the EDITOR env var) that will then be passed as a prompt in
+    the LLM call.
 
   summarize [<files> ...]
     Semantically summarize a list of files (or piped input). We read in the
@@ -466,13 +470,13 @@ A goal of Butterfish is to make prompts transparent and easily editable. Butterf
 ```
 > head -n 8 ~/.config/butterfish/prompts.yaml
 - name: shell_system_message
-  prompt: You are an assistant that helps the user with a Unix shell. Give advice
-    about commands that can be run and examples but keep your answers succinct.
+  prompt: 'You are an assistant that helps the user with a Unix shell. Give advice
+    about commands that can be run and examples but keep your answers succinct. Here
+    is system info about the local machine: ''{sysinfo}'''
   oktoreplace: true
 - name: shell_autocomplete_command
   prompt: |-
-    The user is asking for an autocomplete suggestion for this Unix shell command, respond with only the suggested command, which should include the original command text, do not add comments or quotations. Here is recent history:
-    '''
+    You are a unix shell command autocompleter. I will give you the user's history, predict the full command they will type. You will find good suggestions in the user's history, suggest the full command.
 
 ```
 
