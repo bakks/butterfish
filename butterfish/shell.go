@@ -473,10 +473,10 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 // Given a string of terminal output, identify terminal prompts based on the
 // custom PS1 escape sequences we set.
 // Returns:
-// - The last exit code/status seen in the string (i.e. will be non-zero if
-//   previous command failed.
-// - The number of prompts identified in the string.
-// - The string with the special prompt escape sequences removed.
+//   - The last exit code/status seen in the string (i.e. will be non-zero if
+//     previous command failed.
+//   - The number of prompts identified in the string.
+//   - The string with the special prompt escape sequences removed.
 func ParsePS1(data string, regex *regexp.Regexp, currIcon string) (int, int, string) {
 	matches := regex.FindAllStringSubmatch(data, -1)
 

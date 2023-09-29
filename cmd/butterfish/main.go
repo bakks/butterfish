@@ -81,8 +81,8 @@ type CliConfig struct {
 		PromptModel               string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
-		AutosuggestTimeout        int    `short:"t" default:"400" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
-		NewlineAutosuggestTimeout int    `short:"T" default:"2500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
+		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
+		NewlineAutosuggestTimeout int    `short:"T" default:"4000" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
 		LightColor                bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 		MaxHistoryBlockTokens     int    `short:"H" default:"512" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
