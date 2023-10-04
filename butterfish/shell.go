@@ -983,6 +983,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		// Check if the first character is uppercase or a bang
 		if unicode.IsUpper(rune(data[0])) || data[0] == '!' {
 			this.setState(statePrompting)
+			this.ClearAutosuggest(this.Color.Command)
 			this.Prompt.Clear()
 			this.Prompt.Write(string(data))
 
