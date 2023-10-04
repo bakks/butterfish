@@ -207,12 +207,12 @@ func NewShellBuffer() *ShellBuffer {
 }
 
 // >>> command
-//            ^ cursor
+// :          ^ cursor
 // autosuggest: " foobar"
 // jumpForward: 0
 //
 // >>> command
-//          ^ cursor
+// :        ^ cursor
 // autosuggest: " foobar"
 // jumpForward: 2
 func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward int, colorStr string) []byte {
@@ -249,6 +249,7 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 
 	// write the autosuggest text
 	w.Write([]byte(autosuggestText))
+	w.Write([]byte(CLEAR_COLOR))
 
 	// return cursor to original position
 

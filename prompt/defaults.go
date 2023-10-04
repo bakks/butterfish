@@ -92,7 +92,9 @@ Predicted command:
 This is the start of shell history:
 -------------
 {history}
-> {command}`,
+
+predicted question:
+{command}`,
 	},
 
 	// PromptFixCommand is a prompt for fixing a command

@@ -31,6 +31,7 @@ const ESC_UP = "\x1b[%dA"
 const ESC_RIGHT = "\x1b[%dC"
 const ESC_LEFT = "\x1b[%dD"
 const ESC_CLEAR = "\x1b[0K"
+const CLEAR_COLOR = "\x1b[0m"
 
 // Special characters that we wrap the shell's command prompt in (PS1) so
 // that we can detect where it starts and ends.
@@ -1011,6 +1012,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			return data[1:]
 
 		} else if data[0] == '\r' {
+			this.ClearAutosuggest(this.Color.Command)
 			this.ChildIn.Write(data)
 			return data[1:]
 
