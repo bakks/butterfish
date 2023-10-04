@@ -394,11 +394,22 @@ func (this *ShellState) setState(state int) {
 }
 
 func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
+	// then wait for timeout
+	target := 2
+	seen := 0
+
 	for {
 		select {
 		case <-time.After(timeout):
 			return
-		case <-r:
+		case msg := <-r:
+			// if msg.Data includes \n we break
+			if bytes.Contains(msg.Data, []byte("\n")) {
+				seen++
+				if seen >= target {
+					return
+				}
+			}
 			continue
 		}
 	}
@@ -513,12 +524,16 @@ func (this *ShellState) ParsePS1(data string) (int, int, string) {
 		regex = ps1FullRegex
 	}
 
-	currIcon := EMOJI_DEFAULT
-	if this.GoalMode {
-		if this.GoalModeUnsafe {
-			currIcon = EMOJI_GOAL_UNSAFE
+	currIcon := ""
+	if !this.Butterfish.Config.ShellLeavePromptAlone {
+		if this.GoalMode {
+			if this.GoalModeUnsafe {
+				currIcon = EMOJI_GOAL_UNSAFE
+			} else {
+				currIcon = EMOJI_GOAL
+			}
 		} else {
-			currIcon = EMOJI_GOAL
+			currIcon = EMOJI_DEFAULT
 		}
 	}
 
@@ -556,9 +571,6 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	// pushing a new position
 	parentPositionChan := make(chan *cursorPosition, 128)
 
-	go readerToChannel(childOut, childOutReader)
-	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
-
 	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
 
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
@@ -595,9 +607,11 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	shellState.Prompt.SetTerminalWidth(termWidth)
 	shellState.Prompt.SetColor(colorScheme.Prompt)
 
+	go readerToChannel(childOut, childOutReader)
+	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
+
 	// clear out any existing output to hide the PS1 export stuff
-	clearByteChan(childOutReader, 100*time.Millisecond)
-	fmt.Fprintf(childIn, "\n")
+	clearByteChan(childOutReader, 1000*time.Millisecond)
 
 	// start
 	shellState.Mux()
