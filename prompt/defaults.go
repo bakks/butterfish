@@ -29,7 +29,7 @@ var DefaultPrompts []Prompt = []Prompt{
 
 	{
 		Name:        ShellSystemMessage,
-		Prompt:      "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and examples but keep your answers succinct. Here is system info about the local machine: '{sysinfo}'",
+		Prompt:      "You are an assistant that helps the user with a Unix shell. Give advice about commands that can be run and examples but keep your answers succinct. You don't need to tell the user how to install commands that you mention. It is ok if the user asks questions not directly related to the unix shell. Here is system info about the local machine: '{sysinfo}'",
 		OkToReplace: true,
 	},
 
