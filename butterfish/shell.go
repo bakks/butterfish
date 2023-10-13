@@ -466,7 +466,7 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 		// characters when calculating the cursor position
 		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%} '\n"
 	default:
-		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for centain features. Create an issue at https://github.com/bakks/butterfish.", shell)
+		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for certain features. Create an issue at https://github.com/bakks/butterfish.", shell)
 		return
 	}
 
@@ -857,6 +857,10 @@ func (this *ShellState) Mux() {
 				return
 			}
 
+			if this.Butterfish.Config.Verbose > 2 {
+				log.Printf("Child out: %x", string(childOutMsg.Data))
+			}
+
 			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
 			this.PromptSuffixCounter += prompts
 
@@ -921,6 +925,10 @@ func (this *ShellState) Mux() {
 			}
 
 			data := parentInMsg.Data
+
+			if this.Butterfish.Config.Verbose > 2 {
+				log.Printf("Parent in: %x", data)
+			}
 
 			// include any cached data
 			if len(parentInBuffer) > 0 {
@@ -1950,8 +1958,8 @@ func countChildPids(pid int) (int, error) {
 
 	// Keep a set of pids, loop through and add children to the set, keep
 	// looping until the set stops growing.
-	pids := make(map[int]bool)
-	pids[pid] = true
+	pids := make(map[int]string)
+	pids[pid] = "foo"
 	for {
 		// Keep track of how many pids we've added in this iteration
 		added := 0
@@ -1960,8 +1968,10 @@ func countChildPids(pid int) (int, error) {
 		for _, p := range processes {
 			// If the process is a child of one of the pids we're tracking,
 			// add it to the set.
-			if pids[p.PPid()] && !pids[p.Pid()] {
-				pids[p.Pid()] = true
+			_, childOfParent := pids[p.PPid()]
+			_, alreadyAdded := pids[p.Pid()]
+			if childOfParent && !alreadyAdded {
+				pids[p.Pid()] = p.Executable()
 				added++
 			}
 		}
@@ -1973,7 +1983,18 @@ func countChildPids(pid int) (int, error) {
 	}
 
 	// subtract 1 because we don't want to count the parent pid
-	return len(pids) - 1, nil
+	totalPids := -1
+
+	for _, process := range pids {
+		switch process {
+		case "sh", "bash", "zsh":
+			// We want to keep butterfish on for child shells
+		default:
+			totalPids++
+		}
+	}
+
+	return totalPids, nil
 }
 
 func HasRunningChildren() bool {
