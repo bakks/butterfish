@@ -1101,6 +1101,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			return data[1:]
 
 		} else if data[0] == 0x03 { // Ctrl-C
+			if this.PromptResponseCancel != nil {
+				this.PromptResponseCancel()
+			}
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte(this.Color.Command))

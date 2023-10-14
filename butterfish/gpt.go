@@ -411,14 +411,48 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
 }
 
+const chunkWaitTimeout = 5 * time.Second
+
 func (this *GPT) doChatStreamCompletion(
-	ctx context.Context, req openai.ChatCompletionRequest, printWriter io.Writer, verbose bool) (*util.CompletionResponse, error) {
+	ctx context.Context,
+	req openai.ChatCompletionRequest,
+	printWriter io.Writer,
+	verbose bool) (*util.CompletionResponse, error) {
 
 	var responseContent strings.Builder
 	var functionName string
 	var functionArgs strings.Builder
 
+	// We already have a context that sets an overall timeout, but we also
+	// want to timeout if we don't get a chunk back for a while.
+	// i.e. the overall timeout for the whole request is 60s, the timeout
+	// for the first chunk is 5s
+	innerCtx, cancel := context.WithCancel(ctx)
+	gotChunk := make(chan bool)
+	var chunkTimeoutErr error
+
+	// set a goroutine to wait on a timeout or having received a chunk
+	go func() {
+		select {
+		case <-time.After(chunkWaitTimeout):
+			chunkTimeoutErr = fmt.Errorf("Timed out waiting for streaming response")
+			cancel()
+
+			// if we get a chunk or the context fininshes we don't do anything
+		case <-innerCtx.Done():
+		case <-gotChunk:
+		}
+	}()
+
+	firstChunk := true
+
 	callback := func(resp openai.ChatCompletionStreamResponse) {
+		if firstChunk {
+			gotChunk <- true
+			firstChunk = false
+			close(gotChunk)
+		}
+
 		if resp.Choices == nil || len(resp.Choices) == 0 {
 			return
 		}
@@ -456,9 +490,15 @@ func (this *GPT) doChatStreamCompletion(
 
 	err := withExponentialBackoff(func() error {
 		var innerErr error
-		stream, innerErr = this.client.CreateChatCompletionStream(ctx, req)
+		stream, innerErr = this.client.CreateChatCompletionStream(innerCtx, req)
 		return innerErr
 	})
+
+	// if chunkTimeoutErr is set then err is "context cancelled", which isn't
+	// helpful, so we return a more specific error instead
+	if chunkTimeoutErr != nil {
+		return nil, chunkTimeoutErr
+	}
 
 	if err != nil {
 		return nil, err
@@ -472,6 +512,9 @@ func (this *GPT) doChatStreamCompletion(
 		}
 
 		if err != nil {
+			if chunkTimeoutErr != nil {
+				return nil, chunkTimeoutErr
+			}
 			return nil, err
 		}
 
@@ -580,7 +623,6 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (*util.Co
 	return this.doChatCompletion(request.Ctx, req, request.Verbose)
 }
 
-// TODO: this doesn't handle functions
 func (this *GPT) doChatCompletion(ctx context.Context, request openai.ChatCompletionRequest, verbose bool) (*util.CompletionResponse, error) {
 	if verbose {
 		LogChatCompletionRequest(request)
