@@ -1044,8 +1044,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
+			this.RefreshAutosuggest(data, this.Prompt, this.Color.Prompt)
 			this.ParentOut.Write(toPrint)
-			this.RefreshAutosuggest(data, this.Prompt, this.Color.Command)
 
 			if this.Prompt.Size() == 0 {
 				this.ParentOut.Write([]byte(this.Color.Command)) // reset color
@@ -1764,7 +1764,8 @@ func (this *ShellState) ShowAutosuggest(
 }
 
 // Update autosuggest when we receive new data
-func (this *ShellState) RefreshAutosuggest(newData []byte, buffer *ShellBuffer, colorStr string) {
+func (this *ShellState) RefreshAutosuggest(
+	newData []byte, buffer *ShellBuffer, colorStr string) {
 	// if we're typing out the exact autosuggest, and we haven't moved the cursor
 	// backwards in the buffer, then we can just append and adjust the
 	// autosuggest
