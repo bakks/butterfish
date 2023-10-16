@@ -771,79 +771,9 @@ func (this *ShellState) Mux() {
 
 			if this.GoalMode {
 				this.ActiveFunction = output.FunctionName
-
-				switch output.FunctionName {
-				case "command":
-					log.Printf("Goal mode command: %s", output.FunctionParameters)
-					this.GoalModeBuffer = ""
-					this.PromptSuffixCounter = 0
-					this.setState(stateNormal)
-					cmd, err := parseCommandParams(output.FunctionParameters)
-					if err != nil {
-						// we failed to parse the command json, send error back to model
-						log.Printf("Error parsing function arguments: %s", err)
-						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-						this.GoalModeFunctionResponse(modelStr)
-						continue
-					}
-					log.Printf("Goal mode command: %s", cmd)
-					fmt.Fprintf(this.ChildIn, "%s", cmd)
-					if this.GoalModeUnsafe {
-						fmt.Fprintf(this.ChildIn, "\n")
-					}
+				this.GoalModeFunction(output)
+				if this.GoalMode {
 					continue
-
-				case "user_input":
-					log.Printf("Goal mode user_input: %s", output.FunctionParameters)
-					this.GoalModeBuffer = ""
-					this.PromptSuffixCounter = -999999
-					this.setState(stateNormal)
-					question, err := parseUserInputParams(output.FunctionParameters)
-					if err != nil {
-						log.Printf("Error parsing function arguments: %s", err)
-						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-						this.GoalModeFunctionResponse(modelStr)
-						continue
-					}
-
-					fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s\n", this.Color.Answer, question, this.Color.Command)
-					continue
-
-				case "finish":
-					log.Printf("Goal mode finishing: %s", output.FunctionParameters)
-					this.GoalModeBuffer = ""
-					this.setState(stateNormal)
-					success, err := parseFinishParams(output.FunctionParameters)
-					if err != nil {
-						log.Printf("Error parsing function arguments: %s", err)
-						modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-						this.History.AppendFunctionOutput(output.FunctionName, modelStr)
-						this.GoalModeFunctionResponse(modelStr)
-						continue
-					}
-
-					result := "SUCCESS"
-					if !success {
-						result = "FAILURE"
-					}
-
-					fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
-					this.GoalMode = false
-					continue
-
-				case "":
-					log.Printf("No function called in goal mode")
-					modelStr := fmt.Sprintf("You must call a function in goal mode responses.")
-					this.History.Append(historyTypePrompt, modelStr)
-					this.GoalModeFunctionResponse("")
-					continue
-
-				default:
-					log.Printf("Invalid function name called in goal mode: %s", output.FunctionName)
-					modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
-					this.GoalModeFunctionResponse(modelStr)
-					continue
-
 				}
 			}
 
@@ -875,7 +805,10 @@ func (this *ShellState) Mux() {
 
 			// If we're actively printing a response we buffer child output
 			if this.State == statePromptResponse {
-				childOutBuffer = append(childOutBuffer, childOutMsg.Data...)
+				// In goal mode we throw it away
+				if !this.GoalMode {
+					childOutBuffer = append(childOutBuffer, childOutStr...)
+				}
 				continue
 			}
 
@@ -1284,6 +1217,77 @@ func (this *ShellState) GoalModeFunctionResponse(output string) {
 	}
 	this.ActiveFunction = ""
 	this.goalModePrompt("")
+}
+
+func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
+	switch output.FunctionName {
+	case "command":
+		log.Printf("Goal mode command: %s", output.FunctionParameters)
+		this.GoalModeBuffer = ""
+		this.PromptSuffixCounter = 0
+		this.setState(stateNormal)
+		cmd, err := parseCommandParams(output.FunctionParameters)
+		if err != nil {
+			// we failed to parse the command json, send error back to model
+			log.Printf("Error parsing function arguments: %s", err)
+			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+			this.GoalModeFunctionResponse(modelStr)
+			return
+		}
+		log.Printf("Goal mode command: %s", cmd)
+		fmt.Fprintf(this.ChildIn, "%s", cmd)
+		if this.GoalModeUnsafe {
+			fmt.Fprintf(this.ChildIn, "\n")
+		}
+
+	case "user_input":
+		log.Printf("Goal mode user_input: %s", output.FunctionParameters)
+		this.GoalModeBuffer = ""
+		this.PromptSuffixCounter = -999999
+		this.setState(stateNormal)
+		question, err := parseUserInputParams(output.FunctionParameters)
+		if err != nil {
+			log.Printf("Error parsing function arguments: %s", err)
+			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+			this.GoalModeFunctionResponse(modelStr)
+			return
+		}
+
+		fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s\n", this.Color.Answer, question, this.Color.Command)
+
+	case "finish":
+		log.Printf("Goal mode finishing: %s", output.FunctionParameters)
+		this.GoalModeBuffer = ""
+		this.setState(stateNormal)
+		success, err := parseFinishParams(output.FunctionParameters)
+		if err != nil {
+			log.Printf("Error parsing function arguments: %s", err)
+			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+			this.History.AppendFunctionOutput(output.FunctionName, modelStr)
+			this.GoalModeFunctionResponse(modelStr)
+			return
+		}
+
+		result := "SUCCESS"
+		if !success {
+			result = "FAILURE"
+		}
+
+		fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
+		this.GoalMode = false
+
+	case "":
+		log.Printf("No function called in goal mode")
+		modelStr := fmt.Sprintf("You must call a function in goal mode responses.")
+		this.History.Append(historyTypePrompt, modelStr)
+		this.GoalModeFunctionResponse("")
+
+	default:
+		log.Printf("Invalid function name called in goal mode: %s", output.FunctionName)
+		modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
+		this.GoalModeFunctionResponse(modelStr)
+
+	}
 }
 
 var goalModeFunctions = []util.FunctionDefinition{
