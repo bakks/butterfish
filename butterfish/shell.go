@@ -374,6 +374,7 @@ type ShellState struct {
 	Command              *ShellBuffer
 	TerminalWidth        int
 	Color                *ShellColorScheme
+	LastTabPassthrough   time.Time
 	// these are used to estimate number of tokens
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
@@ -835,6 +836,26 @@ func (this *ShellState) Mux() {
 					this.History.Append(historyTypeShellOutput, childOutStr)
 				}
 			}
+
+			// If the user is in shell mode and presses tab, and we're not doing a
+			// butterfish autocomplete, then we want to edit the command buffer with
+			// whatever the shell outputs immediately after tab. We treat stuff
+			// printed in a 50ms window as part of the tab completion.
+			var AUTOSUGGEST_TAB_WINDOW = 50 * time.Millisecond
+			timestamp := time.Now()
+
+			if this.State == stateShell {
+				timeSinceTab := timestamp.Sub(this.LastTabPassthrough)
+				if timeSinceTab < AUTOSUGGEST_TAB_WINDOW {
+					if this.Butterfish.Config.Verbose > 1 {
+						log.Printf("Time since tab: %s, adding to command: %s",
+							timeSinceTab, childOutStr)
+					}
+					this.Command.Write(childOutStr)
+					this.RefreshAutosuggest([]byte(childOutStr), this.Command, this.Color.Command)
+				}
+			}
+
 			this.ParentOut.Write([]byte(childOutStr))
 
 			if endOfFunctionCall {
@@ -963,7 +984,8 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				return data[1:]
 			} else {
 				// no last autosuggest found, just forward the tab
-				this.ChildIn.Write(data)
+				this.LastTabPassthrough = time.Now()
+				this.ChildIn.Write([]byte{data[0]})
 			}
 			return data[1:]
 
@@ -1089,6 +1111,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				this.RealizeAutosuggest(this.Command, true, this.Color.Command)
 			} else {
 				// no last autosuggest found, just forward the tab
+				this.LastTabPassthrough = time.Now()
 				this.ChildIn.Write([]byte{data[0]})
 			}
 			return data[1:]

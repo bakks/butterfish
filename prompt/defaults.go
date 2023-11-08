@@ -42,7 +42,7 @@ var DefaultPrompts []Prompt = []Prompt{
 	{
 		Name:        ShellAutosuggestCommand,
 		OkToReplace: true,
-		Prompt: `You are a unix shell command autocompleter. I will give you the user's history, predict the full command they will type. You will find good suggestions in the user's history, suggest the full command.
+		Prompt: `You are a unix shell command autocompleter. I will give you the user's history, predict the full command they will type. You will find good suggestions in the user's history. You must suggest a command longer than has been typed thus far.
 
 Here are examples of prompts and predictions:
 
