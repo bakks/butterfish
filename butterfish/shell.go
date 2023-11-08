@@ -1508,7 +1508,6 @@ func assembleChat(
 
 	// account for functions
 	functionTokens := encoder.Encode(functions, nil, nil)
-	log.Printf("Function tokens: %d\n", len(functionTokens))
 	if len(functionTokens) > 1028 {
 		log.Printf("WARNING: the functions are very long and are taking up %d tokens. This may cause you to hit the token limit.", functionTokens)
 	}
@@ -1522,7 +1521,6 @@ func assembleChat(
 		maxHistoryBlockTokens, maxTokens-usedTokens, tokensPerMessage)
 	usedTokens += historyTokens
 
-	log.Printf("Chat tokens: %d\n", usedTokens)
 	if usedTokens > maxTokens {
 		panic("Too many tokens, this should not happen")
 	}
