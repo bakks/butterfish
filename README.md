@@ -540,7 +540,7 @@ Often you want to not only do that index search, but hand the results into a GPT
 I've been developing Butterfish on an Intel Mac, but it should work fine on ARM Macs and probably work on Linux (untested). Here is how to get set up for development on MacOS:
 
 ```
-brew install git go protoc protoc-gen-go protoc-gen-go-grpc
+brew install git go protobuf protoc-gen-go protoc-gen-go-grpc
 git clone https://github.com/bakks/butterfish
 cd butterfish
 make
