@@ -54,7 +54,8 @@ func getFields(prompt string) []string {
 // Fetch a prompt with a given name, interpolating the fields into the prompt string.
 // Throws an error if fields are missing.
 // The argument pattern is first the field name, then the value, for example:
-//   GetPrompt("my_prompt", "name", "John", "age", "30")
+//
+//	GetPrompt("my_prompt", "name", "John", "age", "30")
 func (this *DiskPromptLibrary) GetPrompt(name string, args ...string) (string, error) {
 
 	// first find the prompt given the name
@@ -184,7 +185,7 @@ func (this *DiskPromptLibrary) Load() error {
 	}
 
 	if this.Verbose {
-		fmt.Fprintf(this.VerboseWriter, "Loaded %v prompts from %v\n", len(this.Prompts), this.Path)
+		fmt.Fprintf(this.VerboseWriter, "Loaded %v prompts from %v\n\r", len(this.Prompts), this.Path)
 	}
 	return nil
 }
