@@ -160,10 +160,7 @@ func readerToChannel(input io.Reader, c chan<- *byteMsg) {
 		}
 
 		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
-			log.Printf("got escape sequence: %x", buf)
-			// We have downstream code that assumes full ANSI sequences, so we validate
-			// here, I've never seen this fire
-			panic("Got incomplete escape sequence")
+			log.Printf("Got incomplete escape sequence: %x, this may not be handled correctly and could indicate something weird going on with the child shell", buf)
 		}
 
 		c <- NewByteMsg(buf[:n])
@@ -232,10 +229,7 @@ func readerToChannelWithPosition(input io.Reader, c chan<- *byteMsg, pos chan<- 
 		}
 
 		if n >= 2 && buf[0] == '\x1b' && buf[1] == '[' && !ansiCsiPattern.Match(buf[:n]) {
-			log.Printf("Incomplete escape sequence: %x", buf[:n])
-			// We have downstream code that assumes full ANSI sequences, so we validate
-			// here, I've never seen this fire
-			panic("Got incomplete escape sequence")
+			log.Printf("Got incomplete escape sequence: %x, this may not be handled correctly and could indicate something weird going on with the child shell", buf)
 		}
 
 		c <- NewByteMsg(buf[:n])
