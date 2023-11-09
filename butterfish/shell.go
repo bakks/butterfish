@@ -1988,19 +1988,19 @@ func countChildPids(pid int) (int, error) {
 	// Keep a set of pids, loop through and add children to the set, keep
 	// looping until the set stops growing.
 	pids := make(map[int]string)
-	pids[pid] = "foo"
+	pids[pid] = "butterfish"
 	for {
 		// Keep track of how many pids we've added in this iteration
 		added := 0
 
 		// Loop through all the processes
-		for _, p := range processes {
+		for _, process := range processes {
 			// If the process is a child of one of the pids we're tracking,
 			// add it to the set.
-			_, childOfParent := pids[p.PPid()]
-			_, alreadyAdded := pids[p.Pid()]
+			_, childOfParent := pids[process.PPid()]
+			_, alreadyAdded := pids[process.Pid()]
 			if childOfParent && !alreadyAdded {
-				pids[p.Pid()] = p.Executable()
+				pids[process.Pid()] = process.Executable()
 				added++
 			}
 		}
@@ -2037,8 +2037,7 @@ func HasRunningChildren() bool {
 		return false
 	}
 
-	// we expect 1 child because the shell is running
-	if count > 1 {
+	if count > 0 {
 		return true
 	}
 	return false
