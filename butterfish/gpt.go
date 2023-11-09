@@ -41,8 +41,13 @@ type GPT struct {
 
 const gptClientTimeout = 300 * time.Second
 
-func NewGPT(token string) *GPT {
-	client := openai.NewClient(token)
+func NewGPT(token, baseUrl string) *GPT {
+	config := openai.DefaultConfig(token)
+	if baseUrl != "" {
+		config.BaseURL = baseUrl
+	}
+
+	client := openai.NewClientWithConfig(config)
 
 	return &GPT{
 		client: client,
@@ -411,7 +416,7 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
 }
 
-const chunkWaitTimeout = 5 * time.Second
+const chunkWaitTimeout = 30 * time.Second
 
 func (this *GPT) doChatStreamCompletion(
 	ctx context.Context,
@@ -556,6 +561,10 @@ func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.Comp
 	resp, err := this.client.CreateCompletion(request.Ctx, req)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, errors.New("No completions returned from a completion request with 200 response.")
 	}
 
 	text := resp.Choices[0].Text

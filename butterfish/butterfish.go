@@ -46,6 +46,7 @@ type ButterfishConfig struct {
 	// OpenAI private token, should start with "sk-".
 	// Found at https://platform.openai.com/account/api-keys
 	OpenAIToken string
+	BaseURL     string
 
 	// LLM API communication client that implements the LLM interface
 	LLMClient LLM
@@ -438,7 +439,7 @@ func initLLM(config *ButterfishConfig) (LLM, error) {
 	} else if config.OpenAIToken != "" && config.LLMClient != nil {
 		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
 	} else if config.OpenAIToken != "" {
-		gpt := NewGPT(config.OpenAIToken)
+		gpt := NewGPT(config.OpenAIToken, config.BaseURL)
 		return gpt, nil
 	} else {
 		return config.LLMClient, nil

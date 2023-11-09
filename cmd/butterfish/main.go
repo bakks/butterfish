@@ -75,10 +75,11 @@ func (v *VerboseFlag) BeforeResolve() error {
 type CliConfig struct {
 	Verbose VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
 	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
+	BaseURL string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		PromptModel               string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
+		Model                     string `short:"m" default:"gpt-3.5-turbo" help:"Model for when the user manually enters a prompt."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
@@ -184,6 +185,7 @@ func getOpenAIToken() string {
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.OpenAIToken = getOpenAIToken()
+	config.BaseURL = options.BaseURL
 	config.PromptLibraryPath = defaultPromptPath
 
 	if options.Verbose {
@@ -251,7 +253,7 @@ func main() {
 		}
 
 		config.ShellBinary = shell
-		config.ShellPromptModel = cli.Shell.PromptModel
+		config.ShellPromptModel = cli.Shell.Model
 		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
