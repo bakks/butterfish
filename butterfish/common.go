@@ -16,6 +16,8 @@ import (
 // See https://platform.openai.com/docs/models/overview
 var MODEL_TO_NUM_TOKENS = map[string]int{
 	"gpt-4":                       8192,
+	"gpt-4-1106":                  128000,
+	"gpt-4-vision":                128000,
 	"gpt-4-0314":                  8192,
 	"gpt-4-0613":                  8192,
 	"gpt-4-32k":                   32768,
@@ -24,6 +26,7 @@ var MODEL_TO_NUM_TOKENS = map[string]int{
 	"gpt-3.5-turbo":               4096,
 	"gpt-3.5-turbo-0301":          4096,
 	"gpt-3.5-turbo-0613":          4096,
+	"gpt-3.5-turbo-1106":          16384,
 	"gpt-3.5-turbo-16k":           16384,
 	"gpt-3.5-turbo-16k-0613":      16384,
 	"gpt-3.5-turbo-instruct":      4096,
@@ -54,28 +57,71 @@ var MODEL_TO_TOKENS_PER_MESSAGE = map[string]int{
 	"gpt-4-32k-0613":         3,
 	"gpt-3.5-turbo":          4,
 	"gpt-3.5-turbo-0301":     4,
+	"gpt-3.5-turbo-1613":     4,
+	"gpt-3.5-turbo-1106":     4,
 	"gpt-3.5-turbo-16k":      4,
 	"gpt-3.5-turbo-16k-0613": 4,
 }
 
-func NumTokensForModel(model string) int {
-	numTokens, ok := MODEL_TO_NUM_TOKENS[model]
+// Given a model name (e.g. gpt-4-32k-0613), search the kv map for the
+// value associated with the model name. If the model name is not found,
+// attempt to find a simpler model name by removing the last segment
+// (delimited by -) and searching again.
+// returns (model found, value)
+func findModelValue(model string, kv map[string]int) (string, int) {
+	value, ok := kv[model]
 	if ok {
+		return model, value
+	}
+
+	// attempt to find model by removing the last segment (delimited by -)
+	simplerModel := model
+	for true {
+		lastDash := strings.LastIndex(simplerModel, "-")
+		if lastDash == -1 {
+			break
+		}
+
+		simplerModel = simplerModel[:lastDash]
+		value, ok = MODEL_TO_NUM_TOKENS[simplerModel]
+		if ok {
+			return simplerModel, value
+		}
+	}
+
+	return "", -1
+}
+
+func NumTokensForModel(model string) int {
+	foundModel, numTokens := findModelValue(model, MODEL_TO_NUM_TOKENS)
+
+	// couldn't find model
+	if foundModel == "" {
+		log.Printf("WARNING: Unknown model %s, using default context window size of 2048 tokens", model)
+		return 2048
+	}
+
+	// found simpler model
+	if foundModel != model {
+		log.Printf("WARNING: Unknown model %s, using model %s settings instead with context window size of %d tokens", model, foundModel, numTokens)
 		return numTokens
 	}
 
-	log.Printf("WARNING: Unknown model %s, using default num tokens 2048", model)
-	return 2048
+	log.Printf("Found model %s context window size of %d tokens", model, numTokens)
+
+	// normal
+	return numTokens
 }
 
 func NumTokensPerMessageForModel(model string) int {
-	numTokens, ok := MODEL_TO_TOKENS_PER_MESSAGE[model]
-	if ok {
-		return numTokens
+	foundModel, numTokens := findModelValue(model, MODEL_TO_TOKENS_PER_MESSAGE)
+
+	if foundModel == "" {
+		log.Printf("WARNING: Unknown model %s, using default num tokens per message 5", model)
+		return 5
 	}
 
-	log.Printf("WARNING: Unknown model %s, using default num tokens per message 4", model)
-	return 4
+	return numTokens
 }
 
 // Data type for passing byte chunks from a wrapped command around
