@@ -1718,34 +1718,11 @@ func (this *ShellState) RealizeAutosuggest(buffer *ShellBuffer, sendToChild bool
 func (this *ShellState) ShowAutosuggest(
 	buffer *ShellBuffer, result *AutosuggestResult, cursorCol int, termWidth int) {
 
-	if result.Suggestion == "" {
-		// no suggestion
-		return
-	}
-
-	//log.Printf("ShowAutosuggest: %s", result.Suggestion)
-
-	if result.Command != buffer.String() {
-		// this is an old result, it doesn't match the current command/prompt buffer
-		log.Printf("Autosuggest result is old, ignoring. Expected: %s, got: %s", buffer.String(), result.Command)
-		return
-	}
-
-	if result.Suggestion == this.LastAutosuggest {
-		// if the suggestion is the same as the last one, ignore it
-		return
-	}
-
-	if result.Suggestion == strings.TrimSpace(buffer.String()) {
-		// if the suggestion is the same as the command, ignore it
-		return
-	}
-
 	suggestion := result.Suggestion
 
-	// if the suggestion is multiple lines grab the first one
-	if strings.Contains(suggestion, "\n") {
-		suggestion = strings.Split(suggestion, "\n")[0]
+	if suggestion == "" {
+		// no suggestion
+		return
 	}
 
 	// if suggestion starts with "prediction: " remove that
@@ -1753,6 +1730,30 @@ func (this *ShellState) ShowAutosuggest(
 	const predictionPrefix = "prediction: "
 	if strings.HasPrefix(suggestion, predictionPrefix) {
 		suggestion = suggestion[len(predictionPrefix):]
+	}
+
+	//log.Printf("ShowAutosuggest: %s", result.Suggestion)
+
+	if result.Command != buffer.String() {
+		// this is an old result, it doesn't match the current command/prompt buffer
+		log.Printf("Autosuggest result is old, ignoring. Expected: %s, got: %s", buffer.String(), result.Command)
+		// TODO we can check the prefix and try to continue in this case
+		return
+	}
+
+	if suggestion == this.LastAutosuggest {
+		// if the suggestion is the same as the last one, ignore it
+		return
+	}
+
+	if suggestion == strings.TrimSpace(buffer.String()) {
+		// if the suggestion is the same as the command, ignore it
+		return
+	}
+
+	// if the suggestion is multiple lines grab the first one
+	if strings.Contains(suggestion, "\n") {
+		suggestion = strings.Split(suggestion, "\n")[0]
 	}
 
 	if result.Command != "" {
@@ -1770,8 +1771,8 @@ func (this *ShellState) ShowAutosuggest(
 	cmdLen := buffer.Size()
 	jumpForward := cmdLen - buffer.Cursor()
 
+	this.ClearAutosuggest(this.Color.Command)
 	this.LastAutosuggest = suggestion
-
 	this.AutosuggestBuffer = NewShellBuffer()
 	this.AutosuggestBuffer.SetPromptLength(cursorCol)
 	this.AutosuggestBuffer.SetTerminalWidth(termWidth)
@@ -1784,7 +1785,9 @@ func (this *ShellState) ShowAutosuggest(
 	this.ParentOut.Write([]byte(buf))
 }
 
-// Update autosuggest when we receive new data
+// Update autosuggest when we receive new data.
+// Clears the old autosuggest if necessary and requests a new one.
+// If the new next matches the old autosuggest prefix then we leave it.
 func (this *ShellState) RefreshAutosuggest(
 	newData []byte, buffer *ShellBuffer, colorStr string) {
 	// if we're typing out the exact autosuggest, and we haven't moved the cursor
@@ -1812,7 +1815,7 @@ func (this *ShellState) RefreshAutosuggest(
 }
 
 func (this *ShellState) ClearAutosuggest(colorStr string) {
-	if this.LastAutosuggest == "" {
+	if this.LastAutosuggest == "" || this.AutosuggestBuffer == nil {
 		// there wasn't actually a last autosuggest, so nothing to clear
 		return
 	}

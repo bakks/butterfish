@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // This holds a buffer that represents a tty shell buffer. Incoming data
@@ -19,6 +20,8 @@ type ShellBuffer struct {
 
 	lastAutosuggestLen int
 	lastJumpForward    int
+	oldLength          int
+	newLength          int
 }
 
 func (this *ShellBuffer) SetColor(color string) {
@@ -62,6 +65,8 @@ func (this *ShellBuffer) Write(data string) []byte {
 
 	startingCursor := this.cursor
 	runes := []rune(data)
+
+	this.oldLength = len(this.buffer)
 
 	for i := 0; i < len(runes); i++ {
 
@@ -111,6 +116,8 @@ func (this *ShellBuffer) Write(data string) []byte {
 
 		}
 	}
+
+	this.newLength = len(this.buffer)
 
 	//log.Printf("Buffer update, cursor: %d, buffer: %s, written: %s  %x", this.cursor, string(this.buffer), data, []byte(data))
 
@@ -174,8 +181,11 @@ func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {
 		w.Write([]byte("\r\n"))
 	}
 
-	// clear to end of line
-	w.Write([]byte(ESC_CLEAR))
+	// if we deleted text we clear out the rest of the line
+	// this may need to be more sophisticated
+	if this.newLength < this.oldLength {
+		w.Write([]byte(ESC_CLEAR))
+	}
 
 	// if the cursor is not at the end of the buffer we need to adjust it because
 	// we rewrote the entire buffer
@@ -223,6 +233,7 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 	var buf bytes.Buffer
 	w = &buf
 
+	// maybe -1
 	numLines := (len(autosuggestText) + jumpForward + this.promptLength) / this.termWidth
 	this.lastAutosuggestLen = len(autosuggestText)
 	this.lastJumpForward = jumpForward
@@ -271,12 +282,8 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 
 func (this *ShellBuffer) ClearLast(colorStr string) []byte {
 	//log.Printf("Clearing last autosuggest, lastAutosuggestLen: %d, lastJumpForward: %d, promptLength: %d", this.lastAutosuggestLen, this.lastJumpForward, this.promptLength)
-	buf := make([]byte, this.lastAutosuggestLen)
-	for i := 0; i < this.lastAutosuggestLen; i++ {
-		buf[i] = ' '
-	}
-
-	return this.WriteAutosuggest(string(buf), this.lastJumpForward, colorStr)
+	emptyBuf := strings.Repeat(" ", this.lastAutosuggestLen)
+	return this.WriteAutosuggest(emptyBuf, this.lastJumpForward, colorStr)
 }
 
 func (this *ShellBuffer) EatAutosuggestRune() {
