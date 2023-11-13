@@ -233,8 +233,7 @@ func (this *ShellBuffer) WriteAutosuggest(autosuggestText string, jumpForward in
 	var buf bytes.Buffer
 	w = &buf
 
-	// maybe -1
-	numLines := (len(autosuggestText) + jumpForward + this.promptLength) / this.termWidth
+	numLines := (len(autosuggestText) + jumpForward + this.promptLength - 1) / this.termWidth
 	this.lastAutosuggestLen = len(autosuggestText)
 	this.lastJumpForward = jumpForward
 
