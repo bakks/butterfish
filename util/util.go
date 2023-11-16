@@ -219,7 +219,7 @@ type StyleCodeblocksWriter struct {
 	Writer      io.Writer
 	normalColor string
 	state       int
-	suffix      *bytes.Buffer
+	langSuffix  *bytes.Buffer
 	blockBuffer *bytes.Buffer
 }
 
@@ -268,16 +268,19 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				this.blockBuffer = new(bytes.Buffer)
 			} else {
 				// append to suffix
-				if this.suffix == nil {
-					this.suffix = new(bytes.Buffer)
+				if this.langSuffix == nil {
+					this.langSuffix = new(bytes.Buffer)
 				}
-				this.suffix.WriteByte(char)
+				this.langSuffix.WriteByte(char)
 			}
 			toWrite.WriteByte(char)
 
 		case STATE_IN_BLOCK:
 			if char == '\n' {
 				this.state = STATE_IN_BLOCK_NEWLINE
+				this.EndOfCodeLine(toWrite)
+			} else {
+				toWrite.WriteByte(char)
 			}
 			this.blockBuffer.WriteByte(char)
 
@@ -286,16 +289,18 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				this.state++
 			} else if char == '\n' {
 				this.state = STATE_IN_BLOCK_NEWLINE
+				this.EndOfCodeLine(toWrite)
 				this.blockBuffer.WriteByte(char)
 			} else {
 				this.state = STATE_IN_BLOCK
 				this.blockBuffer.WriteByte(char)
+				toWrite.WriteByte(char)
 			}
 
 		case STATE_IN_BLOCK_THREE_TICKS:
 			if char == '\n' {
-				this.WriteCode(toWrite, this.suffix.String())
-				this.suffix.Reset()
+				//this.EndOfCodeBlock(toWrite)
+				this.langSuffix.Reset()
 
 				toWrite.Write([]byte(this.normalColor))
 				toWrite.Write([]byte("```\n"))
@@ -309,14 +314,39 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 	return this.Writer.Write(toWrite.Bytes())
 }
 
-func (this *StyleCodeblocksWriter) WriteCode(w io.Writer, language string) error {
-	// render block
-	err := quick.Highlight(w, this.blockBuffer.String(), language, "terminal256", "monokai")
+func lastLine(buff *bytes.Buffer) []byte {
+	// iterate backwards until we find a newline
+	bb := buff.Bytes()
+	for i := buff.Len() - 1; i >= 0; i-- {
+		if bb[i] == '\n' {
+			return bb[i+1:]
+		}
+	}
+	return bb
+}
+
+func (this *StyleCodeblocksWriter) EndOfCodeLine(w io.Writer) error {
+	temp := new(bytes.Buffer)
+	err := quick.Highlight(temp, this.blockBuffer.String(),
+		this.langSuffix.String(), "terminal256", "monokai")
 	if err != nil {
 		log.Printf("error highlighting code block: %s", err)
-		return err
 	}
+
+	last := lastLine(temp)
+	w.Write([]byte("\r"))
+	w.Write(last)
+	w.Write([]byte("\n"))
 	return nil
+}
+
+func (this *StyleCodeblocksWriter) EndOfCodeBlock(w io.Writer) error {
+	// render block
+	err := quick.Highlight(w, this.blockBuffer.String(), this.langSuffix.String(), "terminal256", "monokai")
+	if err != nil {
+		log.Printf("error highlighting code block: %s", err)
+	}
+	return err
 }
 
 func NewStyleCodeblocksWriter(writer io.Writer, normalColor string) *StyleCodeblocksWriter {
