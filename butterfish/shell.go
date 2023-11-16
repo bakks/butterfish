@@ -573,6 +573,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	parentPositionChan := make(chan *cursorPosition, 128)
 
 	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
+	styleCodeblocksWriter := util.NewStyleCodeblocksWriter(carriageReturnWriter, colorScheme.Answer)
 
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -594,7 +595,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		PrintErrorChan:       make(chan error, 8),
 		History:              NewShellHistory(),
 		PromptOutputChan:     make(chan *util.CompletionResponse),
-		PromptAnswerWriter:   carriageReturnWriter,
+		PromptAnswerWriter:   styleCodeblocksWriter,
 		Command:              NewShellBuffer(),
 		Prompt:               NewShellBuffer(),
 		TerminalWidth:        termWidth,

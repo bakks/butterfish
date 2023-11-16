@@ -1,14 +1,17 @@
 package util
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
 
+	"github.com/alecthomas/chroma/quick"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/afero"
 )
@@ -210,6 +213,118 @@ func (this *CacheWriter) GetLastN(n int) []byte {
 		return this.cache
 	}
 	return this.cache[len(this.cache)-n:]
+}
+
+type StyleCodeblocksWriter struct {
+	Writer      io.Writer
+	normalColor string
+	state       int
+	suffix      *bytes.Buffer
+	blockBuffer *bytes.Buffer
+}
+
+const (
+	STATE_NORMAL = iota
+	STATE_NEWLINE
+	STATE_ONE_TICK
+	STATE_TWO_TICKS
+	STATE_THREE_TICKS
+	STATE_IN_BLOCK
+	STATE_IN_BLOCK_NEWLINE
+	STATE_IN_BLOCK_ONE_TICK
+	STATE_IN_BLOCK_TWO_TICKS
+	STATE_IN_BLOCK_THREE_TICKS
+)
+
+// This writer receives bytes in a stream and looks for markdown code
+// blocks (```) and renders them with syntax highlighting.
+// The hard part is the stream splits the input into chunks, so we need
+// to buffer the input in places.
+func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
+	toWrite := new(bytes.Buffer)
+
+	for _, char := range p {
+
+		switch this.state {
+		case STATE_NORMAL:
+			if char == '\n' {
+				this.state = STATE_NEWLINE
+			}
+			toWrite.WriteByte(char)
+
+		case STATE_NEWLINE, STATE_ONE_TICK, STATE_TWO_TICKS:
+			if char == '`' {
+				this.state++
+			} else if char == '\n' {
+				this.state = STATE_NEWLINE
+			} else {
+				this.state = STATE_NORMAL
+			}
+			toWrite.WriteByte(char)
+
+		case STATE_THREE_TICKS:
+			if char == '\n' {
+				this.state = STATE_IN_BLOCK_NEWLINE
+				this.blockBuffer = new(bytes.Buffer)
+			} else {
+				// append to suffix
+				if this.suffix == nil {
+					this.suffix = new(bytes.Buffer)
+				}
+				this.suffix.WriteByte(char)
+			}
+			toWrite.WriteByte(char)
+
+		case STATE_IN_BLOCK:
+			if char == '\n' {
+				this.state = STATE_IN_BLOCK_NEWLINE
+			}
+			this.blockBuffer.WriteByte(char)
+
+		case STATE_IN_BLOCK_NEWLINE, STATE_IN_BLOCK_ONE_TICK, STATE_IN_BLOCK_TWO_TICKS:
+			if char == '`' {
+				this.state++
+			} else if char == '\n' {
+				this.state = STATE_IN_BLOCK_NEWLINE
+				this.blockBuffer.WriteByte(char)
+			} else {
+				this.state = STATE_IN_BLOCK
+				this.blockBuffer.WriteByte(char)
+			}
+
+		case STATE_IN_BLOCK_THREE_TICKS:
+			if char == '\n' {
+				this.WriteCode(toWrite, this.suffix.String())
+				this.suffix.Reset()
+
+				toWrite.Write([]byte(this.normalColor))
+				toWrite.Write([]byte("```\n"))
+
+				this.blockBuffer = nil
+				this.state = STATE_NEWLINE
+			}
+		}
+	}
+
+	return this.Writer.Write(toWrite.Bytes())
+}
+
+func (this *StyleCodeblocksWriter) WriteCode(w io.Writer, language string) error {
+	// render block
+	err := quick.Highlight(w, this.blockBuffer.String(), language, "terminal256", "monokai")
+	if err != nil {
+		log.Printf("error highlighting code block: %s", err)
+		return err
+	}
+	return nil
+}
+
+func NewStyleCodeblocksWriter(writer io.Writer, normalColor string) *StyleCodeblocksWriter {
+	return &StyleCodeblocksWriter{
+		Writer:      writer,
+		state:       STATE_NEWLINE,
+		normalColor: normalColor,
+	}
 }
 
 // A Writer implementation that allows you to string replace the content

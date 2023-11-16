@@ -28,6 +28,7 @@ require (
 )
 
 require (
+	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
