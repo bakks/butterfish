@@ -300,7 +300,9 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 		case STATE_IN_BLOCK_THREE_TICKS:
 			if char == '\n' {
 				//this.EndOfCodeBlock(toWrite)
-				this.langSuffix.Reset()
+				if this.langSuffix != nil {
+					this.langSuffix.Reset()
+				}
 
 				toWrite.Write([]byte(this.normalColor))
 				toWrite.Write([]byte("```\n"))
