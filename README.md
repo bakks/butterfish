@@ -200,6 +200,22 @@ Here are some goals that work _sometimes_:
 -   `!Install python dependencies for this project`
 -   `!Create a list of the top 3 hacker news headlines, including a link. Use the pup command to parse them out of HTML`
 
+## Local Models
+
+Butterfish uses OpenAI models by default, but you can instead point it to any
+server with a OpenAI compatible API with the `--base-url (-u)` flag. For example:
+
+```
+butterfish prompt -u "http://localhost:5000/v1" "Is this thing working?"
+```
+
+This enables using Butterfish with local or remote non-OpenAI models. Notes on this feature:
+
+-   In practice using hosted models is much simpler than running your own, and Butterfish's prompts have been tuned for GPT-3.5/4, so you will probably get the best results using the default OpenAI models.
+-   Being OpenAI-API compatible in this case means implementing the [Chat Completions endpoint](https://platform.openai.com/docs/api-reference/chat/create) with streaming results.
+-   Butterfish will add your token to requests to the chat completions endpoint, so be careful about accidentally leaking credentials if you don't trust the server.
+-   Options for running a local model with a compatible interface include [LM Studio](https://lmstudio.ai/) and [text-generation-webui](https://github.com/oobabooga/text-generation-webui).
+
 ## CLI Examples
 
 Shell Mode is the primary focus of Butterfish but it also includes more specific command line utilities for prompting, generating commands, summarizing text, and managing embeddings of local files.
