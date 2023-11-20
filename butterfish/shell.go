@@ -1060,6 +1060,7 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			if this.PromptResponseCancel != nil {
 				this.PromptResponseCancel()
 			}
+			this.ClearAutosuggest(this.Color.Command)
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte(this.Color.Command))

@@ -79,7 +79,7 @@ func (this *ShellBuffer) Write(data string) []byte {
 				i += 2
 				continue
 
-			case 0x43:
+			case 'C':
 				// right arrow
 				if this.cursor < len(this.buffer) {
 					this.cursor++
@@ -87,24 +87,70 @@ func (this *ShellBuffer) Write(data string) []byte {
 				i += 2
 				continue
 
-			case 0x44:
+			case 'D':
 				// left arrow
 				if this.cursor > 0 {
 					this.cursor--
 				}
 				i += 2
 				continue
+
+			case 'H':
+				// home
+				this.cursor = 0
+				i += 2
+				continue
+
+			case 'F':
+				// end
+				this.cursor = len(this.buffer)
+				i += 2
+				continue
+
 			}
+		}
+
+		// match 0x1b5b313b3344
+		if bytes.Equal([]byte{0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x44}, []byte(string(runes[i:]))) {
+			// alt-left arrow
+			for this.cursor > 0 && this.buffer[this.cursor-1] == ' ' {
+				this.cursor--
+			}
+			for this.cursor > 0 && this.buffer[this.cursor-1] != ' ' {
+				this.cursor--
+			}
+			i += 5
+			continue
+		}
+
+		// match 0x1b5b313b3343
+		if bytes.Equal([]byte{0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x43}, []byte(string(runes[i:]))) {
+			// alt-right arrow
+			for this.cursor < len(this.buffer) && this.buffer[this.cursor] == ' ' {
+				this.cursor++
+			}
+			for this.cursor < len(this.buffer) && this.buffer[this.cursor] != ' ' {
+				this.cursor++
+			}
+			i += 5
+			continue
 		}
 
 		r := rune(runes[i])
 
 		switch r {
+
 		case 0x08, 0x7f: // backspace
 			if this.cursor > 0 && len(this.buffer) > 0 {
 				this.buffer = append(this.buffer[:this.cursor-1], this.buffer[this.cursor:]...)
 				this.cursor--
 			}
+
+		case 0x01: // ctrl-a
+			this.cursor = 0
+
+		case 0x05: // ctrl-e
+			this.cursor = len(this.buffer)
 
 		default:
 			if this.cursor == len(this.buffer) {
