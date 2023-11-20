@@ -257,10 +257,11 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				this.state++
 			} else if char == '\n' {
 				this.state = STATE_NEWLINE
+				toWrite.WriteByte(char)
 			} else {
 				this.state = STATE_NORMAL
+				toWrite.WriteByte(char)
 			}
-			toWrite.WriteByte(char)
 
 		case STATE_THREE_TICKS:
 			if char == '\n' {
@@ -273,7 +274,6 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				}
 				this.langSuffix.WriteByte(char)
 			}
-			toWrite.WriteByte(char)
 
 		case STATE_IN_BLOCK:
 			if char == '\n' {
@@ -305,7 +305,6 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				}
 
 				toWrite.Write([]byte(this.normalColor))
-				toWrite.Write([]byte("```\n"))
 
 				this.blockBuffer = nil
 				this.state = STATE_NEWLINE
