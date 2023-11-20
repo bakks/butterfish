@@ -388,9 +388,14 @@ type ShellState struct {
 }
 
 func (this *ShellState) setState(state int) {
+	if this.State == state {
+		return
+	}
+
 	if this.Butterfish.Config.Verbose > 1 {
 		log.Printf("State change: %s -> %s", stateNames[this.State], stateNames[state])
 	}
+
 	this.State = state
 }
 
@@ -944,10 +949,13 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 			return nil
 		}
 
-		if data[0] == 0x03 && this.GoalMode {
-			// Ctrl-C while in goal mode
-			fmt.Fprintf(this.PromptAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
-			this.GoalMode = false
+		if data[0] == 0x03 {
+			if this.GoalMode {
+				// Ctrl-C while in goal mode
+				fmt.Fprintf(this.PromptAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
+				this.GoalMode = false
+			}
+
 			if this.Command != nil {
 				this.Command.Clear()
 			}
@@ -955,6 +963,9 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 				this.Prompt.Clear()
 			}
 			this.setState(stateNormal)
+			this.ChildIn.Write([]byte{data[0]})
+
+			return data[1:]
 		}
 
 		// Check if the first character is uppercase or a bang
@@ -1059,12 +1070,14 @@ func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte
 		} else if data[0] == 0x03 { // Ctrl-C
 			if this.PromptResponseCancel != nil {
 				this.PromptResponseCancel()
+				this.PromptResponseCancel = nil
 			}
 			this.ClearAutosuggest(this.Color.Command)
 			toPrint := this.Prompt.Clear()
 			this.ParentOut.Write(toPrint)
 			this.ParentOut.Write([]byte(this.Color.Command))
 			this.setState(stateNormal)
+			return data[1:]
 
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
