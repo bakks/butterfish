@@ -416,7 +416,7 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
 }
 
-const chunkWaitTimeout = 30 * time.Second
+const chunkWaitTimeout = 10 * time.Second
 
 func (this *GPT) doChatStreamCompletion(
 	ctx context.Context,

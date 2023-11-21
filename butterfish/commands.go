@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"regexp"
@@ -114,7 +113,7 @@ type CliCommandConfig struct {
 
 func (this *ButterfishCtx) getPipedStdin() string {
 	if !this.InConsoleMode && util.IsPipedStdin() {
-		stdin, err := ioutil.ReadAll(os.Stdin)
+		stdin, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return ""
 		}
@@ -135,7 +134,7 @@ func (this *ButterfishCtx) getPipedStdinReader() io.Reader {
 func (this *ButterfishCtx) cleanInput(input []string) string {
 	// If we're not in console mode and we have piped data then use that as input
 	if !this.InConsoleMode && util.IsPipedStdin() {
-		stdin, err := ioutil.ReadAll(os.Stdin)
+		stdin, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return ""
 		}
@@ -229,7 +228,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			return err
 		}
 
-		content, err := ioutil.ReadFile(targetFile)
+		content, err := os.ReadFile(targetFile)
 
 		if this.Config.Verbose > 0 {
 			this.StylePrintf(this.Config.Styles.Question, "%s\n", string(content))

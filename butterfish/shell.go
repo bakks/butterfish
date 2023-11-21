@@ -375,6 +375,7 @@ type ShellState struct {
 	TerminalWidth        int
 	Color                *ShellColorScheme
 	LastTabPassthrough   time.Time
+	parentInBuffer       []byte
 	// these are used to estimate number of tokens
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
@@ -607,6 +608,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		AutosuggestEnabled:   this.Config.ShellAutosuggestEnabled,
 		AutosuggestChan:      make(chan *AutosuggestResult),
 		Color:                colorScheme,
+		parentInBuffer:       []byte{},
 		PromptMaxTokens:      NumTokensForModel(this.Config.ShellPromptModel),
 		AutosuggestMaxTokens: NumTokensForModel(this.Config.ShellAutosuggestModel),
 	}
@@ -693,7 +695,6 @@ func parseFinishParams(params string) (bool, error) {
 // TODO add a diagram of streams here
 func (this *ShellState) Mux() {
 	log.Printf("Started shell mux")
-	parentInBuffer := []byte{}
 	childOutBuffer := []byte{}
 
 	for {
@@ -786,6 +787,7 @@ func (this *ShellState) Mux() {
 
 			this.RequestAutosuggest(0, "")
 			this.setState(stateNormal)
+			this.ParentInputLoop([]byte{})
 
 		case childOutMsg := <-this.ChildOutReader:
 			if childOutMsg == nil {
@@ -884,58 +886,72 @@ func (this *ShellState) Mux() {
 				return
 			}
 
-			data := parentInMsg.Data
-
-			if this.Butterfish.Config.Verbose > 2 {
-				log.Printf("Parent in: %x", data)
-			}
-
-			// include any cached data
-			if len(parentInBuffer) > 0 {
-				data = append(parentInBuffer, data...)
-				parentInBuffer = []byte{}
-			}
-
-			// If we've started an ANSI escape sequence, it might not be complete
-			// yet, so we need to cache it and wait for the next message
-			if incompleteAnsiSequence(data) {
-				parentInBuffer = append(parentInBuffer, data...)
-				continue
-			}
-
-			for {
-				// The InputFromParent function consumes bytes from the passed in data
-				// buffer and returns unprocessed bytes, so we loop and continue to
-				// pass data in, if available
-				leftover := this.InputFromParent(this.Butterfish.Ctx, data)
-
-				if leftover == nil || len(leftover) == 0 {
-					break
-				}
-				if len(leftover) == len(data) {
-					// nothing was consumed, we buffer and try again later
-					parentInBuffer = append(parentInBuffer, leftover...)
-					break
-				}
-
-				// go again with the leftover data
-				data = leftover
-			}
+			this.ParentInputLoop(parentInMsg.Data)
 		}
 	}
 }
 
-func (this *ShellState) InputFromParent(ctx context.Context, data []byte) []byte {
+func (this *ShellState) ParentInputLoop(data []byte) {
+	if this.Butterfish.Config.Verbose > 2 {
+		log.Printf("Parent in: %x", data)
+	}
+
+	// include any cached data
+	if len(this.parentInBuffer) > 0 {
+		data = append(this.parentInBuffer, data...)
+		this.parentInBuffer = []byte{}
+	}
+
+	if len(data) == 0 {
+		return
+	}
+
+	// If we've started an ANSI escape sequence, it might not be complete
+	// yet, so we need to cache it and wait for the next message
+	if incompleteAnsiSequence(data) {
+		this.parentInBuffer = append(this.parentInBuffer, data...)
+		return
+	}
+
+	for {
+		// The InputFromParent function consumes bytes from the passed in data
+		// buffer and returns unprocessed bytes, so we loop and continue to
+		// pass data in, if available
+		leftover := this.ParentInput(this.Butterfish.Ctx, data)
+
+		if leftover == nil || len(leftover) == 0 {
+			break
+		}
+		if len(leftover) == len(data) {
+			// nothing was consumed, we buffer and try again later
+			this.parentInBuffer = append(this.parentInBuffer, leftover...)
+			break
+		}
+
+		// go again with the leftover data
+		data = leftover
+	}
+}
+
+func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
 	switch this.State {
 	case statePromptResponse:
 		// Ctrl-C while receiving prompt
-		if data[0] == 0x03 {
+		// We're buffering the input right now so we check both the first and last
+		// bytes for Ctrl-C
+		if data[0] == 0x03 || data[len(data)-1] == 0x03 {
+			log.Printf("Canceling prompt response")
 			this.PromptResponseCancel()
 			this.PromptResponseCancel = nil
 			this.GoalMode = false
-			return data[1:]
+			this.setState(stateNormal)
+			if data[0] == 0x03 {
+				return data[1:]
+			} else {
+				return data[:len(data)-1]
+			}
 		}
 
 		// If we're in the middle of a prompt response we ignore all other input
@@ -1665,17 +1681,12 @@ func (this *ShellState) SendPrompt() {
 }
 
 func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Writer, outputChan chan *util.CompletionResponse, normalColor, errorColor string) {
-	fmt.Fprintf(writer, "%s", normalColor)
+	writer.Write([]byte(normalColor))
 	output, err := client.CompletionStream(request, writer)
 
 	// handle any completion errors
 	if err != nil {
 		errStr := fmt.Sprintf("Error prompting LLM: %s\n", err)
-
-		// This error means the user needs to set up a subscription, give advice
-		if strings.Contains(errStr, ERR_429) {
-			errStr = fmt.Sprintf("%s\n%s", errStr, ERR_429_HELP)
-		}
 
 		log.Printf("%s", errStr)
 
@@ -1980,9 +1991,6 @@ func RequestCancelableAutosuggest(
 	if err != nil {
 		if !strings.Contains(err.Error(), "context canceled") {
 			log.Printf("Autosuggest error: %s", err)
-			if strings.Contains(err.Error(), ERR_429) {
-				log.Printf(ERR_429_HELP)
-			}
 		}
 		return
 	}
