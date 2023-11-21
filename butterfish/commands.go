@@ -50,8 +50,9 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *CliCommandC
 // Kong CLI parser option configuration
 type CliCommandConfig struct {
 	Prompt struct {
-		Prompt      []string `arg:"" help:"Prompt to use." optional:""`
-		Model       string   `short:"m" default:"gpt-3.5-turbo" help:"GPT model to use for the prompt."`
+		Prompt      []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
+		SysMsg      string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
+		Model       string   `short:"m" default:"gpt-3.5-turbo" help:"LLM to use for the prompt."`
 		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo."`
@@ -189,6 +190,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 		return this.Prompt(
 			input,
+			options.Prompt.SysMsg,
 			options.Prompt.Model,
 			options.Prompt.NumTokens,
 			options.Prompt.Temperature)
@@ -236,6 +238,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 
 		return this.Prompt(
 			string(content),
+			"",
 			options.Prompt.Model,
 			options.Prompt.NumTokens,
 			options.Prompt.Temperature)
@@ -437,11 +440,21 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	return nil
 }
 
-func (this *ButterfishCtx) Prompt(promptStr string, model string, maxTokens int, temperature float32) error {
+func (this *ButterfishCtx) Prompt(
+	promptStr string, // prompt or last user message in chatgpt completion
+	sysMsg string, // sysmsg, or background instructions
+	model string, // model to use
+	maxTokens int, // max tokens of response
+	temperature float32) error {
+
 	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
-	sysMsg, err := this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
-	if err != nil {
-		return err
+
+	var err error
+	if sysMsg == "" {
+		sysMsg, err = this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
+		if err != nil {
+			return err
+		}
 	}
 
 	req := &util.CompletionRequest{
