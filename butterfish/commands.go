@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mitchellh/go-homedir"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
@@ -55,6 +56,8 @@ type CliCommandConfig struct {
 		Model       string   `short:"m" default:"gpt-3.5-turbo" help:"LLM to use for the prompt."`
 		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		NoColor     bool     `default:"false" help:"Disable color output."`
+		NoBackticks bool     `default:"false" help:"Stripe out backticks around codeblocks."`
 	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo."`
 
 	Promptedit struct {
@@ -193,7 +196,9 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			options.Prompt.SysMsg,
 			options.Prompt.Model,
 			options.Prompt.NumTokens,
-			options.Prompt.Temperature)
+			options.Prompt.Temperature,
+			options.Prompt.NoColor,
+			options.Prompt.NoBackticks)
 
 	case "promptedit":
 		targetFile := options.Promptedit.File
@@ -241,7 +246,9 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			"",
 			options.Prompt.Model,
 			options.Prompt.NumTokens,
-			options.Prompt.Temperature)
+			options.Prompt.Temperature,
+			false,
+			false)
 
 	case "summarize":
 		chunks, err := util.GetChunks(
@@ -440,14 +447,32 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 	return nil
 }
 
+func styleToEscape(color lipgloss.TerminalColor) string {
+	r, g, b, _ := color.RGBA()
+	color256 := 16 + (36 * (r / 257 / 51)) + (6 * (g / 257 / 51)) + (b / 257 / 51)
+	return fmt.Sprintf("\x1b[38;5;%dm", color256)
+}
+
 func (this *ButterfishCtx) Prompt(
 	promptStr string, // prompt or last user message in chatgpt completion
 	sysMsg string, // sysmsg, or background instructions
 	model string, // model to use
 	maxTokens int, // max tokens of response
-	temperature float32) error {
+	temperature float32,
+	noColor bool,
+	noBackticks bool,
+) error {
 
-	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
+	var writer io.Writer
+	if !noColor {
+		color := styleToEscape(this.Config.Styles.Answer.GetForeground())
+		this.Out.Write([]byte(color))
+		writer = util.NewStyleCodeblocksWriter(this.Out, color)
+	} else if noBackticks {
+		writer = util.NewStripbackticksWriter(this.Out)
+	} else {
+		writer = this.Out
+	}
 
 	var err error
 	if sysMsg == "" {

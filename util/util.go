@@ -215,14 +215,6 @@ func (this *CacheWriter) GetLastN(n int) []byte {
 	return this.cache[len(this.cache)-n:]
 }
 
-type StyleCodeblocksWriter struct {
-	Writer      io.Writer
-	normalColor string
-	state       int
-	langSuffix  *bytes.Buffer
-	blockBuffer *bytes.Buffer
-}
-
 const (
 	STATE_NORMAL = iota
 	STATE_NEWLINE
@@ -235,6 +227,22 @@ const (
 	STATE_IN_BLOCK_TWO_TICKS
 	STATE_IN_BLOCK_THREE_TICKS
 )
+
+type StyleCodeblocksWriter struct {
+	Writer      io.Writer
+	normalColor string
+	state       int
+	langSuffix  *bytes.Buffer
+	blockBuffer *bytes.Buffer
+}
+
+func NewStyleCodeblocksWriter(writer io.Writer, normalColor string) *StyleCodeblocksWriter {
+	return &StyleCodeblocksWriter{
+		Writer:      writer,
+		state:       STATE_NEWLINE,
+		normalColor: normalColor,
+	}
+}
 
 // This writer receives bytes in a stream and looks for markdown code
 // blocks (```) and renders them with syntax highlighting.
@@ -266,6 +274,7 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 		case STATE_THREE_TICKS:
 			if char == '\n' {
 				this.state = STATE_IN_BLOCK_NEWLINE
+				toWrite.Write([]byte("\x1b[s"))
 				this.blockBuffer = new(bytes.Buffer)
 			} else {
 				// append to suffix
@@ -335,9 +344,9 @@ func (this *StyleCodeblocksWriter) EndOfCodeLine(w io.Writer) error {
 	}
 
 	last := lastLine(temp)
-	w.Write([]byte("\r"))
+	w.Write([]byte("\x1b[u"))
 	w.Write(last)
-	w.Write([]byte("\n"))
+	w.Write([]byte("\n\x1b[s"))
 	return nil
 }
 
@@ -350,12 +359,52 @@ func (this *StyleCodeblocksWriter) EndOfCodeBlock(w io.Writer) error {
 	return err
 }
 
-func NewStyleCodeblocksWriter(writer io.Writer, normalColor string) *StyleCodeblocksWriter {
-	return &StyleCodeblocksWriter{
-		Writer:      writer,
-		state:       STATE_NEWLINE,
-		normalColor: normalColor,
+type StripbackticksWriter struct {
+	Writer io.Writer
+	state  int
+}
+
+func NewStripbackticksWriter(writer io.Writer) *StripbackticksWriter {
+	return &StripbackticksWriter{
+		Writer: writer,
+		state:  STATE_NEWLINE,
 	}
+}
+
+// This writer receives bytes in a stream and looks for markdown code
+// blocks (```golang) and strips only the backticks, leaving the code.
+func (this *StripbackticksWriter) Write(p []byte) (n int, err error) {
+	toWrite := new(bytes.Buffer)
+
+	for _, char := range p {
+
+		switch this.state {
+		case STATE_NORMAL:
+			if char == '\n' {
+				this.state = STATE_NEWLINE
+			}
+			toWrite.WriteByte(char)
+
+		case STATE_NEWLINE, STATE_ONE_TICK, STATE_TWO_TICKS:
+			if char == '`' {
+				this.state++
+			} else if char == '\n' {
+				this.state = STATE_NEWLINE
+				toWrite.WriteByte(char)
+			} else {
+				this.state = STATE_NORMAL
+				toWrite.WriteByte(char)
+			}
+
+		case STATE_THREE_TICKS:
+			if char == '\n' {
+				this.state = STATE_NEWLINE
+				toWrite.WriteByte(char)
+			}
+		}
+	}
+
+	return this.Writer.Write(toWrite.Bytes())
 }
 
 // A Writer implementation that allows you to string replace the content

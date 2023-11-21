@@ -52,7 +52,7 @@ var DarkShellColorScheme = &ShellColorScheme{
 	PromptGoalUnsafe: "\x1b[38;5;9m",
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;214m",
+	Answer:           "\x1b[38;5;178m",
 	GoalMode:         "\x1b[38;5;51m",
 	Error:            "\x1b[38;5;196m",
 }
@@ -63,7 +63,7 @@ var LightShellColorScheme = &ShellColorScheme{
 	PromptGoalUnsafe: "\x1b[38;5;9m",
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;214m",
+	Answer:           "\x1b[38;5;178m",
 	GoalMode:         "\x1b[38;5;18m",
 	Error:            "\x1b[38;5;196m",
 }
