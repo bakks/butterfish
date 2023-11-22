@@ -375,7 +375,7 @@ func (this *StyleCodeblocksWriter) EndOfCodeLine(w io.Writer) error {
 	// we want to go back to the beginning of the line to print it again with
 	// the syntax highlighting, but it may be longer than the terminal width
 	// so we calculate how many lines up we need to go
-	linesUp := len(lastLine(this.blockBuffer, 0)) / this.terminalWidth
+	linesUp := (len(lastLine(this.blockBuffer, 0)) - 1) / this.terminalWidth
 	if linesUp > 0 {
 		fmt.Fprintf(w, "\x1b[%dA", linesUp)
 	}
