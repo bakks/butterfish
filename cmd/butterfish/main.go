@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -92,41 +91,6 @@ type CliConfig struct {
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
 	bf.CliCommandConfig
-}
-
-// Open a log file named butterfish.log in a temporary directory
-func initLogging(ctx context.Context) string {
-	// Check if the /var/log dir exists
-	logDir := "/var/tmp"
-	_, err := os.Stat(logDir)
-	if err != nil {
-		// Create a temporary directory to hold the log file
-		logDir, err = ioutil.TempDir("", "butterfish")
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	// Create a log file in the temporary directory
-	filename := filepath.Join(logDir, "butterfish.log")
-	logFile, err := os.OpenFile(filename,
-		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		panic(err)
-	}
-
-	// Set the log output to the log file
-	log.SetOutput(logFile)
-
-	// Best effort to close the log file when the program exits
-	go func() {
-		<-ctx.Done()
-		if logFile != nil {
-			logFile.Close()
-		}
-	}()
-
-	return filename
 }
 
 func getOpenAIToken() string {
@@ -234,7 +198,7 @@ func main() {
 
 	switch parsedCmd.Command() {
 	case "shell":
-		logfileName := initLogging(ctx)
+		logfileName := util.InitLogging(ctx)
 		fmt.Printf("Logging to %s\n", logfileName)
 
 		alreadyRunning := os.Getenv("BUTTERFISH_SHELL")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -229,19 +230,29 @@ const (
 )
 
 type StyleCodeblocksWriter struct {
-	Writer      io.Writer
-	normalColor string
-	state       int
-	langSuffix  *bytes.Buffer
-	blockBuffer *bytes.Buffer
+	Writer        io.Writer
+	terminalWidth int
+	normalColor   string
+	state         int
+	langSuffix    *bytes.Buffer
+	blockBuffer   *bytes.Buffer
 }
 
-func NewStyleCodeblocksWriter(writer io.Writer, normalColor string) *StyleCodeblocksWriter {
-	return &StyleCodeblocksWriter{
-		Writer:      writer,
-		state:       STATE_NEWLINE,
-		normalColor: normalColor,
+func NewStyleCodeblocksWriter(writer io.Writer, terminalWidth int, normalColor string) *StyleCodeblocksWriter {
+	if terminalWidth == 0 {
+		panic("terminal width must be > 0")
 	}
+
+	return &StyleCodeblocksWriter{
+		Writer:        writer,
+		state:         STATE_NEWLINE,
+		normalColor:   normalColor,
+		terminalWidth: terminalWidth,
+	}
+}
+
+func (this *StyleCodeblocksWriter) SetTerminalWidth(width int) {
+	this.terminalWidth = width
 }
 
 // This writer receives bytes in a stream and looks for markdown code
@@ -274,7 +285,6 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 		case STATE_THREE_TICKS:
 			if char == '\n' {
 				this.state = STATE_IN_BLOCK_NEWLINE
-				toWrite.Write([]byte("\x1b[s"))
 				this.blockBuffer = new(bytes.Buffer)
 			} else {
 				// append to suffix
@@ -288,27 +298,30 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 			if char == '\n' {
 				this.state = STATE_IN_BLOCK_NEWLINE
 				this.EndOfCodeLine(toWrite)
+				toWrite.WriteByte(char)
 			} else {
 				toWrite.WriteByte(char)
 			}
 			this.blockBuffer.WriteByte(char)
 
-		case STATE_IN_BLOCK_NEWLINE, STATE_IN_BLOCK_ONE_TICK, STATE_IN_BLOCK_TWO_TICKS:
+		case STATE_IN_BLOCK_NEWLINE,
+			STATE_IN_BLOCK_ONE_TICK,
+			STATE_IN_BLOCK_TWO_TICKS:
 			if char == '`' {
 				this.state++
 			} else if char == '\n' {
-				this.state = STATE_IN_BLOCK_NEWLINE
 				this.EndOfCodeLine(toWrite)
+				this.state = STATE_IN_BLOCK_NEWLINE
+				toWrite.WriteByte(char)
 				this.blockBuffer.WriteByte(char)
 			} else {
 				this.state = STATE_IN_BLOCK
-				this.blockBuffer.WriteByte(char)
 				toWrite.WriteByte(char)
+				this.blockBuffer.WriteByte(char)
 			}
 
 		case STATE_IN_BLOCK_THREE_TICKS:
 			if char == '\n' {
-				//this.EndOfCodeBlock(toWrite)
 				if this.langSuffix != nil {
 					this.langSuffix.Reset()
 				}
@@ -324,12 +337,16 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 	return this.Writer.Write(toWrite.Bytes())
 }
 
-func lastLine(buff *bytes.Buffer) []byte {
+func lastLine(buff *bytes.Buffer, newlines int) []byte {
 	// iterate backwards until we find a newline
+	n := 0
 	bb := buff.Bytes()
 	for i := buff.Len() - 1; i >= 0; i-- {
 		if bb[i] == '\n' {
-			return bb[i+1:]
+			n++
+			if n >= newlines {
+				return bb[i+1:]
+			}
 		}
 	}
 	return bb
@@ -337,16 +354,34 @@ func lastLine(buff *bytes.Buffer) []byte {
 
 func (this *StyleCodeblocksWriter) EndOfCodeLine(w io.Writer) error {
 	temp := new(bytes.Buffer)
-	err := quick.Highlight(temp, this.blockBuffer.String(),
+	blockBufferString := this.blockBuffer.String()
+	err := quick.Highlight(temp, blockBufferString,
 		this.langSuffix.String(), "terminal256", "monokai")
 	if err != nil {
 		log.Printf("error highlighting code block: %s", err)
 	}
 
-	last := lastLine(temp)
-	w.Write([]byte("\x1b[u"))
+	last := lastLine(temp, 0)
+
+	lastLineBlockBuffer := lastLine(this.blockBuffer, 0)
+	// there is weird behavior with chroma syntax highlighting where it will
+	// add a newline for comment lines specifically, so we work around this
+	if len(lastLineBlockBuffer) > len(last) {
+		last = lastLine(temp, 2)
+		// get prefix of last up until \n
+		last = bytes.Split(last, []byte{0x0a})[0]
+	}
+
+	// we want to go back to the beginning of the line to print it again with
+	// the syntax highlighting, but it may be longer than the terminal width
+	// so we calculate how many lines up we need to go
+	linesUp := len(lastLine(this.blockBuffer, 0)) / this.terminalWidth
+	if linesUp > 0 {
+		fmt.Fprintf(w, "\x1b[%dA", linesUp)
+	}
+
+	w.Write([]byte("\r"))
 	w.Write(last)
-	w.Write([]byte("\n\x1b[s"))
 	return nil
 }
 
@@ -533,4 +568,38 @@ func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
 		Writer: writer,
 		Style:  adjustedStyle,
 	}
+}
+
+// Open a log file named butterfish.log in a temporary directory
+func InitLogging(ctx context.Context) string {
+	logDir := "/var/tmp"
+	_, err := os.Stat(logDir)
+	if err != nil {
+		// Create a temporary directory to hold the log file
+		logDir, err = os.MkdirTemp("", "butterfish")
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// Create a log file in the temporary directory
+	filename := filepath.Join(logDir, "butterfish.log")
+	logFile, err := os.OpenFile(filename,
+		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	// Set the log output to the log file
+	log.SetOutput(logFile)
+
+	// Best effort to close the log file when the program exits
+	go func() {
+		<-ctx.Done()
+		if logFile != nil {
+			logFile.Close()
+		}
+	}()
+
+	return filename
 }

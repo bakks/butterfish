@@ -369,6 +369,7 @@ type ShellState struct {
 	AutosuggestChan      chan *AutosuggestResult
 	History              *ShellHistory
 	PromptAnswerWriter   io.Writer
+	StyleWriter          *util.StyleCodeblocksWriter
 	Prompt               *ShellBuffer
 	PromptResponseCancel context.CancelFunc
 	Command              *ShellBuffer
@@ -578,13 +579,14 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	// pushing a new position
 	parentPositionChan := make(chan *cursorPosition, 128)
 
-	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
-	styleCodeblocksWriter := util.NewStyleCodeblocksWriter(carriageReturnWriter, colorScheme.Answer)
-
 	termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		panic(err)
 	}
+
+	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
+	styleCodeblocksWriter := util.NewStyleCodeblocksWriter(carriageReturnWriter,
+		termWidth, colorScheme.Answer)
 
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
@@ -602,6 +604,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		History:              NewShellHistory(),
 		PromptOutputChan:     make(chan *util.CompletionResponse),
 		PromptAnswerWriter:   styleCodeblocksWriter,
+		StyleWriter:          styleCodeblocksWriter,
 		Command:              NewShellBuffer(),
 		Prompt:               NewShellBuffer(),
 		TerminalWidth:        termWidth,
@@ -725,9 +728,12 @@ func (this *ShellState) Mux() {
 			if err != nil {
 				log.Printf("Error getting terminal size after SIGWINCH: %s", err)
 			}
-			log.Printf("Got SIGWINCH with new width %d", termWidth)
+			if this.Butterfish.Config.Verbose > 0 {
+				log.Printf("Got SIGWINCH with new width %d", termWidth)
+			}
 			this.TerminalWidth = termWidth
 			this.Prompt.SetTerminalWidth(termWidth)
+			this.StyleWriter.SetTerminalWidth(termWidth)
 			if this.AutosuggestBuffer != nil {
 				this.AutosuggestBuffer.SetTerminalWidth(termWidth)
 			}

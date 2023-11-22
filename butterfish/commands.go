@@ -16,6 +16,7 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
+	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
@@ -198,7 +199,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			options.Prompt.NumTokens,
 			options.Prompt.Temperature,
 			options.Prompt.NoColor,
-			options.Prompt.NoBackticks)
+			options.Prompt.NoBackticks,
+			this.Config.Verbose)
 
 	case "promptedit":
 		targetFile := options.Promptedit.File
@@ -248,7 +250,8 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			options.Prompt.NumTokens,
 			options.Prompt.Temperature,
 			false,
-			false)
+			false,
+			0)
 
 	case "summarize":
 		chunks, err := util.GetChunks(
@@ -461,26 +464,36 @@ func (this *ButterfishCtx) Prompt(
 	temperature float32,
 	noColor bool,
 	noBackticks bool,
+	verbose int,
 ) error {
 
 	var writer io.Writer
 	if !noColor {
 		color := styleToEscape(this.Config.Styles.Answer.GetForeground())
 		this.Out.Write([]byte(color))
-		writer = util.NewStyleCodeblocksWriter(this.Out, color)
+
+		termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
+		if err != nil && this.Config.Verbose > 0 {
+			this.ErrorPrintf("Could not get terminal width, defaulting to 40 for style writer\n")
+			termWidth = 40
+		}
+
+		writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color)
 	} else if noBackticks {
 		writer = util.NewStripbackticksWriter(this.Out)
 	} else {
 		writer = this.Out
 	}
 
-	var err error
 	if sysMsg == "" {
+		var err error
 		sysMsg, err = this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
 		if err != nil {
 			return err
 		}
 	}
+
+	//util.InitLogging(context.Background())
 
 	req := &util.CompletionRequest{
 		Ctx:           this.Ctx,
@@ -489,9 +502,10 @@ func (this *ButterfishCtx) Prompt(
 		MaxTokens:     maxTokens,
 		Temperature:   temperature,
 		SystemMessage: sysMsg,
+		Verbose:       verbose > 0,
 	}
 
-	_, err = this.LLMClient.CompletionStream(req, writer)
+	_, err := this.LLMClient.CompletionStream(req, writer)
 	return err
 }
 
