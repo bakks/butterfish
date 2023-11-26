@@ -140,6 +140,7 @@ func (this *ButterfishCtx) cleanInput(input []string) string {
 	// If we're not in console mode and we have piped data then use that as input
 	if !this.InConsoleMode && util.IsPipedStdin() {
 		stdin, err := io.ReadAll(os.Stdin)
+
 		if err != nil {
 			return ""
 		}
@@ -492,8 +493,6 @@ func (this *ButterfishCtx) Prompt(
 			return err
 		}
 	}
-
-	//util.InitLogging(context.Background())
 
 	req := &util.CompletionRequest{
 		Ctx:           this.Ctx,

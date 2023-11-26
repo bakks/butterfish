@@ -73,6 +73,7 @@ func (v *VerboseFlag) BeforeResolve() error {
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
 	Verbose VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
+	Log     bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
 	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
 	BaseURL string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
 
@@ -230,6 +231,9 @@ func main() {
 		bf.RunShell(ctx, config)
 
 	default:
+		if cli.Log {
+			util.InitLogging(ctx)
+		}
 		butterfishCtx, err := bf.NewButterfish(ctx, config)
 		if err != nil {
 			fmt.Fprintf(errorWriter, err.Error())

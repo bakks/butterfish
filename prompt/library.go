@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -175,7 +176,7 @@ func (this *DiskPromptLibrary) LibraryFileExists() bool {
 
 // Load a yaml file at the path with a contents marshalled into Prompts
 func (this *DiskPromptLibrary) Load() error {
-	data, err := ioutil.ReadFile(this.Path)
+	data, err := os.ReadFile(this.Path)
 	if err != nil {
 		return errors.New("Unable to access prompt file, please check write permissions and try again.")
 	}
@@ -185,7 +186,7 @@ func (this *DiskPromptLibrary) Load() error {
 	}
 
 	if this.Verbose {
-		fmt.Fprintf(this.VerboseWriter, "Loaded %v prompts from %v\n\r", len(this.Prompts), this.Path)
+		log.Printf("Loaded %v prompts from %v\n\r", len(this.Prompts), this.Path)
 	}
 	return nil
 }

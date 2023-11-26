@@ -434,7 +434,6 @@ func (this *StripbackticksWriter) Write(p []byte) (n int, err error) {
 		case STATE_THREE_TICKS:
 			if char == '\n' {
 				this.state = STATE_NEWLINE
-				toWrite.WriteByte(char)
 			}
 		}
 	}
