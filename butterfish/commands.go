@@ -78,6 +78,7 @@ type CliCommandConfig struct {
 		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"LLM to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		InPlace     bool    `short:"i" default:"false" help:"Edit the file in-place, otherwise we write to stdout."`
 		NoColor     bool    `default:"false" help:"Disable color output."`
 		NoBackticks bool    `default:"false" help:"Strip out backticks around codeblocks."`
 	} `cmd:"" help:"Edit a file by using a line range editing tool."`
@@ -190,8 +191,13 @@ func NewLineBuffer(filepath string) (*LineBuffer, error) {
 
 // Replace and insert lines in a buffer
 // Start is inclusive, end is exclusive
+// Lines are 1-indexed
 // Thus if start == end then we insert at the start of the line
 func (this *LineBuffer) ReplaceRange(start, end int, replacement string) error {
+	// Convert to 0-indexed
+	start--
+	end--
+
 	if start < 0 || start >= len(this.Lines) {
 		return errors.New("Invalid start index")
 	}
@@ -215,7 +221,7 @@ func (this *LineBuffer) String() string {
 func (this *LineBuffer) PrefixLineNumbers() string {
 	var result []string
 	for i, line := range this.Lines {
-		result = append(result, fmt.Sprintf("%d: %s", i, line))
+		result = append(result, fmt.Sprintf("%d: %s", i+1, line))
 	}
 	return strings.Join(result, "\n")
 }
@@ -369,7 +375,21 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			return err
 		}
 
-		return this.EditLineBuffer(lineBuffer, prompt, options)
+		err = this.EditLineBuffer(lineBuffer, prompt, options)
+		if err != nil {
+			return err
+		}
+
+		if options.Edit.InPlace {
+			err = os.WriteFile(filepath, []byte(lineBuffer.String()), 0644)
+			if err != nil {
+				return err
+			}
+		} else {
+			fmt.Fprintf(this.Out, "%s\n", lineBuffer.String())
+		}
+
+		return nil
 
 	case "summarize":
 		chunks, err := util.GetChunks(
@@ -743,7 +763,7 @@ func (this *ButterfishCtx) EditLineBuffer(lineBuffer *LineBuffer, prompt string,
 		}
 	}
 
-	if this.Config.Verbose > 0 {
+	if this.Config.Verbose > 1 {
 		fmt.Fprintf(this.Out, "Final file:\n%s\n", lineBuffer.PrefixLineNumbers())
 	}
 	return nil
