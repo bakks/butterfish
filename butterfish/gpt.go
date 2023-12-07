@@ -595,19 +595,23 @@ func (this *GPT) doChatStreamCompletion(
 				if chunkToolCall.Index == nil {
 					continue
 				}
+
+				// if we haven't seen this tool call before, add empty tool calls
 				for len(toolCalls) <= *chunkToolCall.Index {
 					toolCalls = append(toolCalls, &util.ToolCall{})
 				}
+
 				toolCall := toolCalls[*chunkToolCall.Index]
 				id := chunkToolCall.ID
 				name := chunkToolCall.Function.Name
 				args := chunkToolCall.Function.Arguments
+
 				if id != "" {
 					toolCall.Id = id
 				}
 				if name != "" {
 					toolCall.Function.Name += name
-					printWriter.Write([]byte(functionName))
+					printWriter.Write([]byte(name))
 					printWriter.Write([]byte("("))
 				}
 				if args != "" {

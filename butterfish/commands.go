@@ -201,7 +201,6 @@ func (this *LineBuffer) ReplaceRange(start, end int, replacement string) error {
 	if start > end {
 		return errors.New("Start index must be less than end index")
 	}
-	fmt.Printf("Replacing lines %d to %d with %s\n", start, end, replacement)
 
 	replacementLines := strings.Split(replacement, "\n")
 	this.Lines = append(this.Lines[:start],
@@ -228,6 +227,10 @@ type EditToolParameters struct {
 }
 
 func ApplyEditToolToLineBuffer(toolCall *util.ToolCall, lineBuffer *LineBuffer) error {
+	if toolCall.Function.Name != "edit" {
+		return errors.New("Unknown tool call: " + toolCall.Function.Name)
+	}
+
 	paramJson := toolCall.Function.Parameters
 	var params EditToolParameters
 	err := json.Unmarshal([]byte(paramJson), &params)
@@ -366,100 +369,7 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			return err
 		}
 
-		sysMsg := `You're helping an expert programmer edit a file of code. You can either respond with questions and clarifications, or you can use the edit() tool, which replaces a range from the file with new code. In some cases you may want to call edit() multiple times, I will apply the edits and give you the updated file after every call. Use the most recent file for your edits. If there are no more edits, just say "DONE!"`
-
-		editTools := []util.ToolDefinition{
-			{
-				Type: "function",
-				Function: util.FunctionDefinition{
-					Name:        "edit",
-					Description: "Edit a range of lines in a file. The range start is inclusive, the end is exclusive, so values of 5 and 5 would mean that new text is inserted on line 5. Values of 5 and 6 mean that line 5 would be replaced.",
-					Parameters: jsonschema.Definition{
-						Type: jsonschema.Object,
-						Properties: map[string]jsonschema.Definition{
-							"range_start": {
-								Type:        jsonschema.Number,
-								Description: "The start of the line range, inclusive",
-							},
-							"range_end": {
-								Type:        jsonschema.Number,
-								Description: "The end of the line range, exclusive",
-							},
-							"code_edit": {
-								Type:        jsonschema.String,
-								Description: "The code to replace the range with",
-							},
-						},
-						Required: []string{"range_start", "range_end", "code_edit"},
-					},
-				},
-			},
-		}
-
-		// add prompt to history, this is what the user is asking for
-		history := []util.HistoryBlock{
-			{
-				Type:    historyTypePrompt,
-				Content: prompt,
-			},
-			{
-				Type:    historyTypePrompt,
-				Content: lineBuffer.PrefixLineNumbers(),
-			},
-		}
-
-		for {
-			// prep prompting arguments
-			commandConfig := &promptCommand{
-				SysMsg:      sysMsg,
-				Model:       options.Edit.Model,
-				NumTokens:   options.Edit.NumTokens,
-				Temperature: options.Edit.Temperature,
-				Tools:       editTools,
-				NoColor:     options.Edit.NoColor,
-				NoBackticks: options.Edit.NoBackticks,
-				Verbose:     this.Config.Verbose,
-				History:     history,
-			}
-
-			// send prompt
-			resp, err := this.Prompt(commandConfig)
-			if err != nil {
-				return err
-			}
-
-			// add response to history
-			history = append(history, util.HistoryBlock{
-				Type:      historyTypeLLMOutput,
-				Content:   resp.Completion,
-				ToolCalls: resp.ToolCalls,
-			})
-
-			// if there's no more tool calls then we're done
-			if resp.ToolCalls == nil || len(resp.ToolCalls) == 0 {
-				break
-			}
-
-			// execute tool calls and add to history
-			for _, toolCall := range resp.ToolCalls {
-				if toolCall.Function.Name == "edit" {
-					err := ApplyEditToolToLineBuffer(toolCall, lineBuffer)
-					if err != nil {
-						return err
-					}
-
-					history = append(history, util.HistoryBlock{
-						Type:       historyTypeToolOutput,
-						Content:    lineBuffer.PrefixLineNumbers(),
-						ToolCallId: toolCall.Id,
-					})
-				} else {
-					return errors.New("Unknown tool call: " + toolCall.Function.Name)
-				}
-			}
-		}
-
-		fmt.Fprintf(this.Out, "Final file:\n%s\n", lineBuffer.PrefixLineNumbers())
+		return this.EditLineBuffer(lineBuffer, prompt, options)
 
 	case "summarize":
 		chunks, err := util.GetChunks(
@@ -737,6 +647,106 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 	}
 
 	return this.LLMClient.CompletionStream(req, writer)
+}
+
+var EditSysMsg = `You're helping an expert programmer edit a file of code. You can either respond with questions and clarifications, or you can use the edit() tool, which replaces a range from the file with new code. In some cases you may want to call edit() multiple times, I will apply the edits and give you the updated file after every call. Use the most recent file for your edits. If there are no more edits, just say "DONE!"`
+
+var EditTools = []util.ToolDefinition{
+	{
+		Type: "function",
+		Function: util.FunctionDefinition{
+			Name:        "edit",
+			Description: "Edit a range of lines in a file. The range start is inclusive, the end is exclusive, so values of 5 and 5 would mean that new text is inserted on line 5. Values of 5 and 6 mean that line 5 would be replaced.",
+			Parameters: jsonschema.Definition{
+				Type: jsonschema.Object,
+				Properties: map[string]jsonschema.Definition{
+					"range_start": {
+						Type:        jsonschema.Number,
+						Description: "The start of the line range, inclusive",
+					},
+					"range_end": {
+						Type:        jsonschema.Number,
+						Description: "The end of the line range, exclusive",
+					},
+					"code_edit": {
+						Type:        jsonschema.String,
+						Description: "The code to replace the range with",
+					},
+				},
+				Required: []string{"range_start", "range_end", "code_edit"},
+			},
+		},
+	},
+}
+
+func (this *ButterfishCtx) EditLineBuffer(lineBuffer *LineBuffer, prompt string, options *CliCommandConfig) error {
+	// add prompt to history, this is what the user is asking for
+	history := []util.HistoryBlock{
+		{
+			Type:    historyTypePrompt,
+			Content: prompt,
+		},
+		{
+			Type:    historyTypePrompt,
+			Content: lineBuffer.PrefixLineNumbers(),
+		},
+	}
+
+	for {
+		// prep prompting arguments
+		commandConfig := &promptCommand{
+			SysMsg:      EditSysMsg,
+			Model:       options.Edit.Model,
+			NumTokens:   options.Edit.NumTokens,
+			Temperature: options.Edit.Temperature,
+			Tools:       EditTools,
+			NoColor:     options.Edit.NoColor,
+			NoBackticks: options.Edit.NoBackticks,
+			Verbose:     this.Config.Verbose,
+			History:     history,
+		}
+
+		// send prompt
+		resp, err := this.Prompt(commandConfig)
+		if err != nil {
+			return err
+		}
+
+		// add response to history
+		history = append(history, util.HistoryBlock{
+			Type:      historyTypeLLMOutput,
+			Content:   resp.Completion,
+			ToolCalls: resp.ToolCalls,
+		})
+
+		// if there's no more tool calls then we're done
+		if resp.ToolCalls == nil || len(resp.ToolCalls) == 0 {
+			break
+		}
+
+		// execute tool calls and add to history
+		for _, toolCall := range resp.ToolCalls {
+			if toolCall.Function.Name == "edit" {
+				err := ApplyEditToolToLineBuffer(toolCall, lineBuffer)
+				if err != nil {
+					return err
+				}
+
+				history = append(history, util.HistoryBlock{
+					Type:       historyTypeToolOutput,
+					Content:    lineBuffer.PrefixLineNumbers(),
+					ToolCallId: toolCall.Id,
+				})
+			} else {
+				return errors.New("Unknown tool call: " + toolCall.Function.Name)
+			}
+		}
+	}
+
+	if this.Config.Verbose > 0 {
+		fmt.Fprintf(this.Out, "Final file:\n%s\n", lineBuffer.PrefixLineNumbers())
+	}
+	return nil
 }
 
 func (this *ButterfishCtx) diffStrings(a, b string) string {
