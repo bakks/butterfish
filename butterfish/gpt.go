@@ -1,7 +1,9 @@
 package butterfish
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -54,20 +56,52 @@ func NewGPT(token, baseUrl string) *GPT {
 	}
 }
 
+// If input can be parsed to JSON, return a nicely formatted and indented
+// version of it, otherwise return the original string
+func PrettyJSON(input string) string {
+	prettyJSON := new(bytes.Buffer)
+	err := json.Indent(prettyJSON, []byte(input), "", "  ")
+	if err != nil {
+		return input
+	}
+	return prettyJSON.String()
+}
+
+func JSONString(input any) string {
+	prettyJSON, err := json.Marshal(input)
+	if err != nil {
+		panic(err)
+	}
+	return string(prettyJSON)
+}
+
 func LogCompletionResponse(resp util.CompletionResponse, id string) {
 	box := LoggingBox{
-		Title:   "Completion Response " + id,
-		Content: resp.Completion,
-		Color:   0,
+		Title:    "Completion Response " + id,
+		Content:  resp.Completion,
+		Color:    0,
+		Children: []LoggingBox{},
 	}
 
 	if resp.FunctionName != "" {
+		params := PrettyJSON(resp.FunctionParameters)
 		box.Children = []LoggingBox{
 			{
 				Title:   "Function Call",
-				Content: fmt.Sprintf("%s\n%s", resp.FunctionName, resp.FunctionParameters),
+				Content: fmt.Sprintf("%s\n%s", resp.FunctionName, params),
 				Color:   2,
 			},
+		}
+	}
+
+	if resp.ToolCalls != nil {
+		for _, toolCall := range resp.ToolCalls {
+			params := PrettyJSON(toolCall.Function.Parameters)
+			box.Children = append(box.Children, LoggingBox{
+				Title:   "Tool Call",
+				Content: fmt.Sprintf("%s  %s\n%s", toolCall.Function.Name, toolCall.Id, params),
+				Color:   2,
+			})
 		}
 	}
 
@@ -127,6 +161,9 @@ func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 		case "function":
 			color = 3
 			title = fmt.Sprintf("%s: %s", message.Role, message.Name)
+		case "tool":
+			color = 3
+			title = fmt.Sprintf("%s: %s %s", message.Role, message.Name, message.ToolCallID)
 		}
 
 		historyBox := LoggingBox{
@@ -142,6 +179,16 @@ func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 					Content: fmt.Sprintf("%s\n%s", message.FunctionCall.Name, message.FunctionCall.Arguments),
 					Color:   3,
 				},
+			}
+		}
+
+		if message.ToolCalls != nil {
+			for _, tool := range message.ToolCalls {
+				historyBox.Children = append(historyBox.Children, LoggingBox{
+					Title:   "Tool Call",
+					Content: fmt.Sprintf("%s\n%s", tool.Function.Name, tool.Function.Arguments),
+					Color:   3,
+				})
 			}
 		}
 
@@ -172,6 +219,16 @@ func LogChatCompletionRequest(req openai.ChatCompletionRequest) {
 		})
 	}
 
+	for _, tool := range req.Tools {
+		params := PrettyJSON(JSONString(tool.Function.Parameters))
+		// list function parameters in a string
+		functionBoxes = append(functionBoxes, LoggingBox{
+			Title:   tool.Function.Name,
+			Content: fmt.Sprintf("%s\n%s", tool.Function.Description, params),
+			Color:   3,
+		})
+	}
+
 	if len(functionBoxes) > 0 {
 		box.Children = append(box.Children, LoggingBox{
 			Title:    "Functions",
@@ -198,6 +255,8 @@ func ShellHistoryTypeToRole(t int) string {
 		return "assistant"
 	case historyTypeFunctionOutput:
 		return "function"
+	case historyTypeToolOutput:
+		return "tool"
 	default:
 		return "user"
 	}
@@ -206,18 +265,39 @@ func ShellHistoryTypeToRole(t int) string {
 func ShellHistoryBlockToGPTChat(block *util.HistoryBlock) *openai.ChatCompletionMessage {
 	role := ShellHistoryTypeToRole(block.Type)
 	name := ""
+	toolCallId := ""
 	var function *openai.FunctionCall
+	var toolCalls []openai.ToolCall
 
 	if role == "function" {
 		// this case means this is a function call response and thus name should
 		// be the function name
 		name = block.FunctionName
-	} else if role == "assistant" && block.FunctionName != "" {
-		// the assistant returned a function call
-		function = &openai.FunctionCall{
-			Name:      block.FunctionName,
-			Arguments: block.FunctionParams,
+	} else if role == "tool" { // this case means this is a tool call response
+		name = block.FunctionName
+		toolCallId = block.ToolCallId
+
+	} else if role == "assistant" {
+		if block.FunctionName != "" { // this is the model returning a function call
+			function = &openai.FunctionCall{
+				Name:      block.FunctionName,
+				Arguments: block.FunctionParams,
+			}
 		}
+		if block.ToolCalls != nil { // this is the model returning tool calls
+			toolCalls = []openai.ToolCall{}
+			for _, toolCall := range block.ToolCalls {
+				toolCalls = append(toolCalls, openai.ToolCall{
+					Type: openai.ToolTypeFunction,
+					ID:   toolCall.Id,
+					Function: openai.FunctionCall{
+						Name:      toolCall.Function.Name,
+						Arguments: toolCall.Function.Parameters,
+					},
+				})
+			}
+		}
+
 	}
 
 	return &openai.ChatCompletionMessage{
@@ -225,6 +305,8 @@ func ShellHistoryBlockToGPTChat(block *util.HistoryBlock) *openai.ChatCompletion
 		Content:      block.Content,
 		Name:         name,
 		FunctionCall: function,
+		ToolCallID:   toolCallId,
+		ToolCalls:    toolCalls,
 	}
 }
 
@@ -237,7 +319,8 @@ func ShellHistoryBlocksToGPTChat(systemMsg string, blocks []util.HistoryBlock) [
 	}
 
 	for _, block := range blocks {
-		if block.Content == "" && block.FunctionName == "" {
+		if block.Content == "" && block.FunctionName == "" && block.ToolCalls == nil {
+			// skip empty blocks
 			continue
 		}
 		nextBlock := ShellHistoryBlockToGPTChat(&block)
@@ -369,6 +452,8 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
+		Functions:   convertToOpenaiFunctions(request.Functions),
+		Tools:       convertToOpenaiTools(request.Tools),
 	}
 
 	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
@@ -387,6 +472,27 @@ func convertToOpenaiFunctions(funcs []util.FunctionDefinition) []openai.Function
 			Parameters:  f.Parameters,
 		})
 	}
+	return out
+}
+
+func convertToOpenaiTools(tools []util.ToolDefinition) []openai.Tool {
+	if tools == nil {
+		return nil
+	}
+
+	out := []openai.Tool{}
+	for _, t := range tools {
+		tool := openai.Tool{
+			Type: openai.ToolTypeFunction,
+			Function: openai.FunctionDefinition{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
+			},
+		}
+		out = append(out, tool)
+	}
+
 	return out
 }
 
@@ -411,6 +517,7 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		Temperature: request.Temperature,
 		N:           1,
 		Functions:   convertToOpenaiFunctions(request.Functions),
+		Tools:       convertToOpenaiTools(request.Tools),
 	}
 
 	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
@@ -427,6 +534,7 @@ func (this *GPT) doChatStreamCompletion(
 	var responseContent strings.Builder
 	var functionName string
 	var functionArgs strings.Builder
+	var toolCalls []*util.ToolCall
 
 	// We already have a context that sets an overall timeout, but we also
 	// want to timeout if we don't get a chunk back for a while.
@@ -464,6 +572,7 @@ func (this *GPT) doChatStreamCompletion(
 
 		text := resp.Choices[0].Delta.Content
 		functionCall := resp.Choices[0].Delta.FunctionCall
+		chunkToolCalls := resp.Choices[0].Delta.ToolCalls
 
 		// When a function is streaming back we appear to get the function name
 		// always as one string (even if very long) followed by small chunks
@@ -477,6 +586,34 @@ func (this *GPT) doChatStreamCompletion(
 			if functionCall.Arguments != "" {
 				functionArgs.WriteString(functionCall.Arguments)
 				printWriter.Write([]byte(functionCall.Arguments))
+			}
+		}
+
+		// Handle incremental tool call chunks
+		if chunkToolCalls != nil {
+			for _, chunkToolCall := range chunkToolCalls {
+				if chunkToolCall.Index == nil {
+					continue
+				}
+				for len(toolCalls) <= *chunkToolCall.Index {
+					toolCalls = append(toolCalls, &util.ToolCall{})
+				}
+				toolCall := toolCalls[*chunkToolCall.Index]
+				id := chunkToolCall.ID
+				name := chunkToolCall.Function.Name
+				args := chunkToolCall.Function.Arguments
+				if id != "" {
+					toolCall.Id = id
+				}
+				if name != "" {
+					toolCall.Function.Name += name
+					printWriter.Write([]byte(functionName))
+					printWriter.Write([]byte("("))
+				}
+				if args != "" {
+					toolCall.Function.Parameters += args
+					printWriter.Write([]byte(args))
+				}
 			}
 		}
 
@@ -527,7 +664,8 @@ func (this *GPT) doChatStreamCompletion(
 		id = response.ID
 	}
 
-	if functionName != "" {
+	// this doesn't yet handle multiple tool calls
+	if functionName != "" || len(toolCalls) > 0 {
 		printWriter.Write([]byte(")"))
 	}
 
@@ -536,6 +674,7 @@ func (this *GPT) doChatStreamCompletion(
 	response := util.CompletionResponse{
 		Completion:         responseContent.String(),
 		FunctionName:       functionName,
+		ToolCalls:          toolCalls,
 		FunctionParameters: functionArgs.String(),
 	}
 
@@ -627,6 +766,7 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (*util.Co
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
+		Functions:   convertToOpenaiFunctions(request.Functions),
 	}
 
 	return this.doChatCompletion(request.Ctx, req, request.Verbose)

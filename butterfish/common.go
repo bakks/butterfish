@@ -547,6 +547,8 @@ func printLoggingBox(box LoggingBox, writer io.Writer, depth int, colors []strin
 	// Print the content, wrap lines if necessary
 	if box.Content != "" {
 		content := stripANSI(box.Content)
+		// replace tabs with 2 spaces
+		content = strings.ReplaceAll(content, "\t", "  ")
 		contentLines := strings.Split(content, "\n")
 		wrappedContentLines := []string{}
 		boxWidth := BOX_WIDTH - 2*(depth+1)

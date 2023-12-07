@@ -3,6 +3,7 @@ module github.com/bakks/butterfish
 go 1.19
 
 require (
+	github.com/alecthomas/chroma v0.10.0
 	github.com/alecthomas/kong v0.8.0
 	github.com/bakks/tiktoken-go v0.1.4-bakks-2
 	github.com/charmbracelet/bubbles v0.16.1
@@ -16,7 +17,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/muesli/reflow v0.3.0
-	github.com/sashabaranov/go-openai v1.16.0
+	github.com/sashabaranov/go-openai v1.17.9
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/afero v1.9.5
 	github.com/stretchr/testify v1.8.2
@@ -28,7 +29,6 @@ require (
 )
 
 require (
-	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect

@@ -14,6 +14,7 @@ import (
 
 	"github.com/alecthomas/chroma/quick"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/spf13/afero"
 )
 
@@ -28,19 +29,37 @@ type CompletionRequest struct {
 	HistoryBlocks []HistoryBlock
 	SystemMessage string
 	Functions     []FunctionDefinition
+	Tools         []ToolDefinition
 	Verbose       bool
+}
+
+type FunctionCall struct {
+	Name       string
+	Parameters string
+}
+
+type ToolCall struct {
+	Id       string
+	Type     string
+	Function FunctionCall
 }
 
 type CompletionResponse struct {
 	Completion         string
 	FunctionName       string
 	FunctionParameters string
+	ToolCalls          []*ToolCall
 }
 
 type FunctionDefinition struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Parameters  jsonschema.Definition `json:"parameters"`
+}
+
+type ToolDefinition struct {
+	Type     string             `json:"type"`
+	Function FunctionDefinition `json:"function"`
 }
 
 type HistoryBlock struct {
@@ -48,6 +67,8 @@ type HistoryBlock struct {
 	Content        string
 	FunctionName   string
 	FunctionParams string
+	ToolCalls      []*ToolCall
+	ToolCallId     string
 }
 
 func (this HistoryBlock) String() string {

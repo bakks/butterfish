@@ -2,6 +2,7 @@ package butterfish
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mitchellh/go-homedir"
+	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/afero"
 	"golang.org/x/term"
@@ -52,22 +54,33 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *CliCommandC
 // Kong CLI parser option configuration
 type CliCommandConfig struct {
 	Prompt struct {
-		Prompt      []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
-		SysMsg      string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
-		Model       string   `short:"m" default:"gpt-3.5-turbo" help:"LLM to use for the prompt."`
-		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
-		NoColor     bool     `default:"false" help:"Disable color output."`
-		NoBackticks bool     `default:"false" help:"Stripe out backticks around codeblocks."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo."`
+		Prompt        []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
+		SystemMessage string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
+		Model         string   `short:"m" default:"gpt-3.5-turbo-1106" help:"LLM to use for the prompt."`
+		NumTokens     int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature   float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		Functions     string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
+		NoColor       bool     `default:"false" help:"Disable color output."`
+		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo-1106."`
 
 	Promptedit struct {
 		File        string  `short:"f" default:"~/.config/butterfish/prompt.txt" help:"Cached prompt file to use." optional:""`
 		Editor      string  `short:"e" default:"" help:"Editor to use for the prompt."`
-		Model       string  `short:"m" default:"gpt-3.5-turbo" help:"GPT model to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"GPT model to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 	} `cmd:"" help:"Like the prompt command, but this opens a local file with your default editor (set with the EDITOR env var) that will then be passed as a prompt in the LLM call."`
+
+	Edit struct {
+		Filepath    string  `arg:"" help:"Path to file, will be edited in-place."`
+		Prompt      string  `arg:"" help:"LLM model prompt, e.g. 'Plan an edit'"`
+		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"LLM to use for the prompt."`
+		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		NoColor     bool    `default:"false" help:"Disable color output."`
+		NoBackticks bool    `default:"false" help:"Strip out backticks around codeblocks."`
+	} `cmd:"" help:"Edit a file by using a line range editing tool."`
 
 	Summarize struct {
 		Files     []string `arg:"" help:"File paths to summarize." optional:""`
@@ -110,7 +123,7 @@ type CliCommandConfig struct {
 
 	Indexquestion struct {
 		Question    string  `arg:"" help:"Question to ask."`
-		Model       string  `short:"m" default:"gpt-3.5-turbo" help:"GPT model to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"GPT model to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt."`
 	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
@@ -157,6 +170,78 @@ func (this *ButterfishCtx) cleanInput(input []string) string {
 	return joined
 }
 
+// Manage a buffer of lines, we want to be able to replace a range of lines
+type LineBuffer struct {
+	Lines []string
+}
+
+func NewLineBuffer(filepath string) (*LineBuffer, error) {
+	// read file
+	fileContent, err := os.ReadFile(filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(fileContent), "\n")
+	return &LineBuffer{
+		Lines: lines,
+	}, nil
+}
+
+// Replace and insert lines in a buffer
+// Start is inclusive, end is exclusive
+// Thus if start == end then we insert at the start of the line
+func (this *LineBuffer) ReplaceRange(start, end int, replacement string) error {
+	if start < 0 || start >= len(this.Lines) {
+		return errors.New("Invalid start index")
+	}
+	if end < 0 || end >= len(this.Lines) {
+		return errors.New("Invalid end index")
+	}
+	if start > end {
+		return errors.New("Start index must be less than end index")
+	}
+	fmt.Printf("Replacing lines %d to %d with %s\n", start, end, replacement)
+
+	replacementLines := strings.Split(replacement, "\n")
+	this.Lines = append(this.Lines[:start],
+		append(replacementLines, this.Lines[end:]...)...)
+	return nil
+}
+
+func (this *LineBuffer) String() string {
+	return strings.Join(this.Lines, "\n")
+}
+
+func (this *LineBuffer) PrefixLineNumbers() string {
+	var result []string
+	for i, line := range this.Lines {
+		result = append(result, fmt.Sprintf("%d: %s", i, line))
+	}
+	return strings.Join(result, "\n")
+}
+
+type EditToolParameters struct {
+	RangeStart int    `json:"range_start"`
+	RangeEnd   int    `json:"range_end"`
+	CodeEdit   string `json:"code_edit"`
+}
+
+func ApplyEditToolToLineBuffer(toolCall *util.ToolCall, lineBuffer *LineBuffer) error {
+	paramJson := toolCall.Function.Parameters
+	var params EditToolParameters
+	err := json.Unmarshal([]byte(paramJson), &params)
+	if err != nil {
+		return err
+	}
+
+	// remove a trailing \n from the code edit
+	params.CodeEdit = strings.TrimSuffix(params.CodeEdit, "\n")
+
+	lineBuffer.ReplaceRange(params.RangeStart, params.RangeEnd, params.CodeEdit)
+	return nil
+}
+
 // A function to handle a cmd string when received from consoleCommand channel
 func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommandConfig) error {
 
@@ -193,15 +278,20 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 			input = fmt.Sprintf("%s\n%s", prompt, piped)
 		}
 
-		return this.Prompt(
-			input,
-			options.Prompt.SysMsg,
-			options.Prompt.Model,
-			options.Prompt.NumTokens,
-			options.Prompt.Temperature,
-			options.Prompt.NoColor,
-			options.Prompt.NoBackticks,
-			this.Config.Verbose)
+		commandConfig := &promptCommand{
+			Prompt:      input,
+			SysMsg:      options.Prompt.SystemMessage,
+			Model:       options.Prompt.Model,
+			NumTokens:   options.Prompt.NumTokens,
+			Temperature: options.Prompt.Temperature,
+			Functions:   options.Prompt.Functions,
+			NoColor:     options.Prompt.NoColor,
+			NoBackticks: options.Prompt.NoBackticks,
+			Verbose:     this.Config.Verbose,
+		}
+
+		_, err := this.Prompt(commandConfig)
+		return err
 
 	case "promptedit":
 		targetFile := options.Promptedit.File
@@ -239,20 +329,137 @@ func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommand
 		}
 
 		content, err := os.ReadFile(targetFile)
+		if err != nil {
+			return err
+		}
 
 		if this.Config.Verbose > 0 {
 			this.StylePrintf(this.Config.Styles.Question, "%s\n", string(content))
 		}
 
-		return this.Prompt(
-			string(content),
-			"",
-			options.Prompt.Model,
-			options.Prompt.NumTokens,
-			options.Prompt.Temperature,
-			false,
-			false,
-			0)
+		commandConfig := &promptCommand{
+			Prompt:      string(content),
+			Model:       options.Promptedit.Model,
+			NumTokens:   options.Promptedit.NumTokens,
+			Temperature: options.Promptedit.Temperature,
+			Verbose:     this.Config.Verbose,
+		}
+
+		_, err = this.Prompt(commandConfig)
+		return err
+
+	case "edit <filepath> <prompt>":
+		prompt := options.Edit.Prompt
+
+		filepath := options.Edit.Filepath
+		if filepath == "" {
+			return errors.New("Please provide a filepath")
+		}
+
+		filepath, err := homedir.Expand(filepath)
+		if err != nil {
+			return err
+		}
+
+		lineBuffer, err := NewLineBuffer(filepath)
+		if err != nil {
+			return err
+		}
+
+		sysMsg := `You're helping an expert programmer edit a file of code. You can either respond with questions and clarifications, or you can use the edit() tool, which replaces a range from the file with new code. In some cases you may want to call edit() multiple times, I will apply the edits and give you the updated file after every call. Use the most recent file for your edits. If there are no more edits, just say "DONE!"`
+
+		editTools := []util.ToolDefinition{
+			{
+				Type: "function",
+				Function: util.FunctionDefinition{
+					Name:        "edit",
+					Description: "Edit a range of lines in a file. The range start is inclusive, the end is exclusive, so values of 5 and 5 would mean that new text is inserted on line 5. Values of 5 and 6 mean that line 5 would be replaced.",
+					Parameters: jsonschema.Definition{
+						Type: jsonschema.Object,
+						Properties: map[string]jsonschema.Definition{
+							"range_start": {
+								Type:        jsonschema.Number,
+								Description: "The start of the line range, inclusive",
+							},
+							"range_end": {
+								Type:        jsonschema.Number,
+								Description: "The end of the line range, exclusive",
+							},
+							"code_edit": {
+								Type:        jsonschema.String,
+								Description: "The code to replace the range with",
+							},
+						},
+						Required: []string{"range_start", "range_end", "code_edit"},
+					},
+				},
+			},
+		}
+
+		// add prompt to history, this is what the user is asking for
+		history := []util.HistoryBlock{
+			{
+				Type:    historyTypePrompt,
+				Content: prompt,
+			},
+			{
+				Type:    historyTypePrompt,
+				Content: lineBuffer.PrefixLineNumbers(),
+			},
+		}
+
+		for {
+			// prep prompting arguments
+			commandConfig := &promptCommand{
+				SysMsg:      sysMsg,
+				Model:       options.Edit.Model,
+				NumTokens:   options.Edit.NumTokens,
+				Temperature: options.Edit.Temperature,
+				Tools:       editTools,
+				NoColor:     options.Edit.NoColor,
+				NoBackticks: options.Edit.NoBackticks,
+				Verbose:     this.Config.Verbose,
+				History:     history,
+			}
+
+			// send prompt
+			resp, err := this.Prompt(commandConfig)
+			if err != nil {
+				return err
+			}
+
+			// add response to history
+			history = append(history, util.HistoryBlock{
+				Type:      historyTypeLLMOutput,
+				Content:   resp.Completion,
+				ToolCalls: resp.ToolCalls,
+			})
+
+			// if there's no more tool calls then we're done
+			if resp.ToolCalls == nil || len(resp.ToolCalls) == 0 {
+				break
+			}
+
+			// execute tool calls and add to history
+			for _, toolCall := range resp.ToolCalls {
+				if toolCall.Function.Name == "edit" {
+					err := ApplyEditToolToLineBuffer(toolCall, lineBuffer)
+					if err != nil {
+						return err
+					}
+
+					history = append(history, util.HistoryBlock{
+						Type:       historyTypeToolOutput,
+						Content:    lineBuffer.PrefixLineNumbers(),
+						ToolCallId: toolCall.Id,
+					})
+				} else {
+					return errors.New("Unknown tool call: " + toolCall.Function.Name)
+				}
+			}
+		}
+
+		fmt.Fprintf(this.Out, "Final file:\n%s\n", lineBuffer.PrefixLineNumbers())
 
 	case "summarize":
 		chunks, err := util.GetChunks(
@@ -457,55 +664,79 @@ func styleToEscape(color lipgloss.TerminalColor) string {
 	return fmt.Sprintf("\x1b[38;5;%dm", color256)
 }
 
-func (this *ButterfishCtx) Prompt(
-	promptStr string, // prompt or last user message in chatgpt completion
-	sysMsg string, // sysmsg, or background instructions
-	model string, // model to use
-	maxTokens int, // max tokens of response
-	temperature float32,
-	noColor bool,
-	noBackticks bool,
-	verbose int,
-) error {
+type promptCommand struct {
+	Prompt      string
+	SysMsg      string
+	Model       string
+	NumTokens   int
+	Temperature float32
+	Functions   string
+	NoColor     bool
+	NoBackticks bool
+	Verbose     int
+	History     []util.HistoryBlock
+	Tools       []util.ToolDefinition
+}
 
-	var writer io.Writer
-	if !noColor {
+func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse, error) {
+	writer := this.Out
+
+	if !cmd.NoColor {
 		color := styleToEscape(this.Config.Styles.Answer.GetForeground())
 		this.Out.Write([]byte(color))
 
-		termWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
-		if err != nil && this.Config.Verbose > 0 {
-			this.ErrorPrintf("Could not get terminal width, defaulting to 40 for style writer\n")
-			termWidth = 40
-		}
+		termWidth, _, _ := term.GetSize(int(os.Stdout.Fd()))
 
-		writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color)
-	} else if noBackticks {
+		if termWidth > 0 {
+			writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color)
+		}
+	} else if cmd.NoBackticks {
+		// this is an else because the code blocks writer will strip out backticks
+		// on its own, so this is only used if we don't have color AND we don't
+		// want backticks
 		writer = util.NewStripbackticksWriter(this.Out)
-	} else {
-		writer = this.Out
 	}
 
+	sysMsg := cmd.SysMsg
 	if sysMsg == "" {
 		var err error
 		sysMsg, err = this.PromptLibrary.GetPrompt(prompt.PromptSystemMessage)
 		if err != nil {
-			return err
+			return nil, err
+		}
+	}
+
+	var functions []util.FunctionDefinition
+
+	// if we have a functions file, load it and parse it
+	if cmd.Functions != "" {
+		// read raw file
+		functionsJson, err := os.ReadFile(cmd.Functions)
+		if err != nil {
+			return nil, err
+		}
+
+		// parse json
+		err = json.Unmarshal(functionsJson, &functions)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	req := &util.CompletionRequest{
 		Ctx:           this.Ctx,
-		Prompt:        promptStr,
-		Model:         model,
-		MaxTokens:     maxTokens,
-		Temperature:   temperature,
+		Prompt:        cmd.Prompt,
+		Model:         cmd.Model,
+		MaxTokens:     cmd.NumTokens,
+		Temperature:   cmd.Temperature,
 		SystemMessage: sysMsg,
-		Verbose:       verbose > 0,
+		Verbose:       cmd.Verbose > 0,
+		Functions:     functions,
+		Tools:         cmd.Tools,
+		HistoryBlocks: cmd.History,
 	}
 
-	_, err := this.LLMClient.CompletionStream(req, writer)
-	return err
+	return this.LLMClient.CompletionStream(req, writer)
 }
 
 func (this *ButterfishCtx) diffStrings(a, b string) string {

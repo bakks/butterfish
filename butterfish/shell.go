@@ -93,6 +93,7 @@ const (
 	historyTypeShellOutput
 	historyTypeLLMOutput
 	historyTypeFunctionOutput
+	historyTypeToolOutput
 )
 
 // Turn history type enum to a string
