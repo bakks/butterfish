@@ -1519,7 +1519,8 @@ func assembleChat(
 	encoder *tiktoken.Tiktoken,
 	maxPromptTokens int,
 	maxHistoryBlockTokens int,
-	maxTokens int) (string, []util.HistoryBlock, error) {
+	maxTokens int,
+) (string, []util.HistoryBlock, error) {
 
 	tokensPerMessage := NumTokensPerMessageForModel(model)
 
@@ -1555,8 +1556,12 @@ func assembleChat(
 		return "", nil, fmt.Errorf("System message too long, %d tokens", usedTokens)
 	}
 
-	blocks, historyTokens := getHistoryBlocksByTokens(history, encoder,
-		maxHistoryBlockTokens, maxTokens-usedTokens, tokensPerMessage)
+	blocks, historyTokens := getHistoryBlocksByTokens(
+		history,
+		encoder,
+		maxHistoryBlockTokens,
+		maxTokens-usedTokens,
+		tokensPerMessage)
 	usedTokens += historyTokens
 
 	if usedTokens > maxTokens {
@@ -1576,7 +1581,8 @@ func getHistoryBlocksByTokens(
 	encoder *tiktoken.Tiktoken,
 	maxHistoryBlockTokens,
 	maxTokens,
-	tokensPerMessage int) ([]util.HistoryBlock, int) {
+	tokensPerMessage int,
+) ([]util.HistoryBlock, int) {
 
 	blocks := []util.HistoryBlock{}
 	usedTokens := 0

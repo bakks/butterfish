@@ -83,7 +83,7 @@ func findModelValue(model string, kv map[string]int) (string, int) {
 		}
 
 		simplerModel = simplerModel[:lastDash]
-		value, ok = MODEL_TO_NUM_TOKENS[simplerModel]
+		value, ok = kv[simplerModel]
 		if ok {
 			return simplerModel, value
 		}
