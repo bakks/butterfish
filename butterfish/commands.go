@@ -221,7 +221,7 @@ func (this *LineBuffer) String() string {
 func (this *LineBuffer) PrefixLineNumbers() string {
 	var result []string
 	for i, line := range this.Lines {
-		result = append(result, fmt.Sprintf("%d: %s", i+1, line))
+		result = append(result, fmt.Sprintf("%d %s", i+1, line))
 	}
 	return strings.Join(result, "\n")
 }
