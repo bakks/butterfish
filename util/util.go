@@ -243,17 +243,19 @@ const (
 	STATE_ONE_TICK
 	STATE_TWO_TICKS
 	STATE_THREE_TICKS
-	STATE_IN_BLOCK
-	STATE_IN_BLOCK_NEWLINE
-	STATE_IN_BLOCK_ONE_TICK
-	STATE_IN_BLOCK_TWO_TICKS
-	STATE_IN_BLOCK_THREE_TICKS
+	STATE_BLOCK
+	STATE_BLOCK_NEWLINE
+	STATE_BLOCK_ONE_TICK
+	STATE_BLOCK_TWO_TICKS
+	STATE_BLOCK_THREE_TICKS
+	STATE_INLINE
 )
 
 type StyleCodeblocksWriter struct {
 	Writer        io.Writer
 	terminalWidth int
 	normalColor   string
+	inlineColor   string
 	state         int
 	langSuffix    *bytes.Buffer
 	blockBuffer   *bytes.Buffer
@@ -268,6 +270,7 @@ func NewStyleCodeblocksWriter(writer io.Writer, terminalWidth int, normalColor s
 		Writer:        writer,
 		state:         STATE_NEWLINE,
 		normalColor:   normalColor,
+		inlineColor:   "\x1b[93m", // bright yellow
 		terminalWidth: terminalWidth,
 	}
 }
@@ -289,23 +292,63 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 		case STATE_NORMAL:
 			if char == '\n' {
 				this.state = STATE_NEWLINE
+				toWrite.WriteByte(char)
+			} else if char == '`' {
+				this.state = STATE_INLINE
+				toWrite.Write([]byte(this.inlineColor))
+			} else {
+				toWrite.WriteByte(char)
 			}
-			toWrite.WriteByte(char)
 
-		case STATE_NEWLINE, STATE_ONE_TICK, STATE_TWO_TICKS:
+		case STATE_INLINE:
 			if char == '`' {
-				this.state++
+				this.state = STATE_NORMAL
+				toWrite.Write([]byte(this.normalColor))
+			} else {
+				toWrite.WriteByte(char)
+			}
+
+		case STATE_NEWLINE:
+			if char == '`' {
+				this.state = STATE_ONE_TICK
 			} else if char == '\n' {
-				this.state = STATE_NEWLINE
 				toWrite.WriteByte(char)
 			} else {
 				this.state = STATE_NORMAL
 				toWrite.WriteByte(char)
 			}
 
+		case STATE_ONE_TICK:
+			if char == '`' {
+				this.state = STATE_TWO_TICKS
+			} else if char == '\n' {
+				this.state = STATE_NEWLINE
+				toWrite.WriteByte('`')
+				toWrite.WriteByte(char)
+			} else {
+				this.state = STATE_INLINE
+				toWrite.Write([]byte(this.inlineColor))
+				toWrite.WriteByte(char)
+			}
+
+		case STATE_TWO_TICKS:
+			if char == '`' {
+				this.state++
+			} else if char == '\n' {
+				this.state = STATE_NEWLINE
+				toWrite.WriteByte('`')
+				toWrite.WriteByte('`')
+				toWrite.WriteByte(char)
+			} else {
+				this.state = STATE_NORMAL
+				toWrite.WriteByte('`')
+				toWrite.WriteByte('`')
+				toWrite.WriteByte(char)
+			}
+
 		case STATE_THREE_TICKS:
 			if char == '\n' {
-				this.state = STATE_IN_BLOCK_NEWLINE
+				this.state = STATE_BLOCK_NEWLINE
 				this.blockBuffer = new(bytes.Buffer)
 			} else {
 				// append to suffix
@@ -315,9 +358,9 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				this.langSuffix.WriteByte(char)
 			}
 
-		case STATE_IN_BLOCK:
+		case STATE_BLOCK:
 			if char == '\n' {
-				this.state = STATE_IN_BLOCK_NEWLINE
+				this.state = STATE_BLOCK_NEWLINE
 				this.EndOfCodeLine(toWrite)
 				toWrite.WriteByte(char)
 			} else {
@@ -325,23 +368,49 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 			}
 			this.blockBuffer.WriteByte(char)
 
-		case STATE_IN_BLOCK_NEWLINE,
-			STATE_IN_BLOCK_ONE_TICK,
-			STATE_IN_BLOCK_TWO_TICKS:
+		case STATE_BLOCK_NEWLINE:
 			if char == '`' {
-				this.state++
+				this.state = STATE_BLOCK_ONE_TICK
 			} else if char == '\n' {
 				this.EndOfCodeLine(toWrite)
-				this.state = STATE_IN_BLOCK_NEWLINE
+				this.state = STATE_BLOCK_NEWLINE
 				toWrite.WriteByte(char)
 				this.blockBuffer.WriteByte(char)
 			} else {
-				this.state = STATE_IN_BLOCK
+				this.state = STATE_BLOCK
 				toWrite.WriteByte(char)
 				this.blockBuffer.WriteByte(char)
 			}
 
-		case STATE_IN_BLOCK_THREE_TICKS:
+		case STATE_BLOCK_ONE_TICK:
+			if char == '`' {
+				this.state = STATE_BLOCK_TWO_TICKS
+			} else if char == '\n' {
+				this.EndOfCodeLine(toWrite)
+				this.state = STATE_BLOCK_NEWLINE
+				toWrite.WriteByte(char)
+				this.blockBuffer.WriteByte(char)
+			} else {
+				this.state = STATE_BLOCK
+				toWrite.WriteByte(char)
+				this.blockBuffer.WriteByte(char)
+			}
+
+		case STATE_BLOCK_TWO_TICKS:
+			if char == '`' {
+				this.state = STATE_BLOCK_THREE_TICKS
+			} else if char == '\n' {
+				this.EndOfCodeLine(toWrite)
+				this.state = STATE_BLOCK_NEWLINE
+				toWrite.WriteByte(char)
+				this.blockBuffer.WriteByte(char)
+			} else {
+				this.state = STATE_BLOCK
+				toWrite.WriteByte(char)
+				this.blockBuffer.WriteByte(char)
+			}
+
+		case STATE_BLOCK_THREE_TICKS:
 			if char == '\n' {
 				if this.langSuffix != nil {
 					this.langSuffix.Reset()
@@ -448,6 +517,10 @@ func (this *StripbackticksWriter) Write(p []byte) (n int, err error) {
 				this.state = STATE_NEWLINE
 				toWrite.WriteByte(char)
 			} else {
+				for this.state != STATE_NEWLINE {
+					toWrite.WriteByte('`')
+					this.state--
+				}
 				this.state = STATE_NORMAL
 				toWrite.WriteByte(char)
 			}
