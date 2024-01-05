@@ -52,7 +52,8 @@ var DarkShellColorScheme = &ShellColorScheme{
 	PromptGoalUnsafe: "\x1b[38;5;9m",
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;178m",
+	Answer:           "\x1b[38;5;221m",
+	AnswerHighlight:  "\x1b[38;5;204m",
 	GoalMode:         "\x1b[38;5;51m",
 	Error:            "\x1b[38;5;196m",
 }
@@ -63,7 +64,8 @@ var LightShellColorScheme = &ShellColorScheme{
 	PromptGoalUnsafe: "\x1b[38;5;9m",
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;178m",
+	Answer:           "\x1b[38;5;221m",
+	AnswerHighlight:  "\x1b[38;5;204m",
 	GoalMode:         "\x1b[38;5;18m",
 	Error:            "\x1b[38;5;196m",
 }
@@ -341,6 +343,7 @@ type ShellColorScheme struct {
 	Command          string
 	Autosuggest      string
 	Answer           string
+	AnswerHighlight  string
 	GoalMode         string
 }
 
@@ -587,7 +590,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 
 	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
 	styleCodeblocksWriter := util.NewStyleCodeblocksWriter(carriageReturnWriter,
-		termWidth, colorScheme.Answer)
+		termWidth, colorScheme.Answer, colorScheme.AnswerHighlight)
 
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)

@@ -9,7 +9,7 @@ import (
 
 func TestStyleCodeblocksWriter(t *testing.T) {
 	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "")
+	writer := NewStyleCodeblocksWriter(buffer, 80, "", "")
 
 	writer.Write([]byte("Hello\n"))
 	writer.Write([]byte("```javascript\n"))

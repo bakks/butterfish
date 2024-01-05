@@ -261,7 +261,12 @@ type StyleCodeblocksWriter struct {
 	blockBuffer   *bytes.Buffer
 }
 
-func NewStyleCodeblocksWriter(writer io.Writer, terminalWidth int, normalColor string) *StyleCodeblocksWriter {
+func NewStyleCodeblocksWriter(
+	writer io.Writer,
+	terminalWidth int,
+	normalColor string,
+	highlightColor string,
+) *StyleCodeblocksWriter {
 	if terminalWidth == 0 {
 		panic("terminal width must be > 0")
 	}
@@ -270,7 +275,7 @@ func NewStyleCodeblocksWriter(writer io.Writer, terminalWidth int, normalColor s
 		Writer:        writer,
 		state:         STATE_NEWLINE,
 		normalColor:   normalColor,
-		inlineColor:   "\x1b[93m", // bright yellow
+		inlineColor:   highlightColor,
 		terminalWidth: terminalWidth,
 	}
 }

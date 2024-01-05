@@ -613,12 +613,13 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 
 	if !cmd.NoColor {
 		color := styleToEscape(this.Config.Styles.Answer.GetForeground())
+		highlight := styleToEscape(this.Config.Styles.Highlight.GetForeground())
 		this.Out.Write([]byte(color))
 
 		termWidth, _, _ := term.GetSize(int(os.Stdout.Fd()))
 
 		if termWidth > 0 {
-			writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color)
+			writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color, highlight)
 		}
 	} else if cmd.NoBackticks {
 		// this is an else because the code blocks writer will strip out backticks
