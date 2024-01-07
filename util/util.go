@@ -318,6 +318,8 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 				this.state = STATE_ONE_TICK
 			} else if char == '\n' {
 				toWrite.WriteByte(char)
+			} else if char == ' ' || char == '\t' {
+				toWrite.WriteByte(char)
 			} else {
 				this.state = STATE_NORMAL
 				toWrite.WriteByte(char)
@@ -354,6 +356,7 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 		case STATE_THREE_TICKS:
 			if char == '\n' {
 				this.state = STATE_BLOCK_NEWLINE
+				toWrite.Write([]byte("\n"))
 				this.blockBuffer = new(bytes.Buffer)
 			} else {
 				// append to suffix
@@ -379,6 +382,9 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 			} else if char == '\n' {
 				this.EndOfCodeLine(toWrite)
 				this.state = STATE_BLOCK_NEWLINE
+				toWrite.WriteByte(char)
+				this.blockBuffer.WriteByte(char)
+			} else if char == ' ' || char == '\t' {
 				toWrite.WriteByte(char)
 				this.blockBuffer.WriteByte(char)
 			} else {
