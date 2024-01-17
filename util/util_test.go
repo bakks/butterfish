@@ -60,7 +60,7 @@ Foo`
 
 	writer.Write([]byte(testStr))
 
-	expected := "Hello\n\nconsole.log('Hi');\r\x1b[38;5;231mconsole.log('Hi');\x1b[0m\nNORMAL\nFoo"
+	expected := "Hello\n\rconsole.log('Hi');\r\x1b[38;5;231mconsole.log('Hi');\x1b[0m\nNORMAL\nFoo"
 
 	// assert buffer equals expected
 	assert.Equal(t, expected, buffer.String())
@@ -79,7 +79,7 @@ Foo`
 
 	writer.Write([]byte(testStr))
 
-	expected := "Hello\n\nconsole.log(1);\r\x1b[38;5;148mconsole\x1b[0m\x1b[38;5;231m.\x1b[0m\x1b[38;5;148mlog\x1b[0m\x1b[38;5;231m(\x1b[0m\x1b[38;5;141m1\x1b[0m\x1b[38;5;231m);\x1b[0m\nNORMAL\nFoo"
+	expected := "Hello\n\rconsole.log(1);\r\x1b[38;5;148mconsole\x1b[0m\x1b[38;5;231m.\x1b[0m\x1b[38;5;148mlog\x1b[0m\x1b[38;5;231m(\x1b[0m\x1b[38;5;141m1\x1b[0m\x1b[38;5;231m);\x1b[0m\nNORMAL\nFoo"
 
 	// assert buffer equals expected
 	assert.Equal(t, expected, buffer.String())
@@ -127,7 +127,7 @@ Foo`
 
 	writer.Write([]byte(testStr))
 
-	expected := "Hello\n\n   \n   console.log(1);\r\x1b[38;5;231m   \x1b[0m\x1b[38;5;148mconsole\x1b[0m\x1b[38;5;231m.\x1b[0m\x1b[38;5;148mlog\x1b[0m\x1b[38;5;231m(\x1b[0m\x1b[38;5;141m1\x1b[0m\x1b[38;5;231m);\x1b[0m\n   NORMAL\nFoo"
+	expected := "Hello\n\n   \r   console.log(1);\r\x1b[38;5;231m   \x1b[0m\x1b[38;5;148mconsole\x1b[0m\x1b[38;5;231m.\x1b[0m\x1b[38;5;148mlog\x1b[0m\x1b[38;5;231m(\x1b[0m\x1b[38;5;141m1\x1b[0m\x1b[38;5;231m);\x1b[0m\n   NORMAL\nFoo"
 
 	// assert buffer equals expected
 	assert.Equal(t, expected, buffer.String())

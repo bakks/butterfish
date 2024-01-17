@@ -356,7 +356,7 @@ func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
 		case STATE_THREE_TICKS:
 			if char == '\n' {
 				this.state = STATE_BLOCK_NEWLINE
-				toWrite.Write([]byte("\n"))
+				toWrite.WriteByte('\r')
 				this.blockBuffer = new(bytes.Buffer)
 			} else {
 				// append to suffix
