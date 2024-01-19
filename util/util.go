@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/alecthomas/chroma/quick"
@@ -259,6 +260,7 @@ type StyleCodeblocksWriter struct {
 	state         int
 	langSuffix    *bytes.Buffer
 	blockBuffer   *bytes.Buffer
+	lock          sync.Mutex
 }
 
 func NewStyleCodeblocksWriter(
@@ -281,7 +283,16 @@ func NewStyleCodeblocksWriter(
 }
 
 func (this *StyleCodeblocksWriter) SetTerminalWidth(width int) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
 	this.terminalWidth = width
+}
+
+func (this *StyleCodeblocksWriter) Reset() {
+	this.state = STATE_NEWLINE
+	this.langSuffix = nil
+	this.blockBuffer = nil
 }
 
 // This writer receives bytes in a stream and looks for markdown code
@@ -289,6 +300,9 @@ func (this *StyleCodeblocksWriter) SetTerminalWidth(width int) {
 // The hard part is the stream splits the input into chunks, so we need
 // to buffer the input in places.
 func (this *StyleCodeblocksWriter) Write(p []byte) (n int, err error) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
 	toWrite := new(bytes.Buffer)
 
 	for _, char := range p {

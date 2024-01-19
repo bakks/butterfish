@@ -1455,7 +1455,7 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	// like Ctrl-C while waiting for the response
 	go CompletionRoutine(request, this.Butterfish.LLMClient,
 		this.PromptAnswerWriter, this.PromptOutputChan,
-		this.Color.GoalMode, this.Color.Error)
+		this.Color.GoalMode, this.Color.Error, this.StyleWriter)
 }
 
 func (this *ShellState) HandleLocalPrompt() bool {
@@ -1691,12 +1691,19 @@ func (this *ShellState) SendPrompt() {
 	// like Ctrl-C while waiting for the response
 	go CompletionRoutine(request, this.Butterfish.LLMClient,
 		this.PromptAnswerWriter, this.PromptOutputChan,
-		this.Color.Answer, this.Color.Error)
+		this.Color.Answer, this.Color.Error, this.StyleWriter)
 
 	this.Prompt.Clear()
 }
 
-func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Writer, outputChan chan *util.CompletionResponse, normalColor, errorColor string) {
+func CompletionRoutine(
+	request *util.CompletionRequest,
+	client LLM,
+	writer io.Writer,
+	outputChan chan *util.CompletionResponse,
+	normalColor, errorColor string,
+	styleWriter *util.StyleCodeblocksWriter,
+) {
 	writer.Write([]byte(normalColor))
 	output, err := client.CompletionStream(request, writer)
 
@@ -1713,6 +1720,10 @@ func CompletionRoutine(request *util.CompletionRequest, client LLM, writer io.Wr
 
 	if output == nil && err != nil {
 		output = &util.CompletionResponse{Completion: err.Error()}
+	}
+
+	if styleWriter != nil {
+		styleWriter.Reset()
 	}
 
 	// send any output + error for processing (e.g. adding to history)
