@@ -30,9 +30,9 @@ const description = `Do useful things with LLMs from the command line, with a be
 
 Butterfish is a command line tool for working with LLMs. It has two modes: CLI command mode, used to prompt LLMs, summarize files, and manage embeddings, and Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
 
-Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log.
+Butterfish looks for an API key in OPEN_API_KEY, or alternatively stores an OpenAI auth token at ~/.config/butterfish/butterfish.env.
 
-To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
+Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
 
 If you do not have OpenAI free credits then you will need a subscription and you will need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend by disabling shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `
@@ -102,8 +102,13 @@ func getOpenAIToken() string {
 
 	// We attempt to get a token from env vars plus an env file
 	godotenv.Load(path)
-	token := os.Getenv("OPENAI_TOKEN")
 
+	token := os.Getenv("OPENAI_TOKEN")
+	if token != "" {
+		return token
+	}
+
+	token = os.Getenv("OPENAI_API_KEY")
 	if token != "" {
 		return token
 	}
