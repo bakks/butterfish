@@ -94,6 +94,20 @@ type CliConfig struct {
 	bf.CliCommandConfig
 }
 
+// getBaseURL retrieves the BaseURL from an environment variable or returns the provided defaultURL.
+// Logs a message if both an environment variable and command line option are provided.
+func getBaseURL(defaultURL string) string {
+	envBaseURL := os.Getenv("BASE_URL")
+	if envBaseURL != "" {
+			if defaultURL != "https://api.openai.com/v1" && defaultURL != envBaseURL {
+					log.Printf("Both environment variable and command line option for BaseURL are provided. Using BaseURL from environment variable: %s\n", envBaseURL)
+			}
+			return envBaseURL
+	}
+	return defaultURL
+}
+
+
 func getOpenAIToken() string {
 	path, err := homedir.Expand(defaultEnvPath)
 	if err != nil {
@@ -150,7 +164,7 @@ func getOpenAIToken() string {
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.OpenAIToken = getOpenAIToken()
-	config.BaseURL = options.BaseURL
+	config.BaseURL = getBaseURL(options.BaseURL)
 	config.PromptLibraryPath = defaultPromptPath
 
 	if options.Verbose {
