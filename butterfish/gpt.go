@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"net/http"
 	"strings"
 	"time"
 
@@ -45,6 +46,9 @@ const gptClientTimeout = 300 * time.Second
 
 func NewGPT(token, baseUrl string) *GPT {
 	config := openai.DefaultConfig(token)
+
+	config.HTTPClient.Transport = &http.Transport{Proxy: http.ProxyFromEnvironment}
+
 	if baseUrl != "" {
 		config.BaseURL = baseUrl
 	}
