@@ -56,18 +56,18 @@ type CliCommandConfig struct {
 	Prompt struct {
 		Prompt        []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
 		SystemMessage string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
-		Model         string   `short:"m" default:"gpt-3.5-turbo-1106" help:"LLM to use for the prompt."`
+		Model         string   `short:"m" default:"gpt-4-turbo-preview" help:"LLM to use for the prompt."`
 		NumTokens     int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature   float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 		Functions     string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
 		NoColor       bool     `default:"false" help:"Disable color output."`
 		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo-1106."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-4-turbo-preview."`
 
 	Promptedit struct {
 		File        string  `short:"f" default:"~/.config/butterfish/prompt.txt" help:"Cached prompt file to use." optional:""`
 		Editor      string  `short:"e" default:"" help:"Editor to use for the prompt."`
-		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"GPT model to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-4-turbo-preview" help:"GPT model to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 	} `cmd:"" help:"Like the prompt command, but this opens a local file with your default editor (set with the EDITOR env var) that will then be passed as a prompt in the LLM call."`
@@ -75,7 +75,7 @@ type CliCommandConfig struct {
 	Edit struct {
 		Filepath    string  `arg:"" help:"Path to file, will be edited in-place."`
 		Prompt      string  `arg:"" help:"LLM model prompt, e.g. 'Plan an edit'"`
-		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"LLM to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-4-turbo-preview" help:"LLM to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 		InPlace     bool    `short:"i" default:"false" help:"Edit the file in-place, otherwise we write to stdout."`
@@ -124,7 +124,7 @@ type CliCommandConfig struct {
 
 	Indexquestion struct {
 		Question    string  `arg:"" help:"Question to ask."`
-		Model       string  `short:"m" default:"gpt-3.5-turbo-1106" help:"GPT model to use for the prompt."`
+		Model       string  `short:"m" default:"gpt-4-turbo-preview" help:"GPT model to use for the prompt."`
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt."`
 	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
