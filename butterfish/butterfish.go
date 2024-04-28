@@ -83,6 +83,8 @@ type ButterfishConfig struct {
 	ShellNewlineAutosuggestTimeout time.Duration
 	// Maximum tokens that a single history line-item can consume
 	ShellMaxHistoryBlockTokens int
+	// Maximum tokens for the response, reserved when calculating history and passed as max_tokens during inference
+	ShellMaxResponseTokens int
 
 	// Model, temp, and max tokens to use when executing the `gencmd` command
 	GencmdModel       string

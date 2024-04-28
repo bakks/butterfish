@@ -1667,7 +1667,7 @@ func (this *ShellState) SendPrompt() {
 	}
 
 	prompt := this.Prompt.String()
-	tokensReservedForAnswer := 512
+	tokensReservedForAnswer := this.Butterfish.Config.ShellMaxResponseTokens
 	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg, "", tokensReservedForAnswer)
 	if err != nil {
 		this.PrintError(err)

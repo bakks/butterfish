@@ -88,6 +88,7 @@ type CliConfig struct {
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
 		LightColor                bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
+		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
 	} `cmd:"" help:"${shell_help}"`
 
 	// We include the cliConsole options here so that we can parse them and hand them
@@ -233,6 +234,7 @@ func main() {
 		config.ShellMode = true
 		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
+		config.ShellMaxResponseTokens = cli.Shell.MaxResponseTokens
 		config.ShellTokenTimeout = time.Duration(cli.Shell.TokenTimeout) * time.Millisecond
 
 		bf.RunShell(ctx, config)
