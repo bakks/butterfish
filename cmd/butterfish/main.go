@@ -79,7 +79,7 @@ type CliConfig struct {
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" default:"gpt-4-turbo-preview" help:"Model for when the user manually enters a prompt."`
+		Model                     string `short:"m" default:"gpt-4-turbo" help:"Model for when the user manually enters a prompt."`
 		TokenTimeout              int    `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
