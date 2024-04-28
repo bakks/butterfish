@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/alecthomas/chroma/quick"
@@ -32,6 +33,7 @@ type CompletionRequest struct {
 	Functions     []FunctionDefinition
 	Tools         []ToolDefinition
 	Verbose       bool
+	TokenTimeout  time.Duration
 }
 
 type FunctionCall struct {

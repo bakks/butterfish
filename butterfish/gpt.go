@@ -41,8 +41,6 @@ type GPT struct {
 	client *openai.Client
 }
 
-const gptClientTimeout = 300 * time.Second
-
 func NewGPT(token, baseUrl string) *GPT {
 	config := openai.DefaultConfig(token)
 	if baseUrl != "" {
@@ -456,7 +454,7 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 		Tools:       convertToOpenaiTools(request.Tools),
 	}
 
-	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
+	return this.doChatStreamCompletion(request.Ctx, req, writer, request.TokenTimeout, request.Verbose)
 }
 
 func convertToOpenaiFunctions(funcs []util.FunctionDefinition) []openai.FunctionDefinition {
@@ -520,15 +518,15 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		Tools:       convertToOpenaiTools(request.Tools),
 	}
 
-	return this.doChatStreamCompletion(request.Ctx, req, writer, request.Verbose)
+	return this.doChatStreamCompletion(
+		request.Ctx, req, writer, request.TokenTimeout, request.Verbose)
 }
-
-const chunkWaitTimeout = 10 * time.Second
 
 func (this *GPT) doChatStreamCompletion(
 	ctx context.Context,
 	req openai.ChatCompletionRequest,
 	printWriter io.Writer,
+	tokenTimeout time.Duration, // max time before first chunk and between chunks
 	verbose bool) (*util.CompletionResponse, error) {
 
 	var responseContent strings.Builder
@@ -542,29 +540,31 @@ func (this *GPT) doChatStreamCompletion(
 	// for the first chunk is 5s
 	innerCtx, cancel := context.WithCancel(ctx)
 	gotChunk := make(chan bool)
+	defer close(gotChunk)
 	var chunkTimeoutErr error
 
 	// set a goroutine to wait on a timeout or having received a chunk
-	go func() {
+	timeoutRoutine := func() {
+		if tokenTimeout == 0 {
+			return
+		}
+
 		select {
-		case <-time.After(chunkWaitTimeout):
-			chunkTimeoutErr = fmt.Errorf("Timed out waiting for streaming response")
+		case <-time.After(tokenTimeout):
+			chunkTimeoutErr = fmt.Errorf("Timed out waiting for streaming response, this call set a timeout of %v between streaming token responses, set by the --token-timeout (-z) parameter.", tokenTimeout)
 			cancel()
 
 			// if we get a chunk or the context fininshes we don't do anything
 		case <-innerCtx.Done():
 		case <-gotChunk:
 		}
-	}()
+	}
 
-	firstChunk := true
+	go timeoutRoutine()
 
 	callback := func(resp openai.ChatCompletionStreamResponse) {
-		if firstChunk {
-			gotChunk <- true
-			firstChunk = false
-			close(gotChunk)
-		}
+		gotChunk <- true
+		go timeoutRoutine()
 
 		if resp.Choices == nil || len(resp.Choices) == 0 {
 			return

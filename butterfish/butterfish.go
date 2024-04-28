@@ -70,11 +70,12 @@ type ButterfishConfig struct {
 	ShellMode               bool
 	ShellPluginMode         bool
 	ShellColorDark          bool
-	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
-	ShellPromptModel        string // used when the user enters an explicit prompt
-	ShellLeavePromptAlone   bool   // don't try to edit the shell prompt
-	ShellAutosuggestEnabled bool   // whether to use autosuggest
-	ShellAutosuggestModel   string // used when we're autocompleting a command
+	ShellBinary             string        // path to the shell binary to use, e.g. /bin/zsh
+	ShellPromptModel        string        // used when the user enters an explicit prompt
+	ShellLeavePromptAlone   bool          // don't try to edit the shell prompt
+	ShellTokenTimeout       time.Duration // how long to wait for a token before timing out
+	ShellAutosuggestEnabled bool          // whether to use autosuggest
+	ShellAutosuggestModel   string        // used when we're autocompleting a command
 	// how long to wait between when the user stos typing and we ask for an
 	// autosuggest
 	ShellAutosuggestTimeout time.Duration

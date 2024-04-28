@@ -1655,11 +1655,11 @@ func getHistoryBlocksByTokens(
 func (this *ShellState) SendPrompt() {
 	this.setState(statePromptResponse)
 
-	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	requestCtx, cancel := context.WithCancel(context.Background())
 	this.PromptResponseCancel = cancel
 
-	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(prompt.ShellSystemMessage,
-		"sysinfo", GetSystemInfo())
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(
+		prompt.ShellSystemMessage, "sysinfo", GetSystemInfo())
 	if err != nil {
 		msg := fmt.Errorf("Could not retrieve prompting system message: %s", err)
 		this.PrintError(msg)
@@ -1683,6 +1683,7 @@ func (this *ShellState) SendPrompt() {
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
 		Verbose:       this.Butterfish.Config.Verbose > 0,
+		TokenTimeout:  this.Butterfish.Config.ShellTokenTimeout,
 	}
 
 	this.History.Append(historyTypePrompt, this.Prompt.String())
@@ -1701,7 +1702,8 @@ func CompletionRoutine(
 	client LLM,
 	writer io.Writer,
 	outputChan chan *util.CompletionResponse,
-	normalColor, errorColor string,
+	normalColor,
+	errorColor string,
 	styleWriter *util.StyleCodeblocksWriter,
 ) {
 	writer.Write([]byte(normalColor))

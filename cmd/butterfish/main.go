@@ -80,6 +80,7 @@ type CliConfig struct {
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		Model                     string `short:"m" default:"gpt-4-turbo-preview" help:"Model for when the user manually enters a prompt."`
+		TokenTimeout              int    `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
@@ -232,6 +233,7 @@ func main() {
 		config.ShellMode = true
 		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
+		config.ShellTokenTimeout = time.Duration(cli.Shell.TokenTimeout) * time.Millisecond
 
 		bf.RunShell(ctx, config)
 
