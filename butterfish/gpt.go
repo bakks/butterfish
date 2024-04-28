@@ -482,7 +482,7 @@ func convertToOpenaiTools(tools []util.ToolDefinition) []openai.Tool {
 	for _, t := range tools {
 		tool := openai.Tool{
 			Type: openai.ToolTypeFunction,
-			Function: openai.FunctionDefinition{
+			Function: &openai.FunctionDefinition{
 				Name:        t.Function.Name,
 				Description: t.Function.Description,
 				Parameters:  t.Function.Parameters,
