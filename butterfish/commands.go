@@ -252,7 +252,10 @@ func ApplyEditToolToLineBuffer(toolCall *util.ToolCall, lineBuffer *LineBuffer) 
 }
 
 // A function to handle a cmd string when received from consoleCommand channel
-func (this *ButterfishCtx) ExecCommand(parsed *kong.Context, options *CliCommandConfig) error {
+func (this *ButterfishCtx) ExecCommand(
+	parsed *kong.Context,
+	options *CliCommandConfig,
+) error {
 
 	switch parsed.Command() {
 	case "exit", "quit":
@@ -665,6 +668,7 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 		Functions:     functions,
 		Tools:         cmd.Tools,
 		HistoryBlocks: cmd.History,
+		TokenTimeout:  this.Config.TokenTimeout,
 	}
 
 	return this.LLMClient.CompletionStream(req, writer)
@@ -808,6 +812,7 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 		MaxTokens:     this.Config.GencmdMaxTokens,
 		Temperature:   this.Config.GencmdTemperature,
 		SystemMessage: sysMsg,
+		TokenTimeout:  this.Config.TokenTimeout,
 	}
 
 	resp, err := this.LLMClient.Completion(req)
@@ -878,6 +883,7 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 			MaxTokens:     this.Config.ExeccheckMaxTokens,
 			Temperature:   this.Config.ExeccheckTemperature,
 			SystemMessage: "N/A",
+			TokenTimeout:  this.Config.TokenTimeout,
 		}
 
 		response, err := this.LLMClient.CompletionStream(req, styleWriter)

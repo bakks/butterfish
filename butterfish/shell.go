@@ -1683,7 +1683,7 @@ func (this *ShellState) SendPrompt() {
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
 		Verbose:       this.Butterfish.Config.Verbose > 0,
-		TokenTimeout:  this.Butterfish.Config.ShellTokenTimeout,
+		TokenTimeout:  this.Butterfish.Config.TokenTimeout,
 	}
 
 	this.History.Append(historyTypePrompt, this.Prompt.String())

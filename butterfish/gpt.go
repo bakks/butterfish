@@ -546,7 +546,7 @@ func (this *GPT) doChatStreamCompletion(
 	// set a goroutine to wait on a timeout or having received a chunk
 	timeoutRoutine := func() {
 		if tokenTimeout == 0 {
-			return
+			panic("should not be called")
 		}
 
 		select {
@@ -560,11 +560,15 @@ func (this *GPT) doChatStreamCompletion(
 		}
 	}
 
-	go timeoutRoutine()
+	if tokenTimeout > 0 {
+		go timeoutRoutine()
+	}
 
 	callback := func(resp openai.ChatCompletionStreamResponse) {
-		gotChunk <- true
-		go timeoutRoutine()
+		if tokenTimeout > 0 {
+			gotChunk <- true
+			go timeoutRoutine()
+		}
 
 		if resp.Choices == nil || len(resp.Choices) == 0 {
 			return

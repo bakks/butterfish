@@ -72,15 +72,15 @@ func (v *VerboseFlag) BeforeResolve() error {
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
-	Verbose VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
-	Log     bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
-	Version kong.VersionFlag `short:"V" help:"Print version information and exit."`
-	BaseURL string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
+	Verbose      VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
+	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
+	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
+	BaseURL      string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
+	TokenTimeout int              `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		Model                     string `short:"m" default:"gpt-4-turbo" help:"Model for when the user manually enters a prompt."`
-		TokenTimeout              int    `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
@@ -159,6 +159,7 @@ func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config.OpenAIToken = getOpenAIToken()
 	config.BaseURL = options.BaseURL
 	config.PromptLibraryPath = defaultPromptPath
+	config.TokenTimeout = time.Duration(options.TokenTimeout) * time.Millisecond
 
 	if options.Verbose {
 		config.Verbose = verboseCount
@@ -235,7 +236,6 @@ func main() {
 		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
 		config.ShellMaxResponseTokens = cli.Shell.MaxResponseTokens
-		config.ShellTokenTimeout = time.Duration(cli.Shell.TokenTimeout) * time.Millisecond
 
 		bf.RunShell(ctx, config)
 
