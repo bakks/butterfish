@@ -26,6 +26,14 @@ import (
 	"golang.org/x/term"
 )
 
+// The default models to use for autosuggest and prompt generation
+// These are the models that are used if we can't find the given model
+// in Tiktoken
+// These models are used specifically for counting tokens to pack into
+// the prompt context
+const DEFAULT_AUTOSUGGEST_ENCODER = "gpt-3.5-turbo-instruct"
+const DEFAULT_PROMPT_ENCODER = "gpt-4-turbo"
+
 const ESC_CUP = "\x1b[6n" // Request the cursor position
 const ESC_UP = "\x1b[%dA"
 const ESC_RIGHT = "\x1b[%dC"
@@ -1545,7 +1553,7 @@ func assembleChat(
 
 	usedTokens += usedTokens + len(sysMsgTokens)
 	if usedTokens > maxTokens {
-		return "", nil, fmt.Errorf("System message too long, %d tokens", usedTokens)
+		return "", nil, fmt.Errorf("System message too long, %d tokens, max is %d", usedTokens, maxTokens)
 	}
 
 	// account for functions
@@ -1556,7 +1564,7 @@ func assembleChat(
 
 	usedTokens += usedTokens + len(functionTokens)
 	if usedTokens > maxTokens {
-		return "", nil, fmt.Errorf("System message too long, %d tokens", usedTokens)
+		return "", nil, fmt.Errorf("System message plus functions too long, %d tokens, max is %d", usedTokens, maxTokens)
 	}
 
 	blocks, historyTokens := getHistoryBlocksByTokens(
@@ -1885,7 +1893,11 @@ func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
 		modelName := this.Butterfish.Config.ShellAutosuggestModel
 		encoder, err := tiktoken.EncodingForModel(modelName)
 		if err != nil {
-			panic(fmt.Sprintf("Error getting encoder for autosuggest model %s: %s", modelName, err))
+			log.Printf("Warning: Error getting encoder for autosuggest model %s: %s", modelName, err)
+			encoder, err = tiktoken.EncodingForModel(DEFAULT_AUTOSUGGEST_ENCODER)
+			if err != nil {
+				panic(fmt.Sprintf("Error getting encoder for fallback autosuggest model %s: %s", modelName, err))
+			}
 		}
 
 		this.AutosuggestEncoder = encoder
@@ -1899,7 +1911,11 @@ func (this *ShellState) getPromptEncoder() *tiktoken.Tiktoken {
 		modelName := this.Butterfish.Config.ShellPromptModel
 		encoder, err := tiktoken.EncodingForModel(modelName)
 		if err != nil {
-			panic(fmt.Sprintf("Error getting encoder for prompt model %s: %s", modelName, err))
+			log.Printf("Warning: Error getting encoder for prompt model %s: %s", modelName, err)
+			encoder, err = tiktoken.EncodingForModel(DEFAULT_PROMPT_ENCODER)
+			if err != nil {
+				panic(fmt.Sprintf("Error getting encoder for fallback prompt model %s: %s", modelName, err))
+			}
 		}
 
 		this.PromptEncoder = encoder

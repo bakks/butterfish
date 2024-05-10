@@ -102,8 +102,8 @@ func NumTokensForModel(model string) int {
 
 	// couldn't find model
 	if foundModel == "" {
-		log.Printf("WARNING: Unknown model %s, using default context window size of 2048 tokens", model)
-		return 2048
+		log.Printf("WARNING: Unknown model %s, using default context window size of 8192 tokens", model)
+		return 8192
 	}
 
 	// found simpler model
