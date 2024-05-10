@@ -87,6 +87,7 @@ type CliConfig struct {
 		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
 		LightColor                bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+		MaxPromptTokens           int    `short:"P" default:"16384" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
 		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
 	} `cmd:"" help:"${shell_help}"`
@@ -234,6 +235,7 @@ func main() {
 		config.ShellColorDark = !cli.Shell.LightColor
 		config.ShellMode = true
 		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
+		config.ShellMaxPromptTokens = cli.Shell.MaxPromptTokens
 		config.ShellMaxHistoryBlockTokens = cli.Shell.MaxHistoryBlockTokens
 		config.ShellMaxResponseTokens = cli.Shell.MaxResponseTokens
 

@@ -81,6 +81,8 @@ type ButterfishConfig struct {
 	ShellAutosuggestTimeout time.Duration
 	// timeout specifically for a fresh prompt suggestion
 	ShellNewlineAutosuggestTimeout time.Duration
+	// Maximum tokens in a prompt regardless of model capacity
+	ShellMaxPromptTokens int
 	// Maximum tokens that a single history line-item can consume
 	ShellMaxHistoryBlockTokens int
 	// Maximum tokens for the response, reserved when calculating history and passed as max_tokens during inference

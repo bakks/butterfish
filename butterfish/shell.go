@@ -572,6 +572,13 @@ func (this *ShellState) FilterChildOut(data string) bool {
 	return false
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
 	parentIn io.Reader, parentOut io.Writer) {
@@ -603,6 +610,13 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 
+	promptMaxTokens := min(
+		NumTokensForModel(this.Config.ShellPromptModel),
+		this.Config.ShellMaxPromptTokens)
+	autoSuggestMaxTokens := min(
+		NumTokensForModel(this.Config.ShellAutosuggestModel),
+		this.Config.ShellMaxPromptTokens)
+
 	shellState := &ShellState{
 		Butterfish:           this,
 		ParentOut:            parentOut,
@@ -624,8 +638,8 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		AutosuggestChan:      make(chan *AutosuggestResult),
 		Color:                colorScheme,
 		parentInBuffer:       []byte{},
-		PromptMaxTokens:      NumTokensForModel(this.Config.ShellPromptModel),
-		AutosuggestMaxTokens: NumTokensForModel(this.Config.ShellAutosuggestModel),
+		PromptMaxTokens:      promptMaxTokens,
+		AutosuggestMaxTokens: autoSuggestMaxTokens,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
