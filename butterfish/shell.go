@@ -2000,7 +2000,8 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		this.Butterfish.Config.Verbose > 1,
 		this.History,
 		this.Butterfish.Config.ShellMaxHistoryBlockTokens,
-		this.AutosuggestChan)
+		this.AutosuggestChan,
+		this.getAutosuggestEncoder())
 
 }
 
@@ -2016,7 +2017,9 @@ func RequestCancelableAutosuggest(
 	verbose bool,
 	history *ShellHistory,
 	maxHistoryBlockTokens int,
-	autosuggestChan chan<- *AutosuggestResult) {
+	autosuggestChan chan<- *AutosuggestResult,
+	encoder *tiktoken.Tiktoken,
+) {
 
 	if delay > 0 {
 		time.Sleep(delay)
@@ -2027,11 +2030,7 @@ func RequestCancelableAutosuggest(
 
 	totalTokens := 1600 // limit autosuggest to 1600 tokens for cost reasons
 	reserveForAnswer := 64
-
-	encoder, err := tiktoken.EncodingForModel(model)
-	if err != nil {
-		panic(fmt.Sprintf("Error getting encoder for prompt model %s: %s", model, err))
-	}
+	var err error
 
 	historyBlocks, _ := getHistoryBlocksByTokens(history, encoder,
 		maxHistoryBlockTokens, totalTokens-reserveForAnswer, 4)
