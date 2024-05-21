@@ -60,8 +60,8 @@ var DarkShellColorScheme = &ShellColorScheme{
 	PromptGoalUnsafe: "\x1b[38;5;9m",
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;221m",
-	AnswerHighlight:  "\x1b[38;5;204m",
+	Answer:           "\x1b[38;5;221m", // yellow
+	AnswerHighlight:  "\x1b[38;5;204m", // orange
 	GoalMode:         "\x1b[38;5;51m",
 	Error:            "\x1b[38;5;196m",
 }
@@ -72,8 +72,8 @@ var LightShellColorScheme = &ShellColorScheme{
 	PromptGoalUnsafe: "\x1b[38;5;9m",
 	Command:          "\x1b[0m",
 	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;221m",
-	AnswerHighlight:  "\x1b[38;5;204m",
+	Answer:           "\x1b[38;5;18m", // Dark blue
+	AnswerHighlight:  "\x1b[38;5;6m",
 	GoalMode:         "\x1b[38;5;18m",
 	Error:            "\x1b[38;5;196m",
 }
@@ -366,29 +366,30 @@ type ShellState struct {
 	AutosuggestMaxTokens int
 
 	// The current state of the shell
-	State                int
-	GoalMode             bool
-	GoalModeBuffer       string
-	GoalModeGoal         string
-	GoalModeUnsafe       bool
-	ActiveFunction       string
-	PromptSuffixCounter  int
-	ChildOutReader       chan *byteMsg
-	ParentInReader       chan *byteMsg
-	CursorPosChan        chan *cursorPosition
-	PromptOutputChan     chan *util.CompletionResponse
-	PrintErrorChan       chan error
-	AutosuggestChan      chan *AutosuggestResult
-	History              *ShellHistory
-	PromptAnswerWriter   io.Writer
-	StyleWriter          *util.StyleCodeblocksWriter
-	Prompt               *ShellBuffer
-	PromptResponseCancel context.CancelFunc
-	Command              *ShellBuffer
-	TerminalWidth        int
-	Color                *ShellColorScheme
-	LastTabPassthrough   time.Time
-	parentInBuffer       []byte
+	State                  int
+	GoalMode               bool
+	GoalModeBuffer         string
+	GoalModeGoal           string
+	GoalModeUnsafe         bool
+	ActiveFunction         string
+	PromptSuffixCounter    int
+	ChildOutReader         chan *byteMsg
+	ParentInReader         chan *byteMsg
+	CursorPosChan          chan *cursorPosition
+	PromptOutputChan       chan *util.CompletionResponse
+	PrintErrorChan         chan error
+	AutosuggestChan        chan *AutosuggestResult
+	History                *ShellHistory
+	PromptAnswerWriter     io.Writer
+	PromptGoalAnswerWriter io.Writer
+	StyleWriter            *util.StyleCodeblocksWriter
+	Prompt                 *ShellBuffer
+	PromptResponseCancel   context.CancelFunc
+	Command                *ShellBuffer
+	TerminalWidth          int
+	Color                  *ShellColorScheme
+	LastTabPassthrough     time.Time
+	parentInBuffer         []byte
 	// these are used to estimate number of tokens
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
@@ -586,7 +587,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	this.SetPS1(childIn)
 
 	colorScheme := DarkShellColorScheme
-	if !this.Config.ShellColorDark {
+	if !this.Config.ColorDark {
 		colorScheme = LightShellColorScheme
 	}
 
@@ -604,8 +605,22 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	}
 
 	carriageReturnWriter := util.NewReplaceWriter(parentOut, "\n", "\r\n")
-	styleCodeblocksWriter := util.NewStyleCodeblocksWriter(carriageReturnWriter,
-		termWidth, colorScheme.Answer, colorScheme.AnswerHighlight)
+	codeblocksColorScheme := "monokai"
+	if !this.Config.ColorDark {
+		codeblocksColorScheme = "monokailight"
+	}
+	styleCodeblocksWriter := util.NewStyleCodeblocksWriter(
+		carriageReturnWriter,
+		termWidth,
+		colorScheme.Answer,
+		colorScheme.AnswerHighlight,
+		codeblocksColorScheme)
+	styleCodeblocksWriterGoal := util.NewStyleCodeblocksWriter(
+		carriageReturnWriter,
+		termWidth,
+		colorScheme.GoalMode,
+		colorScheme.AnswerHighlight,
+		codeblocksColorScheme)
 
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
@@ -618,28 +633,29 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		this.Config.ShellMaxPromptTokens)
 
 	shellState := &ShellState{
-		Butterfish:           this,
-		ParentOut:            parentOut,
-		ChildIn:              childIn,
-		Sigwinch:             sigwinch,
-		State:                stateNormal,
-		ChildOutReader:       childOutReader,
-		ParentInReader:       parentInReader,
-		CursorPosChan:        parentPositionChan,
-		PrintErrorChan:       make(chan error, 8),
-		History:              NewShellHistory(),
-		PromptOutputChan:     make(chan *util.CompletionResponse),
-		PromptAnswerWriter:   styleCodeblocksWriter,
-		StyleWriter:          styleCodeblocksWriter,
-		Command:              NewShellBuffer(),
-		Prompt:               NewShellBuffer(),
-		TerminalWidth:        termWidth,
-		AutosuggestEnabled:   this.Config.ShellAutosuggestEnabled,
-		AutosuggestChan:      make(chan *AutosuggestResult),
-		Color:                colorScheme,
-		parentInBuffer:       []byte{},
-		PromptMaxTokens:      promptMaxTokens,
-		AutosuggestMaxTokens: autoSuggestMaxTokens,
+		Butterfish:             this,
+		ParentOut:              parentOut,
+		ChildIn:                childIn,
+		Sigwinch:               sigwinch,
+		State:                  stateNormal,
+		ChildOutReader:         childOutReader,
+		ParentInReader:         parentInReader,
+		CursorPosChan:          parentPositionChan,
+		PrintErrorChan:         make(chan error, 8),
+		History:                NewShellHistory(),
+		PromptOutputChan:       make(chan *util.CompletionResponse),
+		PromptAnswerWriter:     styleCodeblocksWriter,
+		PromptGoalAnswerWriter: styleCodeblocksWriterGoal,
+		StyleWriter:            styleCodeblocksWriter,
+		Command:                NewShellBuffer(),
+		Prompt:                 NewShellBuffer(),
+		TerminalWidth:          termWidth,
+		AutosuggestEnabled:     this.Config.ShellAutosuggestEnabled,
+		AutosuggestChan:        make(chan *AutosuggestResult),
+		Color:                  colorScheme,
+		parentInBuffer:         []byte{},
+		PromptMaxTokens:        promptMaxTokens,
+		AutosuggestMaxTokens:   autoSuggestMaxTokens,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
@@ -1000,7 +1016,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 		if data[0] == 0x03 {
 			if this.GoalMode {
 				// Ctrl-C while in goal mode
-				fmt.Fprintf(this.PromptAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
+				fmt.Fprintf(this.PromptGoalAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
 				this.GoalMode = false
 			}
 
@@ -1279,7 +1295,7 @@ func (this *ShellState) GoalModeStart() {
 	}
 
 	this.GoalMode = true
-	fmt.Fprintf(this.PromptAnswerWriter, "%sGoal mode starting...%s\n", this.Color.Answer, this.Color.Command)
+	fmt.Fprintf(this.PromptGoalAnswerWriter, "%sGoal mode starting...%s\n", this.Color.Answer, this.Color.Command)
 	this.GoalModeGoal = goal
 	this.Prompt.Clear()
 
@@ -1359,7 +1375,7 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 			result = "FAILURE"
 		}
 
-		fmt.Fprintf(this.PromptAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
+		fmt.Fprintf(this.PromptGoalAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
 		this.GoalMode = false
 
 	case "":
@@ -1476,7 +1492,7 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
 	go CompletionRoutine(request, this.Butterfish.LLMClient,
-		this.PromptAnswerWriter, this.PromptOutputChan,
+		this.PromptGoalAnswerWriter, this.PromptOutputChan,
 		this.Color.GoalMode, this.Color.Error, this.StyleWriter)
 }
 

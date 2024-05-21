@@ -57,7 +57,8 @@ type ButterfishConfig struct {
 
 	// A list of context-specific styles drawn from the colorscheme
 	// These are what should actually be used during rendering
-	Styles *styles
+	Styles    *styles
+	ColorDark bool
 
 	// Path of yaml file from which to load LLM prompts
 	// Defaults to ~/.config/butterfish/prompts.yaml
@@ -70,7 +71,6 @@ type ButterfishConfig struct {
 	// Shell mode configuration
 	ShellMode               bool
 	ShellPluginMode         bool
-	ShellColorDark          bool
 	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
 	ShellPromptModel        string // used when the user enters an explicit prompt
 	ShellLeavePromptAlone   bool   // don't try to edit the shell prompt

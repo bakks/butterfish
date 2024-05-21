@@ -12,7 +12,7 @@ import (
 // Sanity test
 func TestStyleCodeblocksWriter(t *testing.T) {
 	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "", "")
+	writer := NewStyleCodeblocksWriter(buffer, 80, "", "", "")
 
 	writer.Write([]byte("Hello\n"))
 	writer.Write([]byte("```javascript\n"))
@@ -47,9 +47,13 @@ func TestStyleCodeblocksWriter(t *testing.T) {
 // 4. 1 backtick inlined, at start of line
 // 5. 3 backticks, indented
 
-func Test3BackticksNoLanguage(t *testing.T) {
+func getStyleCodeblocksWriter() (*bytes.Buffer, *StyleCodeblocksWriter) {
 	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "NORMAL", "HIGHLIGHT")
+	return buffer, NewStyleCodeblocksWriter(buffer, 80, "NORMAL", "HIGHLIGHT", "")
+}
+
+func Test3BackticksNoLanguage(t *testing.T) {
+	buffer, writer := getStyleCodeblocksWriter()
 
 	testStr := `Hello
 ` + "```" + `
@@ -67,8 +71,7 @@ Foo`
 }
 
 func Test3BackticksWithLanguage(t *testing.T) {
-	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "NORMAL", "HIGHLIGHT")
+	buffer, writer := getStyleCodeblocksWriter()
 
 	testStr := `Hello
 ` + "```javascript" + `
@@ -86,8 +89,7 @@ Foo`
 }
 
 func Test1BacktickInlined(t *testing.T) {
-	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "NORMAL", "HIGHLIGHT")
+	buffer, writer := getStyleCodeblocksWriter()
 
 	testStr := "Hello `console.log('Hi')` Foo"
 
@@ -100,8 +102,7 @@ func Test1BacktickInlined(t *testing.T) {
 }
 
 func Test1BacktickInlinedAtStartOfLine(t *testing.T) {
-	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "NORMAL", "HIGHLIGHT")
+	buffer, writer := getStyleCodeblocksWriter()
 
 	testStr := "`console.log('Hi')` Foo"
 
@@ -114,8 +115,7 @@ func Test1BacktickInlinedAtStartOfLine(t *testing.T) {
 }
 
 func Test3BackticksIndented(t *testing.T) {
-	buffer := new(bytes.Buffer)
-	writer := NewStyleCodeblocksWriter(buffer, 80, "NORMAL", "HIGHLIGHT")
+	buffer, writer := getStyleCodeblocksWriter()
 
 	testStr := `Hello
 

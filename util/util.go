@@ -259,6 +259,7 @@ type StyleCodeblocksWriter struct {
 	terminalWidth int
 	normalColor   string
 	inlineColor   string
+	colorScheme   string
 	state         int
 	langSuffix    *bytes.Buffer
 	blockBuffer   *bytes.Buffer
@@ -270,9 +271,14 @@ func NewStyleCodeblocksWriter(
 	terminalWidth int,
 	normalColor string,
 	highlightColor string,
+	colorScheme string,
 ) *StyleCodeblocksWriter {
 	if terminalWidth == 0 {
 		panic("terminal width must be > 0")
+	}
+
+	if colorScheme == "" {
+		colorScheme = "monokai"
 	}
 
 	return &StyleCodeblocksWriter{
@@ -281,6 +287,7 @@ func NewStyleCodeblocksWriter(
 		normalColor:   normalColor,
 		inlineColor:   highlightColor,
 		terminalWidth: terminalWidth,
+		colorScheme:   colorScheme,
 	}
 }
 
@@ -472,8 +479,13 @@ func lastLine(buff *bytes.Buffer, newlines int) []byte {
 func (this *StyleCodeblocksWriter) EndOfCodeLine(w io.Writer) error {
 	temp := new(bytes.Buffer)
 	blockBufferString := this.blockBuffer.String()
-	err := quick.Highlight(temp, blockBufferString,
-		this.langSuffix.String(), "terminal256", "monokai")
+
+	err := quick.Highlight(
+		temp,
+		blockBufferString,
+		this.langSuffix.String(),
+		"terminal256",
+		this.colorScheme)
 	if err != nil {
 		log.Printf("error highlighting code block: %s", err)
 	}

@@ -622,7 +622,11 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 		termWidth, _, _ := term.GetSize(int(os.Stdout.Fd()))
 
 		if termWidth > 0 {
-			writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color, highlight)
+			colorScheme := "monokai"
+			if !this.Config.ColorDark {
+				colorScheme = "monokailight"
+			}
+			writer = util.NewStyleCodeblocksWriter(this.Out, termWidth, color, highlight, colorScheme)
 		}
 	} else if cmd.NoBackticks {
 		// this is an else because the code blocks writer will strip out backticks

@@ -77,6 +77,7 @@ type CliConfig struct {
 	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
 	BaseURL      string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
 	TokenTimeout int              `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
+	LightColor   bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
@@ -86,7 +87,6 @@ type CliConfig struct {
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
 		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
-		LightColor                bool   `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 		MaxPromptTokens           int    `short:"P" default:"16384" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
 		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
@@ -232,7 +232,7 @@ func main() {
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellNewlineAutosuggestTimeout = time.Duration(cli.Shell.NewlineAutosuggestTimeout) * time.Millisecond
-		config.ShellColorDark = !cli.Shell.LightColor
+		config.ColorDark = !cli.LightColor
 		config.ShellMode = true
 		config.ShellLeavePromptAlone = cli.Shell.NoCommandPrompt
 		config.ShellMaxPromptTokens = cli.Shell.MaxPromptTokens
