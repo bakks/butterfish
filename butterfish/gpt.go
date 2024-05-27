@@ -380,7 +380,7 @@ func (this *GPT) CompletionStream(request *util.CompletionRequest, writer io.Wri
 
 func (this *GPT) InstructCompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	req := openai.CompletionRequest{
-		Prompt:      []string{request.Prompt},
+		Prompt:      request.Prompt,
 		Model:       request.Model,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
@@ -695,10 +695,10 @@ func (this *GPT) doChatStreamCompletion(
 // Run a GPT completion request and return the response
 func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	req := openai.CompletionRequest{
+		Prompt:      request.Prompt,
 		Model:       request.Model,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
-		Prompt:      request.Prompt,
 	}
 
 	if request.Verbose {
