@@ -196,13 +196,13 @@ func (this *ShellHistory) add(historyType int, block string) {
 }
 
 func (this *ShellHistory) Append(historyType int, data string) {
-	this.mutex.Lock()
-	defer this.mutex.Unlock()
-
 	// if data is empty, we don't want to add a new block
 	if len(data) == 0 {
 		return
 	}
+
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
 
 	numBlocks := len(this.Blocks)
 	// if we have a block already, and it matches the type, append to it

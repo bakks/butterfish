@@ -58,6 +58,14 @@ func (this *ShellBuffer) Cursor() int {
 	return this.cursor
 }
 
+var CONTROL_STARTS = map[byte]bool{
+	0x1b: true,
+	0x7f: true,
+	0x08: true,
+	0x01: true,
+	0x05: true,
+}
+
 func (this *ShellBuffer) Write(data string) []byte {
 	if len(data) == 0 {
 		return []byte{}
@@ -156,7 +164,16 @@ func (this *ShellBuffer) Write(data string) []byte {
 			if this.cursor == len(this.buffer) {
 				this.buffer = append(this.buffer, r)
 			} else {
-				this.buffer = append(this.buffer[:this.cursor], append([]rune{r}, this.buffer[this.cursor:]...)...)
+				// it's too slow to insert in the middle of a slice for each rune so we
+				// add to an intermediate buffer until we hit a CONTROL_STARTS character
+				// then we'll splice it in to the main buffer
+				intermediateBuffer := []rune{r}
+				for i+1 < len(runes) && !CONTROL_STARTS[byte(runes[i+1])] {
+					intermediateBuffer = append(intermediateBuffer, rune(runes[i+1]))
+					i++
+				}
+				this.buffer = append(this.buffer[:this.cursor], append(intermediateBuffer, this.buffer[this.cursor:]...)...)
+				this.cursor += len(intermediateBuffer) - 1
 			}
 			this.cursor++
 
