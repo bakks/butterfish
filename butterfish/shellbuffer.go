@@ -172,7 +172,12 @@ func (this *ShellBuffer) Write(data string) []byte {
 					intermediateBuffer = append(intermediateBuffer, rune(runes[i+1]))
 					i++
 				}
-				this.buffer = append(this.buffer[:this.cursor], append(intermediateBuffer, this.buffer[this.cursor:]...)...)
+
+				newBuffer := make([]rune, 0, len(this.buffer)+len(intermediateBuffer)+512)
+				newBuffer = append(newBuffer, this.buffer[:this.cursor]...)
+				newBuffer = append(newBuffer, intermediateBuffer...)
+				newBuffer = append(newBuffer, this.buffer[this.cursor:]...)
+				this.buffer = newBuffer
 				this.cursor += len(intermediateBuffer) - 1
 			}
 			this.cursor++
