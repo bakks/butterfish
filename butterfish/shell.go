@@ -394,6 +394,9 @@ type ShellState struct {
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
 
+	recentOutput []byte
+	inFullScreenProgram bool
+
 	// autosuggest config
 	AutosuggestEnabled bool
 	LastAutosuggest    string
@@ -656,6 +659,8 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		parentInBuffer:         []byte{},
 		PromptMaxTokens:        promptMaxTokens,
 		AutosuggestMaxTokens:   autoSuggestMaxTokens,
+		recentOutput:        make([]byte, 0, 1024),
+        inFullScreenProgram: false,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
@@ -843,6 +848,21 @@ func (this *ShellState) Mux() {
 				this.Butterfish.Cancel()
 				return
 			}
+            // Update recent output and check for full-screen program
+            this.updateRecentOutput(childOutMsg.Data)
+            wasFullScreen := this.inFullScreenProgram
+            this.inFullScreenProgram = this.IsInteractiveFullScreenProgram()
+
+            if this.inFullScreenProgram {
+                // Bypass all processing and directly forward output to parent
+                this.ParentOut.Write(childOutMsg.Data)
+                continue
+            }
+
+            if wasFullScreen && !this.inFullScreenProgram {
+                // We've just exited a full-screen program, reset state as needed
+                this.resetAfterFullScreenProgram()
+            }                                    
 
 			if this.Butterfish.Config.Verbose > 2 {
 				log.Printf("Child out: %x", string(childOutMsg.Data))
@@ -939,6 +959,20 @@ func (this *ShellState) Mux() {
 	}
 }
 
+func (this *ShellState) updateRecentOutput(data []byte) {
+    this.recentOutput = append(this.recentOutput, data...)
+    if len(this.recentOutput) > 1024 {
+        this.recentOutput = this.recentOutput[len(this.recentOutput)-1024:]
+    }
+}
+
+func (this *ShellState) resetAfterFullScreenProgram() {
+    // Reset any state that might have been affected by the full-screen program
+    // This might include clearing buffers, resetting cursor positions, etc.
+    // this.Command.Clear()
+    // this.Prompt.Clear()    
+}
+
 func (this *ShellState) ParentInputLoop(data []byte) {
 	if this.Butterfish.Config.Verbose > 2 {
 		log.Printf("Parent in: %x", data)
@@ -981,7 +1015,70 @@ func (this *ShellState) ParentInputLoop(data []byte) {
 	}
 }
 
+var (
+    enterAlternateScreen = []byte{0x1b, '[', '?', '1', '0', '4', '9', 'h'}
+    exitAlternateScreen  = []byte{0x1b, '[', '?', '1', '0', '4', '9', 'l'}
+)
+
+
+
+func (this *ShellState) IsInteractiveFullScreenProgram() bool {
+	// this function is used to detect interactive programs like vim, less
+	// and so on. If we store their output in shellbuffer, it will
+	// be very slow. So we want to bypass processing for these programs.
+
+	// Check for specific control sequences: Look for the control sequence 
+	// that switches to the alternate screen.
+	//  It's typically: \x1b[?1049h (enter alternate screen)
+	//  and \x1b[?1049l (exit alternate screen
+
+    // Check if we've seen the alternate screen sequence
+    if bytes.Contains(this.recentOutput, enterAlternateScreen) {
+        return true
+    }
+    if bytes.Contains(this.recentOutput, exitAlternateScreen) {
+        return false
+    }
+	// // Check terminal mode
+	// Monitor terminal mode changes: These programs often change 
+	// the terminal mode to raw input mode.
+	// You can detect this by monitoring ioctl calls or checking terminal attributes.
+	// termios, err := this.getTermios()
+	// if err == nil {
+	// 	// Check if terminal is in raw mode
+	// 	if (termios.Lflag & syscall.ICANON) == 0 {
+	// 		return true
+	// 	}
+	// }
+    // You could add more checks here, like monitoring frequency of screen clears
+    // or checking terminal mode if needed
+
+    return this.inFullScreenProgram // maintain current state if no change detected
+}
+
+// func (this *ShellState) getTermios() (*syscall.Termios, error) {
+//     termios := &syscall.Termios{}
+//     _, _, err := syscall.Syscall6(
+//         syscall.SYS_IOCTL,
+//         uintptr(os.Stdin.Fd()),
+//         uintptr(syscall.TCGETS),
+//         uintptr(unsafe.Pointer(termios)),
+//         0, 0, 0)
+//     if err != 0 {
+//         return nil, err
+//     }
+//     return termios, nil
+// }
+
+
+
 func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
+	if this.IsInteractiveFullScreenProgram() {
+        // Bypass processing for full-screen programs
+        this.ChildIn.Write(data)
+        return nil
+    }
+	
 	hasCarriageReturn := bytes.Contains(data, []byte{'\r'})
 
 	switch this.State {
