@@ -395,7 +395,7 @@ type ShellState struct {
 	PromptEncoder      *tiktoken.Tiktoken
 
 	recentOutput []byte
-	inFullScreenProgram bool
+	inInteractiveProgram bool
 
 	// autosuggest config
 	AutosuggestEnabled bool
@@ -660,7 +660,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		PromptMaxTokens:        promptMaxTokens,
 		AutosuggestMaxTokens:   autoSuggestMaxTokens,
 		recentOutput:        make([]byte, 0, 1024),
-        inFullScreenProgram: false,
+        inInteractiveProgram: false,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
@@ -850,16 +850,16 @@ func (this *ShellState) Mux() {
 			}
             // Update recent output and check for full-screen program
             this.updateRecentOutput(childOutMsg.Data)
-            wasFullScreen := this.inFullScreenProgram
-            this.inFullScreenProgram = this.IsInteractiveFullScreenProgram()
+            wasFullScreen := this.inInteractiveProgram
+            this.inInteractiveProgram = this.IsInteractiveProgram()
 
-            if this.inFullScreenProgram {
+            if this.inInteractiveProgram {
                 // Bypass all processing and directly forward output to parent
                 this.ParentOut.Write(childOutMsg.Data)
                 continue
             }
 
-            if wasFullScreen && !this.inFullScreenProgram {
+            if wasFullScreen && !this.inInteractiveProgram {
                 // We've just exited a full-screen program, reset state as needed
                 this.resetAfterFullScreenProgram()
             }                                    
@@ -1020,13 +1020,79 @@ var (
     exitAlternateScreen  = []byte{0x1b, '[', '?', '1', '0', '4', '9', 'l'}
 )
 
+var interactivePrograms = map[string]bool{
+    "fzf": true,
+    "atuin": true,	
+	"bat": true,
+	"less": true,
+	"more": true,
+	"vi": true,
+	"vim": true,
+	"nvim": true,
+	"nano": true,
+	"pico": true,
+	"mc": true,
+	"htop": true,
+	"top": true,
+	"watch": true,
+	"dialog": true,
+	"ncdu": true,
+	"gdu": true,
+	"gdu-go": true,
+	"nnn": true,
+	"gdb": true,
+	"zenith": true,
+	"vd": true,
+	//"tmux": true,
+	//"screen": true,
+	"tig": true,		
+    // Add other known interactive programs that don't use alternate screen
+}
 
+func (this *ShellState) hasInteractiveChildProcess() bool {
+    currentPID := os.Getpid()
+    processes, err := ps.Processes()
+    if err != nil {
+        return false
+    }
 
-func (this *ShellState) IsInteractiveFullScreenProgram() bool {
+    childPIDs := make(map[int]bool)
+    childPIDs[currentPID] = true
+
+    // First, identify all child PIDs
+    for {
+        newChildFound := false
+        for _, p := range processes {
+            if childPIDs[p.PPid()] && !childPIDs[p.Pid()] {
+                childPIDs[p.Pid()] = true
+                newChildFound = true
+            }
+        }
+        if !newChildFound {
+            break
+        }
+    }
+
+    // Then check if any of these children are in our interactive programs list
+    for _, p := range processes {
+        if childPIDs[p.Pid()] {
+            if interactivePrograms[p.Executable()] {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
+func (this *ShellState) IsInteractiveProgram() bool {
 	// this function is used to detect interactive programs like vim, less
 	// and so on. If we store their output in shellbuffer, it will
 	// be very slow. So we want to bypass processing for these programs.
 
+	if this.hasInteractiveChildProcess() {
+        return true
+    }
 	// Check for specific control sequences: Look for the control sequence 
 	// that switches to the alternate screen.
 	//  It's typically: \x1b[?1049h (enter alternate screen)
@@ -1053,7 +1119,7 @@ func (this *ShellState) IsInteractiveFullScreenProgram() bool {
     // You could add more checks here, like monitoring frequency of screen clears
     // or checking terminal mode if needed
 
-    return this.inFullScreenProgram // maintain current state if no change detected
+    return this.inInteractiveProgram // maintain current state if no change detected
 }
 
 // func (this *ShellState) getTermios() (*syscall.Termios, error) {
@@ -1073,7 +1139,7 @@ func (this *ShellState) IsInteractiveFullScreenProgram() bool {
 
 
 func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
-	if this.IsInteractiveFullScreenProgram() {
+	if this.IsInteractiveProgram() {
         // Bypass processing for full-screen programs
         this.ChildIn.Write(data)
         return nil
