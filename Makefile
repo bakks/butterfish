@@ -27,9 +27,12 @@ test: proto/butterfish.pb.go
 
 build: bin/butterfish
 
+install: bin/butterfish
+	cp bin/butterfish /usr/local/bin
+
 licenses:
 	go-licenses report ./... 2>/dev/null | awk -F"," '{printf "|[%s](https://%s)|[%s](%s)|\n",$$1,$$1,$$3,$$2}'
 
 
-.PHONY: all clean watch test build licenses
+.PHONY: all clean watch test build licenses install
 
