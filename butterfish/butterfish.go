@@ -90,18 +90,18 @@ type ButterfishConfig struct {
 
 	// Model, temp, and max tokens to use when executing the `gencmd` command
 	GencmdModel       string
-	GencmdTemperature float32
-	GencmdMaxTokens   int
+	GencmdTemperature float64
+	GencmdMaxTokens   int64
 
 	// Model, temp, and max tokens to use when executing the `exec` command
 	ExeccheckModel       string
-	ExeccheckTemperature float32
-	ExeccheckMaxTokens   int
+	ExeccheckTemperature float64
+	ExeccheckMaxTokens   int64
 
 	// Model, temp, and max tokens to use when executing the `summarize` command
 	SummarizeModel       string
-	SummarizeTemperature float32
-	SummarizeMaxTokens   int
+	SummarizeTemperature float64
+	SummarizeMaxTokens   int64
 }
 
 func (this *ButterfishConfig) ParseShell() string {
@@ -129,7 +129,6 @@ type PromptLibrary interface {
 type LLM interface {
 	CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error)
 	Completion(request *util.CompletionRequest) (*util.CompletionResponse, error)
-	Embeddings(ctx context.Context, input []string, verbose bool) ([][]float32, error)
 }
 
 type ButterfishCtx struct {
@@ -314,10 +313,6 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 	return ptmx, cleanup, nil
 }
 
-func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float32, error) {
-	return this.LLMClient.Embeddings(ctx, content, this.Config.Verbose > 0)
-}
-
 // A local printf that writes to the butterfishctx out using a lipgloss style
 func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
 	str := util.MultilineLipglossRender(style, fmt.Sprintf(format, a...))
@@ -334,37 +329,6 @@ func (this *ButterfishCtx) Printf(format string, a ...any) {
 
 func (this *ButterfishCtx) ErrorPrintf(format string, a ...any) {
 	this.StylePrintf(this.Config.Styles.Error, format, a...)
-}
-
-// Ensure we have a vector index object, idempotent
-func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
-	if this.VectorIndex != nil {
-		return nil
-	}
-
-	out := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
-	index := embedding.NewDiskCachedEmbeddingIndex(this, out)
-
-	if this.Config.Verbose > 0 {
-		index.SetOutput(this.Out)
-	}
-
-	this.VectorIndex = index
-
-	if !this.InConsoleMode {
-		// if we're running from the command line then we first load the curr
-		// dir index
-		if pathsToLoad == nil || len(pathsToLoad) == 0 {
-			pathsToLoad = []string{"."}
-		}
-
-		err := this.VectorIndex.LoadPaths(this.Ctx, pathsToLoad)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (this *ButterfishCtx) printError(err error, prefix ...string) {

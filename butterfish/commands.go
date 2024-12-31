@@ -57,8 +57,8 @@ type CliCommandConfig struct {
 		Prompt        []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
 		SystemMessage string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
 		Model         string   `short:"m" default:"gpt-4-turbo" help:"LLM to use for the prompt."`
-		NumTokens     int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature   float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		NumTokens     int64    `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature   float64  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 		Functions     string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
 		NoColor       bool     `default:"false" help:"Disable color output."`
 		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
@@ -68,16 +68,16 @@ type CliCommandConfig struct {
 		File        string  `short:"f" default:"~/.config/butterfish/prompt.txt" help:"Cached prompt file to use." optional:""`
 		Editor      string  `short:"e" default:"" help:"Editor to use for the prompt."`
 		Model       string  `short:"m" default:"gpt-4-turbo" help:"GPT model to use for the prompt."`
-		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		NumTokens   int64   `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float64 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 	} `cmd:"" help:"Like the prompt command, but this opens a local file with your default editor (set with the EDITOR env var) that will then be passed as a prompt in the LLM call."`
 
 	Edit struct {
 		Filepath    string  `arg:"" help:"Path to file, will be edited in-place."`
 		Prompt      string  `arg:"" help:"LLM model prompt, e.g. 'Plan an edit'"`
 		Model       string  `short:"m" default:"gpt-4-turbo" help:"LLM to use for the prompt."`
-		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
+		NumTokens   int64   `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float64 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 		InPlace     bool    `short:"i" default:"false" help:"Edit the file in-place, otherwise we write to stdout."`
 		NoColor     bool    `default:"false" help:"Disable color output."`
 		NoBackticks bool    `default:"false" help:"Strip out backticks around codeblocks."`
@@ -97,37 +97,6 @@ type CliCommandConfig struct {
 	Exec struct {
 		Command []string `arg:"" help:"Command to execute." optional:""`
 	} `cmd:"" help:"Execute a command and try to debug problems. The command can either passed in or in the command register (if you have run gencmd in Console Mode)."`
-
-	Index struct {
-		Paths     []string `arg:"" help:"Paths to index." optional:""`
-		Force     bool     `short:"f" default:"false" help:"Force re-indexing of files rather than skipping cached embeddings."`
-		ChunkSize int      `short:"c" default:"512" help:"Number of bytes to embed at a time when the file is split up."`
-		MaxChunks int      `short:"C" default:"256" help:"Maximum number of chunks to embed from a specific file."`
-	} `cmd:"" help:"Recursively index the current directory using embeddings. This will read each file, split it into chunks, embed the chunks, and write a .butterfish_index file to each directory caching the embeddings. If you re-run this it will skip over previously embedded files unless you force a re-index. This implements an exponential backoff if you hit OpenAI API rate limits."`
-
-	Clearindex struct {
-		Paths []string `arg:"" help:"Paths to clear from the index." optional:""`
-	} `cmd:"" help:"Clear paths from the index, both from the in-memory index (if in Console Mode) and to delete .butterfish_index files. Defaults to loading from the current directory but allows you to pass in paths to load."`
-
-	Loadindex struct {
-		Paths []string `arg:"" help:"Paths to load into the index." optional:""`
-	} `cmd:"" help:"Load paths into the index. This is specifically for Console Mode when you want to load a set of cached indexes into memory. Defaults to loading from the current directory but allows you to pass in paths to load."`
-
-	Showindex struct {
-		Paths []string `arg:"" help:"Paths to show from the index." optional:""`
-	} `cmd:"" help:"Show which files are present in the loaded index. You can pass in a path but it defaults to the current directory."`
-
-	Indexsearch struct {
-		Query   string `arg:"" help:"Query to search for."`
-		Results int    `short:"r" default:"5" help:"Number of results to return."`
-	} `cmd:"" help:"Search embedding index and return relevant file snippets. This uses the embedding API to embed the search string, then does a brute-force cosine similarity against every indexed chunk of text, returning those chunks and their scores."`
-
-	Indexquestion struct {
-		Question    string  `arg:"" help:"Question to ask."`
-		Model       string  `short:"m" default:"gpt-4-turbo" help:"GPT model to use for the prompt."`
-		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt."`
-	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
 }
 
 func (this *ButterfishCtx) getPipedStdin() string {
@@ -237,7 +206,7 @@ func ApplyEditToolToLineBuffer(toolCall *util.ToolCall, lineBuffer *LineBuffer) 
 		return errors.New("Unknown tool call: " + toolCall.Function.Name)
 	}
 
-	paramJson := toolCall.Function.Parameters
+	paramJson := toolCall.Function.Arguments
 	var params EditToolParameters
 	err := json.Unmarshal([]byte(paramJson), &params)
 	if err != nil {
@@ -457,132 +426,6 @@ func (this *ButterfishCtx) ExecCommand(
 
 		return this.execAndCheck(this.Ctx, input)
 
-	case "clearindex", "clearindex <paths>":
-		this.initVectorIndex(nil)
-
-		paths := options.Clearindex.Paths
-		if len(paths) == 0 {
-			paths = []string{"."}
-		}
-
-		this.VectorIndex.ClearPaths(this.Ctx, paths)
-		return nil
-
-	case "showindex", "showindex <paths>":
-		paths := options.Showindex.Paths
-		this.initVectorIndex(paths)
-
-		indexedPaths := this.VectorIndex.IndexedFiles()
-		for _, path := range indexedPaths {
-			this.Printf("%s\n", path)
-		}
-
-		return nil
-
-	case "loadindex", "loadindex <paths>":
-		paths := options.Loadindex.Paths
-		if len(paths) == 0 {
-			paths = []string{"."}
-		}
-
-		this.Printf("Loading indexes (not generating new embeddings) for %s\n", strings.Join(paths, ", "))
-		this.initVectorIndex(paths)
-
-		err := this.VectorIndex.LoadPaths(this.Ctx, paths)
-		if err != nil {
-			return err
-		}
-		this.Printf("Loaded %d files\n", len(this.VectorIndex.IndexedFiles()))
-
-	case "index", "index <paths>":
-		paths := options.Index.Paths
-		if len(paths) == 0 {
-			paths = []string{"."}
-		}
-
-		this.Printf("Indexing %s\n", strings.Join(paths, ", "))
-		this.initVectorIndex(paths)
-
-		err := this.VectorIndex.LoadPaths(this.Ctx, paths)
-		if err != nil {
-			return err
-		}
-		force := options.Index.Force
-
-		err = this.VectorIndex.IndexPaths(
-			this.Ctx,
-			paths,
-			force,
-			options.Index.ChunkSize,
-			options.Index.MaxChunks)
-		if err != nil {
-			return err
-		}
-
-		this.Printf("Done, %d files now loaded in the index\n", len(this.VectorIndex.IndexedFiles()))
-		return nil
-
-	case "indexsearch <query>":
-		this.initVectorIndex(nil)
-
-		input := options.Indexsearch.Query
-		if input == "" {
-			return errors.New("Please provide search parameters")
-		}
-		numResults := options.Indexsearch.Results
-
-		results, err := this.VectorIndex.Search(this.Ctx, input, numResults)
-		if err != nil {
-			return err
-		}
-
-		for _, result := range results {
-			this.StylePrintf(this.Config.Styles.Highlight, "%s : %0.4f\n", result.FilePath, result.Score)
-			this.Printf("%s\n", result.Content)
-		}
-
-	case "indexquestion <question>":
-		this.initVectorIndex(nil)
-		input := options.Indexquestion.Question
-
-		if input == "" {
-			return errors.New("Please provide a question")
-		}
-		if this.VectorIndex == nil {
-			return errors.New("No vector index loaded")
-		}
-
-		results, err := this.VectorIndex.Search(this.Ctx, input, 3)
-		if err != nil {
-			return err
-		}
-		samples := []string{}
-
-		for _, result := range results {
-			samples = append(samples, result.Content)
-		}
-
-		exerpts := strings.Join(samples, "\n---\n")
-
-		prompt, err := this.PromptLibrary.GetPrompt(prompt.PromptQuestion,
-			"snippets", exerpts,
-			"question", input)
-		if err != nil {
-			return err
-		}
-
-		req := &util.CompletionRequest{
-			Ctx:           this.Ctx,
-			Prompt:        prompt,
-			Model:         options.Indexquestion.Model,
-			MaxTokens:     options.Indexquestion.NumTokens,
-			Temperature:   options.Indexquestion.Temperature,
-			SystemMessage: "N/A",
-		}
-
-		_, err = this.LLMClient.CompletionStream(req, this.Out)
-		return err
-
 	default:
 		return errors.New("Unrecognized command: " + parsed.Command())
 
@@ -601,8 +444,8 @@ type promptCommand struct {
 	Prompt      string
 	SysMsg      string
 	Model       string
-	NumTokens   int
-	Temperature float32
+	NumTokens   int64
+	Temperature float64
 	Functions   string
 	NoColor     bool
 	NoBackticks bool
@@ -671,7 +514,7 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 		Verbose:       cmd.Verbose > 0,
 		Functions:     functions,
 		Tools:         cmd.Tools,
-		HistoryBlocks: cmd.History,
+		Messages:      cmd.History,
 		TokenTimeout:  this.Config.TokenTimeout,
 	}
 
@@ -686,7 +529,7 @@ var EditTools = []util.ToolDefinition{
 		Function: util.FunctionDefinition{
 			Name:        "edit",
 			Description: "Edit a range of lines in a file. The range start is inclusive, the end is exclusive, so values of 5 and 5 would mean that new text is inserted on line 5. Values of 5 and 6 mean that line 5 would be replaced.",
-			Parameters: jsonschema.Definition{
+			Parameters: util.UntypeSchemaDefinition(jsonschema.Definition{
 				Type: jsonschema.Object,
 				Properties: map[string]jsonschema.Definition{
 					"range_start": {
@@ -703,7 +546,7 @@ var EditTools = []util.ToolDefinition{
 					},
 				},
 				Required: []string{"range_start", "range_end", "code_edit"},
-			},
+			}),
 		},
 	},
 }

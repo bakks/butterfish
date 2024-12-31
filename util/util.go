@@ -26,9 +26,9 @@ type CompletionRequest struct {
 	Ctx           context.Context
 	Prompt        string
 	Model         string
-	MaxTokens     int
-	Temperature   float32
-	HistoryBlocks []HistoryBlock
+	MaxTokens     int64
+	Temperature   float64
+	Messages      []HistoryBlock
 	SystemMessage string
 	Functions     []FunctionDefinition
 	Tools         []ToolDefinition
@@ -37,8 +37,8 @@ type CompletionRequest struct {
 }
 
 type FunctionCall struct {
-	Name       string
-	Parameters string
+	Name      string
+	Arguments string
 }
 
 type ToolCall struct {
@@ -48,16 +48,42 @@ type ToolCall struct {
 }
 
 type CompletionResponse struct {
-	Completion         string
-	FunctionName       string
-	FunctionParameters string
-	ToolCalls          []*ToolCall
+	Completion string
+	ToolCalls  []*ToolCall
 }
 
 type FunctionDefinition struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Parameters  jsonschema.Definition `json:"parameters"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+func UntypeSchemaDefinition(schemaDefinition jsonschema.Definition) map[string]any {
+	// Initialize a map to store untyped schema properties
+	untypedSchema := make(map[string]any)
+
+	// Set the type of the schema definition
+	untypedSchema["type"] = schemaDefinition.Type
+
+	// Convert properties to untyped map
+	untypedProperties := make(map[string]any)
+	for propName, propDefinition := range schemaDefinition.Properties {
+		untypedProperties[propName] = UntypeSchemaDefinition(propDefinition)
+	}
+	untypedSchema["properties"] = untypedProperties
+
+	// Set required fields if any
+	if len(schemaDefinition.Required) > 0 {
+		untypedSchema["required"] = schemaDefinition.Required
+	}
+
+	// Set description if available
+	if schemaDefinition.Description != "" {
+		untypedSchema["description"] = schemaDefinition.Description
+	}
+
+	// Return the untyped schema map
+	return untypedSchema
 }
 
 type ToolDefinition struct {
@@ -66,12 +92,10 @@ type ToolDefinition struct {
 }
 
 type HistoryBlock struct {
-	Type           int
-	Content        string
-	FunctionName   string
-	FunctionParams string
-	ToolCalls      []*ToolCall
-	ToolCallId     string
+	Type       int
+	Content    string
+	ToolCalls  []*ToolCall
+	ToolCallId string
 }
 
 func (this HistoryBlock) String() string {
