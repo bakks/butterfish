@@ -45,14 +45,18 @@ const CLEAR_COLOR = "\x1b[0m"
 // that we can detect where it starts and ends.
 const PROMPT_PREFIX = "\033Q"
 const PROMPT_SUFFIX = "\033R"
-const PROMPT_PREFIX_ESCAPED = "\\033Q"
-const PROMPT_SUFFIX_ESCAPED = "\\033R"
+const PROMPT_PREFIX_ESCAPED = "\\\\033Q"
+const PROMPT_SUFFIX_ESCAPED = "\\\\033R"
 const EMOJI_DEFAULT = "🐠"
+const cursor_offset = 3
+
 const EMOJI_GOAL = "🟦"
 const EMOJI_GOAL_UNSAFE = "⚡"
 
 var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
 var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
+var ps1FishRegex = regexp.MustCompile(`\x1b\[m\x0f ([0-9]+) ` + PROMPT_SUFFIX)
+var ps1FishFullRegex = regexp.MustCompile(EMOJI_DEFAULT + `\x1b\[m\x0f ([0-9]+) ` + PROMPT_SUFFIX)
 
 var DarkShellColorScheme = &ShellColorScheme{
 	Prompt:           "\x1b[38;5;154m",
@@ -476,31 +480,63 @@ Please submit an issue to https://github.com/bakks/butterfish.`)
 func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 	shell := this.Config.ParseShell()
 	var ps1 string
-
 	switch shell {
+	// the \[ and \] are bash-specific and tell bash to not count the enclosed
+	// characters when calculating the cursor position
 	case "bash", "sh":
-		// the \[ and \] are bash-specific and tell bash to not count the enclosed
-		// characters when calculating the cursor position
 		ps1 = "PS1=$'\\[%s\\]'$PS1$'%s\\[ $?%s\\] '\n"
+	// the %%{ and %%} are zsh-specific and tell zsh to not count the enclosed
+	// characters when calculating the cursor position
 	case "zsh":
-		// the %%{ and %%} are zsh-specific and tell zsh to not count the enclosed
-		// characters when calculating the cursor position
 		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%} '\n"
+	case "fish":
+		fishCmd := `
+# Preserve the original fish_prompt function
+functions -c fish_prompt fish_prompt_orig > /dev/null 2>&1
+
+function fish_prompt
+    printf '%s'
+    fish_prompt_orig
+    echo -n '%s'
+    echo -n (set_color normal)
+    printf " $status %s "
+end
+
+# Execute the function definition silently
+eval fish_prompt > /dev/null 2>&1
+`
+		ps1 = fishCmd
 	default:
 		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for certain features. Create an issue at https://github.com/bakks/butterfish.", shell)
 		return
 	}
-
 	promptIcon := ""
 	if !this.Config.ShellLeavePromptAlone {
 		promptIcon = EMOJI_DEFAULT
 	}
+	fmt.Fprintf(childIn, ps1, PROMPT_PREFIX_ESCAPED, promptIcon, PROMPT_SUFFIX_ESCAPED)
+}
 
-	fmt.Fprintf(childIn,
-		ps1,
-		PROMPT_PREFIX_ESCAPED,
-		promptIcon,
-		PROMPT_SUFFIX_ESCAPED)
+// Function to replace cursor movement escape sequences by subtracting a given amount from the column value
+func replaceCursorMovement(str string, subtract int) string {
+    // Regular expression to match \x1b[<number>C
+    re := regexp.MustCompile(`\x1b\[(\d+)C`)
+
+    // Function to subtract the specified amount from the matched number
+    replacementFunc := func(s string) string {
+        match := re.FindStringSubmatch(s)
+        if len(match) == 2 {
+            num, err := strconv.Atoi(match[1])
+            if err == nil {
+                newNum := num - subtract
+                return fmt.Sprintf("\x1b[%dC", newNum)
+            }
+        }
+        return s
+    }
+
+    // Replace all occurrences
+    return re.ReplaceAllStringFunc(str, replacementFunc)
 }
 
 // Given a string of terminal output, identify terminal prompts based on the
@@ -511,8 +547,8 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 //   - The number of prompts identified in the string.
 //   - The string with the special prompt escape sequences removed.
 func ParsePS1(data string, regex *regexp.Regexp, currIcon string) (int, int, string) {
-	matches := regex.FindAllStringSubmatch(data, -1)
-
+	matches := regex.FindAllStringSubmatch(data, -1)	
+	data = replaceCursorMovement(data, cursor_offset)
 	if len(matches) == 0 {
 		return 0, 0, data
 	}
@@ -537,13 +573,24 @@ func ParsePS1(data string, regex *regexp.Regexp, currIcon string) (int, int, str
 	return lastStatus, prompts, cleaned
 }
 
+
 func (this *ShellState) ParsePS1(data string) (int, int, string) {
 	var regex *regexp.Regexp
-	if this.Butterfish.Config.ShellLeavePromptAlone {
-		regex = ps1Regex
+	shell := this.Butterfish.Config.ParseShell()
+	if shell == "fish" {
+		if this.Butterfish.Config.ShellLeavePromptAlone {
+			regex = ps1FishRegex
+		} else {
+			regex = ps1FishFullRegex
+		}
 	} else {
-		regex = ps1FullRegex
+		if this.Butterfish.Config.ShellLeavePromptAlone {
+			regex = ps1Regex
+		} else {
+			regex = ps1FullRegex
+		}
 	}
+
 
 	currIcon := ""
 	if !this.Butterfish.Config.ShellLeavePromptAlone {
@@ -557,9 +604,9 @@ func (this *ShellState) ParsePS1(data string) (int, int, string) {
 			currIcon = EMOJI_DEFAULT
 		}
 	}
-
 	return ParsePS1(data, regex, currIcon)
 }
+
 
 // zsh appears to use this sequence to clear formatting and the rest of the line
 // before printing a prompt
@@ -568,6 +615,15 @@ var ZSH_CLEAR_REGEX = regexp.MustCompile("^\x1b\\[1m\x1b\\[3m%\x1b\\[23m\x1b\\[1
 func (this *ShellState) FilterChildOut(data string) bool {
 	if len(data) > 0 && strings.HasPrefix(data, "\x1b[1m") && ZSH_CLEAR_REGEX.MatchString(data) {
 		return true
+	}
+
+	shell := this.Butterfish.Config.ParseShell()
+	if shell == "fish" {
+		// print some debug string
+		// Filter out any remaining fish function definition output
+		if strings.Contains(data, "function fish_prompt") || strings.Contains(data, "function suppress_output") {
+			return true
+		}
 	}
 
 	return false
@@ -2116,7 +2172,7 @@ func countChildPids(pid int) (int, error) {
 
 	for _, process := range pids {
 		switch process {
-		case "sh", "bash", "zsh":
+		case "sh", "bash", "zsh", "fish", "atuin2":
 			// We want to keep butterfish on for child shells
 		default:
 			totalPids++
