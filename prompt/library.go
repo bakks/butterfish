@@ -160,7 +160,7 @@ func (this *DiskPromptLibrary) ReplacePrompts(newPrompts []Prompt) {
 		index := this.ContainsPromptNamed(newPrompt.Name)
 		if index == -1 {
 			this.Prompts = append(this.Prompts, newPrompt)
-		} else {
+		} else if this.Prompts[index].OkToReplace {
 			this.Prompts[index] = newPrompt
 		}
 	}
