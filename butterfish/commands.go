@@ -1111,6 +1111,8 @@ func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens
 			return fmt.Errorf("failed to process image %s: %v", file, err)
 		}
 
+		log.Printf("[DEBUG] Successfully processed image %s, base64 length: %d", file, len(imgContent.Base64Content))
+
 		// If analyzing multiple files, print the filename
 		if len(files) > 1 {
 			fmt.Fprintf(this.Out, "\nAnalyzing %s:\n", file)
@@ -1129,8 +1131,16 @@ func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens
 			MaxTokens:     numTokens,
 			Temperature:   temperature,
 			SystemMessage: sysMsg,
-			Images:        []util.ImageContent{*imgContent},
+			HistoryBlocks: []util.HistoryBlock{
+				{
+					Type:    0, // user
+					Content: fmt.Sprintf("Here is the image %s. %s", file, userPrompt),
+				},
+			},
+			Images: []util.ImageContent{*imgContent},
 		}
+
+		log.Printf("[DEBUG] Request contains %d images", len(req.Images))
 
 		// Send request to LLM
 		_, err = this.LLMClient.CompletionStream(req, writer)

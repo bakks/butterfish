@@ -435,18 +435,44 @@ func (this *GPT) SimpleChatCompletionStream(request *util.CompletionRequest, wri
 		return nil, errors.New("system message required for full chat completion")
 	}
 
-	req := openai.ChatCompletionRequest{
-		Model: request.Model,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    "system",
-				Content: request.SystemMessage,
-			},
-			{
-				Role:    "user",
-				Content: request.Prompt,
-			},
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: request.SystemMessage,
 		},
+	}
+
+	if len(request.Images) > 0 {
+		parts := []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: request.Prompt,
+			},
+		}
+
+		for _, img := range request.Images {
+			parts = append(parts, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL: fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.Base64Content),
+				},
+			})
+		}
+
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:         "user",
+			MultiContent: parts,
+		})
+	} else {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    "user",
+			Content: request.Prompt,
+		})
+	}
+
+	req := openai.ChatCompletionRequest{
+		Model:       request.Model,
+		Messages:    messages,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,
@@ -501,11 +527,36 @@ func (this *GPT) FullChatCompletionStream(request *util.CompletionRequest, write
 		return nil, errors.New("System message required for full chat completion")
 	}
 
-	if request.Prompt != "" {
-		gptHistory = append(gptHistory, openai.ChatCompletionMessage{
-			Role:    "user",
-			Content: request.Prompt,
-		})
+	if request.Prompt != "" || len(request.Images) > 0 {
+		if len(request.Images) > 0 {
+			parts := []openai.ChatMessagePart{}
+			
+			if request.Prompt != "" {
+				parts = append(parts, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeText,
+					Text: request.Prompt,
+				})
+			}
+
+			for _, img := range request.Images {
+				parts = append(parts, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL: fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.Base64Content),
+					},
+				})
+			}
+
+			gptHistory = append(gptHistory, openai.ChatCompletionMessage{
+				Role:         "user",
+				MultiContent: parts,
+			})
+		} else {
+			gptHistory = append(gptHistory, openai.ChatCompletionMessage{
+				Role:    "user",
+				Content: request.Prompt,
+			})
+		}
 	}
 
 	req := openai.ChatCompletionRequest{
@@ -731,11 +782,36 @@ func (this *GPT) InstructCompletion(request *util.CompletionRequest) (*util.Comp
 func (this *GPT) FullChatCompletion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	gptHistory := ShellHistoryBlocksToGPTChat(request.SystemMessage, request.HistoryBlocks)
 
-	if request.Prompt != "" {
-		gptHistory = append(gptHistory, openai.ChatCompletionMessage{
-			Role:    "user",
-			Content: request.Prompt,
-		})
+	if request.Prompt != "" || len(request.Images) > 0 {
+		if len(request.Images) > 0 {
+			parts := []openai.ChatMessagePart{}
+			
+			if request.Prompt != "" {
+				parts = append(parts, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeText,
+					Text: request.Prompt,
+				})
+			}
+
+			for _, img := range request.Images {
+				parts = append(parts, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL: fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.Base64Content),
+					},
+				})
+			}
+
+			gptHistory = append(gptHistory, openai.ChatCompletionMessage{
+				Role:         "user",
+				MultiContent: parts,
+			})
+		} else {
+			gptHistory = append(gptHistory, openai.ChatCompletionMessage{
+				Role:    "user",
+				Content: request.Prompt,
+			})
+		}
 	}
 
 	if len(gptHistory) == 0 || gptHistory[0].Role != "system" {
@@ -759,18 +835,44 @@ func (this *GPT) SimpleChatCompletion(request *util.CompletionRequest) (*util.Co
 		return nil, errors.New("system message is required for full chat completion")
 	}
 
-	req := openai.ChatCompletionRequest{
-		Model: request.Model,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    "system",
-				Content: request.SystemMessage,
-			},
-			{
-				Role:    "user",
-				Content: request.Prompt,
-			},
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: request.SystemMessage,
 		},
+	}
+
+	if len(request.Images) > 0 {
+		parts := []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: request.Prompt,
+			},
+		}
+
+		for _, img := range request.Images {
+			parts = append(parts, openai.ChatMessagePart{
+				Type: openai.ChatMessagePartTypeImageURL,
+				ImageURL: &openai.ChatMessageImageURL{
+					URL: fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.Base64Content),
+				},
+			})
+		}
+
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:         "user",
+			MultiContent: parts,
+		})
+	} else {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    "user",
+			Content: request.Prompt,
+		})
+	}
+
+	req := openai.ChatCompletionRequest{
+		Model:       request.Model,
+		Messages:    messages,
 		MaxTokens:   request.MaxTokens,
 		Temperature: request.Temperature,
 		N:           1,

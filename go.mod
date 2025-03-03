@@ -17,7 +17,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mitchellh/go-ps v1.0.0
 	github.com/muesli/reflow v0.3.0
-	github.com/sashabaranov/go-openai v1.36.1
+	github.com/sashabaranov/go-openai v1.37.0
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/afero v1.11.0
 	github.com/stretchr/testify v1.8.2
