@@ -598,7 +598,7 @@ func (this *ButterfishCtx) ExecCommand(
 			return errors.New("Please provide image files to analyze")
 		}
 
-		err := this.AnalyzeImages(files, options.Image.Model, options.Image.NumTokens, options.Image.Temperature, options.Image.Prompt)
+		err := this.AnalyzeImages(files, options.Image.Model, options.Image.NumTokens, options.Image.Temperature, options.Image.Prompt, this.Config.Verbose > 0)
 		return err
 
 	default:
@@ -1087,13 +1087,15 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	return err
 }
 
-func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens int, temperature float32, userPrompt string) error {
+func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens int, temperature float32, userPrompt string, verbose bool) error {
 	// If no model specified, use the configured one
 	if model == "" {
 		model = this.Config.ImageModel
 	}
 
-	log.Printf("[DEBUG] Using model for image analysis: %s", model)
+	if verbose {
+		log.Printf("[DEBUG] Using model for image analysis: %s", model)
+	}
 
 	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
 
@@ -1111,7 +1113,9 @@ func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens
 			return fmt.Errorf("failed to process image %s: %v", file, err)
 		}
 
-		log.Printf("[DEBUG] Successfully processed image %s, base64 length: %d", file, len(imgContent.Base64Content))
+		if verbose {
+			log.Printf("[DEBUG] Successfully processed image %s, base64 length: %d", file, len(imgContent.Base64Content))
+		}
 
 		// If analyzing multiple files, print the filename
 		if len(files) > 1 {
@@ -1131,6 +1135,7 @@ func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens
 			MaxTokens:     numTokens,
 			Temperature:   temperature,
 			SystemMessage: sysMsg,
+			Verbose:       verbose,
 			HistoryBlocks: []util.HistoryBlock{
 				{
 					Type:    0, // user
@@ -1140,7 +1145,9 @@ func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens
 			Images: []util.ImageContent{*imgContent},
 		}
 
-		log.Printf("[DEBUG] Request contains %d images", len(req.Images))
+		if verbose {
+			log.Printf("[DEBUG] Request contains %d images", len(req.Images))
+		}
 
 		// Send request to LLM
 		_, err = this.LLMClient.CompletionStream(req, writer)
