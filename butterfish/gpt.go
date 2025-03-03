@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bakks/butterfish/util"
+	"github.com/xuzhougeng/butterfish/util"
 	openai "github.com/sashabaranov/go-openai"
 )
 

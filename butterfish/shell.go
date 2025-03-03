@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/bakks/butterfish/prompt"
-	"github.com/bakks/butterfish/util"
+	"github.com/xuzhougeng/butterfish/prompt"
+	"github.com/xuzhougeng/butterfish/util"
 	"github.com/sashabaranov/go-openai/jsonschema"
 
 	"github.com/bakks/tiktoken-go"
@@ -450,7 +450,7 @@ func (this *ShellState) GetCursorPosition() (int, int) {
 		panic(`Timeout waiting for cursor position response, this means that either:
 - Butterfish has frozen due to a bug.
 - You're using a terminal emulator that doesn't work well with butterfish.
-Please submit an issue to https://github.com/bakks/butterfish.`)
+Please submit an issue to https://github.com/xuzhougeng/butterfish.`)
 
 	case pos = <-this.CursorPosChan:
 	}
@@ -487,7 +487,7 @@ func (this *ButterfishCtx) SetPS1(childIn io.Writer) {
 		// characters when calculating the cursor position
 		ps1 = "PS1=$'%%{%s%%}'$PS1$'%s%%{ %%?%s%%} '\n"
 	default:
-		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for certain features. Create an issue at https://github.com/bakks/butterfish.", shell)
+		log.Printf("Unknown shell %s, Butterfish is going to leave the PS1 alone. This means that you won't get a custom prompt in Butterfish, and Butterfish won't be able to parse the exit code of the previous command, used for certain features. Create an issue at https://github.com/xuzhougeng/butterfish.", shell)
 		return
 	}
 

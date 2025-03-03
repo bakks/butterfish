@@ -15,8 +15,8 @@ import (
 
 	//_ "net/http/pprof"
 
-	bf "github.com/bakks/butterfish/butterfish"
-	"github.com/bakks/butterfish/util"
+	bf "github.com/xuzhougeng/butterfish/butterfish"
+	"github.com/xuzhougeng/butterfish/util"
 )
 
 var ( // these are filled in at build time
@@ -31,7 +31,7 @@ Butterfish is a command line tool for working with LLMs. It has two modes: CLI c
 
 Butterfish looks for an API key in OPENAI_API_KEY, or alternatively stores an OpenAI auth token at ~/.config/butterfish/butterfish.env.
 
-Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
+Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/xuzhougeng/butterfish.
 
 If you do not have OpenAI free credits then you will need a subscription and you will need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend by disabling shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `

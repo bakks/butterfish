@@ -2,7 +2,7 @@
 
 A shell with AI superpowers
 
-[![Website](https://img.shields.io/badge/website-https://butterfi.sh-blue)](https://butterfi.sh) [![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) [![Latest Version](https://img.shields.io/github/v/release/bakks/butterfish)](https://github.com/bakks/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
+[![GoDoc](https://godoc.org/github.com/xuzhougeng/butterfish?status.svg)](https://godoc.org/github.com/xuzhougeng/butterfish) [![Latest Version](https://img.shields.io/github/v/release/xuzhougeng/butterfish)](https://github.com/xuzhougeng/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
 
 #### ** New **
 
@@ -53,7 +53,7 @@ Is this thing working? # Type this literally into the CLI
 You can also install with `go install`:
 
 ```bash
-go install github.com/bakks/butterfish/cmd/butterfish@latest
+go install github.com/xuzhougeng/butterfish/cmd/butterfish@latest
 $(go env GOPATH)/bin/butterfish shell
 Is this thing working? # Type this literally into the CLI
 ```
@@ -579,7 +579,7 @@ I've been developing Butterfish on an Intel Mac, but it should work fine on ARM 
 
 ```
 brew install git go protobuf protoc-gen-go protoc-gen-go-grpc
-git clone https://github.com/bakks/butterfish
+git clone https://github.com/xuzhougeng/butterfish
 cd butterfish
 make
 ./bin/butterfish prompt "Is this thing working?"

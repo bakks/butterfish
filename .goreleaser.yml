@@ -21,7 +21,7 @@ universal_binaries:
 brews:
   -
     name: butterfish
-    homepage: "https://github.com/bakks/butterfish"
+    homepage: "https://github.com/xuzhougeng/butterfish"
     license: "MIT"
     description: "A tool for using LLMs on the command line"
     tap:

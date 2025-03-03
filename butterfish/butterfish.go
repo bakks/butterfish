@@ -21,9 +21,9 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/term"
 
-	"github.com/bakks/butterfish/embedding"
-	"github.com/bakks/butterfish/prompt"
-	"github.com/bakks/butterfish/util"
+	"github.com/xuzhougeng/butterfish/embedding"
+	"github.com/xuzhougeng/butterfish/prompt"
+	"github.com/xuzhougeng/butterfish/util"
 )
 
 // ModelType represents different LLM providers
