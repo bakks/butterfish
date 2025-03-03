@@ -31,7 +31,7 @@ Butterfish is a command line tool for working with LLMs. It has two modes: CLI c
 
 Butterfish looks for an API key in OPENAI_API_KEY, or alternatively stores an OpenAI auth token at ~/.config/butterfish/butterfish.env.
 
-Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/xuzhougeng/butterfish.
+Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to ~/.butterfish/logs/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/xuzhougeng/butterfish.
 
 If you do not have OpenAI free credits then you will need a subscription and you will need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend by disabling shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `
@@ -72,7 +72,7 @@ func (v *VerboseFlag) BeforeResolve() error {
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
 	Verbose      VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
-	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
+	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually ~/.butterfish/logs/butterfish.log"`
 	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
 	BaseURL      string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
 	TokenTimeout int              `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`

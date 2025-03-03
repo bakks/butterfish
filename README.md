@@ -34,7 +34,7 @@ Feedback and external contribution is very welcome! Butterfish is open source un
 
 Many AI-enabled products obscure the prompt (instructional text) sent to the AI model, Butterfish makes it transparent and configurable.
 
-To see the raw AI requests / responses you can run Butterfish in verbose mode (`butterfish shell -v`) and watch the log file (`/var/tmp/butterfish.log` on MacOS). For more verbosity, use `-vv`.
+To see the raw AI requests / responses you can run Butterfish in verbose mode (`butterfish shell -v`) and watch the log file (`~/.butterfish/logs/butterfish.log`). For more verbosity, use `-vv`.
 
 To configure the prompts you can edit `~/.config/butterfish/prompts.yaml`.
 
@@ -385,7 +385,7 @@ Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
 
 Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env
 and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml. Butterfish
-logs to the system temp dir, usually to /var/tmp/butterfish.log.
+logs to user's home directory at `~/.butterfish/logs/butterfish.log`.
 
 To print the full prompts and responses from the OpenAI API, use the --verbose
 flag. Support can be found at https://github.com/bakks/butterfish.

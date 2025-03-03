@@ -702,19 +702,20 @@ func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
 	}
 }
 
-// Open a log file named butterfish.log in a temporary directory
+// Open a log file named butterfish.log in user's home directory
 func InitLogging(ctx context.Context) string {
-	logDir := "/var/tmp"
-	_, err := os.Stat(logDir)
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Create a temporary directory to hold the log file
-		logDir, err = os.MkdirTemp("", "butterfish")
-		if err != nil {
-			panic(err)
-		}
+		panic(err)
 	}
 
-	// Create a log file in the temporary directory
+	logDir := filepath.Join(homeDir, ".butterfish", "logs")
+	err = os.MkdirAll(logDir, 0700)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create a log file in the user's .butterfish/logs directory
 	filename := filepath.Join(logDir, "butterfish.log")
 	logFile, err := os.OpenFile(filename,
 		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
