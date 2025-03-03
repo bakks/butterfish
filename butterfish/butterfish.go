@@ -120,6 +120,9 @@ type ButterfishConfig struct {
 	SummarizeModel       string
 	SummarizeTemperature float32
 	SummarizeMaxTokens   int
+
+	// Model to use for image analysis
+	ImageModel string
 }
 
 func (this *ButterfishConfig) ParseShell() string {

@@ -71,6 +71,7 @@ BUTTERFISH_AUTOSUGGEST_MODEL=gpt-3.5-turbo-instruct  # Model for autosuggestions
 BUTTERFISH_GENCMD_MODEL=gpt-4          # Model for command generation
 BUTTERFISH_EXECCHECK_MODEL=gpt-3.5-turbo # Model for execution checks
 BUTTERFISH_SUMMARIZE_MODEL=gpt-3.5-turbo # Model for summarization
+BUTTERFISH_IMAGE_MODEL=gpt-4-vision-preview # Model for image analysis
 
 # Optional: Configure API endpoint
 BUTTERFISH_BASE_URL=https://api.openai.com/v1  # Default OpenAI API
@@ -240,7 +241,31 @@ This enables using Butterfish with local or remote non-OpenAI models. Notes on t
 
 ## CLI Examples
 
-Shell Mode is the primary focus of Butterfish but it also includes more specific command line utilities for prompting, generating commands, summarizing text, and managing embeddings of local files.
+Shell Mode is the primary focus of Butterfish but it also includes more specific command line utilities for prompting, generating commands, summarizing text, managing embeddings of local files, and analyzing images.
+
+### `image` - Analyze images using vision models
+
+Examples:
+
+```bash
+# Analyze a single image
+butterfish image image.png
+
+# Analyze multiple images
+butterfish image *.jpg
+
+# Use a custom prompt
+butterfish image -p "What objects can you see in this image?" image.png
+
+# Configure the model in butterfish.env
+BUTTERFISH_IMAGE_MODEL=gpt-4-vision-preview  # Model for image analysis
+```
+
+The image command supports:
+- Multiple image analysis in one command
+- Custom prompts for specific analysis needs
+- Model configuration via environment variables or command line flags
+- Detailed analysis including object identification, text recognition, and contextual understanding
 
 ### `prompt` - Straightforward LLM prompt
 

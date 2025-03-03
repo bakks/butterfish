@@ -171,6 +171,12 @@ func loadModelConfig(config *bf.ButterfishConfig) {
 			config.ModelType = getModelType(model)
 		}
 	}
+	if model := os.Getenv("BUTTERFISH_IMAGE_MODEL"); model != "" {
+		config.ImageModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
+	}
 }
 
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {

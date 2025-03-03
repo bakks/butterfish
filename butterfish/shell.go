@@ -2133,6 +2133,8 @@ func RequestCancelableAutosuggest(
 		SystemMessage: rawPrompt, // Add system message
 	}
 
+	log.Printf("[DEBUG] Using model for autosuggest: %s", model)
+
 	response, err := llmClient.Completion(request)
 	if err != nil {
 		if !strings.Contains(err.Error(), "context canceled") {

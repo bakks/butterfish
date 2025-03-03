@@ -13,6 +13,7 @@ const (
 	ShellAutosuggestPrompt     = "shell_autocomplete_prompt"
 	ShellSystemMessage         = "shell_system_message"
 	GoalModeSystemMessage      = "goal_mode_system_message"
+	ImageAnalysisSystemMessage = "image_analysis_system_message"
 )
 
 // These are the default prompts used for Butterfish, they will be written
@@ -187,5 +188,18 @@ Shell command:`,
 {snippets}
 '''
 {question}:`,
+	},
+
+	{
+		Name:        ImageAnalysisSystemMessage,
+		OkToReplace: true,
+		Prompt: `You are an expert image analyst. Your task is to:
+1. Provide detailed descriptions of the images
+2. Identify key elements and their relationships
+3. Note any text, symbols, or important details
+4. Explain the context and purpose of the image when relevant
+5. Be precise and objective in your analysis
+
+Keep your responses clear and well-structured.`,
 	},
 }
