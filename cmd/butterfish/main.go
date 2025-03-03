@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -81,9 +80,9 @@ type CliConfig struct {
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" default:"gpt-4o" help:"Model for when the user manually enters a prompt."`
+		Model                     string `short:"m" help:"Model for when the user manually enters a prompt."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
+		AutosuggestModel          string `short:"a" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
 		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
@@ -95,6 +94,24 @@ type CliConfig struct {
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
 	bf.CliCommandConfig
+}
+
+func getModelType(model string) bf.ModelType {
+	model = strings.ToLower(model)
+	switch {
+	case strings.Contains(model, "gpt") || strings.HasPrefix(model, "openai/"):
+		return bf.ModelTypeOpenAI
+	case strings.Contains(model, "claude") || strings.HasPrefix(model, "anthropic/"):
+		return bf.ModelTypeAnthropic
+	case strings.Contains(model, "gemini") || strings.HasPrefix(model, "google/"):
+		return bf.ModelTypeGemini
+	case strings.Contains(model, "llama"):
+		return bf.ModelTypeLlama
+	case strings.Contains(model, "mistral"):
+		return bf.ModelTypeMistral
+	default:
+		return bf.ModelTypeUnknown
+	}
 }
 
 func getOpenAIToken() string {
@@ -116,49 +133,90 @@ func getOpenAIToken() string {
 		return token
 	}
 
-	// If we don't have a token, we'll prompt the user to create one
-	fmt.Printf("Butterfish requires an OpenAI API key, please visit https://beta.openai.com/account/api-keys to create one and paste it below (it should start with sk-):\n")
+	return ""
+}
 
-	// read in the token and validate
-	fmt.Scanln(&token)
-	token = strings.TrimSpace(token)
-	if token == "" {
-		log.Fatal("No token provided, exiting")
+func isAnthropicModel(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "claude") || strings.HasPrefix(model, "anthropic/")
+}
+
+func loadModelConfig(config *bf.ButterfishConfig) {
+	// Load model configs from env if present
+	if model := os.Getenv("BUTTERFISH_PROMPT_MODEL"); model != "" {
+		config.ShellPromptModel = model
+		config.ModelType = getModelType(model)
 	}
-	if !strings.HasPrefix(token, "sk-") {
-		log.Fatal("Invalid token provided, exiting")
+	if model := os.Getenv("BUTTERFISH_AUTOSUGGEST_MODEL"); model != "" {
+		config.ShellAutosuggestModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-
-	// attempt to write a .env file
-	fmt.Printf("\nSaving token to %s\n", path)
-	err = os.MkdirAll(filepath.Dir(path), 0755)
-	if err != nil {
-		fmt.Printf("Error creating directory: %s\n", err.Error())
-		return token
+	if model := os.Getenv("BUTTERFISH_GENCMD_MODEL"); model != "" {
+		config.GencmdModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-
-	envFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		fmt.Printf("Error creating file: %s\n", err.Error())
-		return token
+	if model := os.Getenv("BUTTERFISH_EXECCHECK_MODEL"); model != "" {
+		config.ExeccheckModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-	defer envFile.Close()
-
-	content := fmt.Sprintf("OPENAI_TOKEN=%s\n", token)
-	_, err = envFile.WriteString(content)
-	if err != nil {
-		fmt.Printf("Error writing file: %s\n", err.Error())
+	if model := os.Getenv("BUTTERFISH_SUMMARIZE_MODEL"); model != "" {
+		config.SummarizeModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-
-	fmt.Printf("Token saved, you can edit it at any time at %s\n\n", path)
-
-	return token
 }
 
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.OpenAIToken = getOpenAIToken()
-	config.BaseURL = options.BaseURL
+	
+	// Check env for BASE_URL first
+	if baseURL := os.Getenv("BUTTERFISH_BASE_URL"); baseURL != "" {
+		config.BaseURL = baseURL
+	} else {
+		config.BaseURL = options.BaseURL
+	}
+	
+	// Load model configs from env first
+	loadModelConfig(config)
+	
+	// Set default models if not specified in env
+	if config.ShellPromptModel == "" {
+		config.ShellPromptModel = "gpt-3.5-turbo"
+		config.ModelType = bf.ModelTypeOpenAI
+	}
+	if config.ShellAutosuggestModel == "" {
+		config.ShellAutosuggestModel = "gpt-3.5-turbo-instruct"
+	}
+	if config.GencmdModel == "" {
+		config.GencmdModel = "gpt-3.5-turbo"
+	}
+	if config.ExeccheckModel == "" {
+		config.ExeccheckModel = "gpt-3.5-turbo"
+	}
+	if config.SummarizeModel == "" {
+		config.SummarizeModel = "gpt-3.5-turbo"
+	}
+
+	// Set model-specific configurations
+	switch config.ModelType {
+	case bf.ModelTypeAnthropic:
+		config.DefaultSystemMessage = "You are Claude, an AI assistant. You help users with their tasks in a clear and concise way."
+	case bf.ModelTypeGemini:
+		config.DefaultSystemMessage = "You are Gemini, an AI assistant. You help users with their tasks in a clear and concise way."
+	case bf.ModelTypeLlama:
+		config.DefaultSystemMessage = "You are a helpful AI assistant. You help users with their tasks in a clear and concise way."
+	case bf.ModelTypeMistral:
+		config.DefaultSystemMessage = "You are a helpful AI assistant. You help users with their tasks in a clear and concise way."
+	}
+	
 	config.PromptLibraryPath = defaultPromptPath
 	config.TokenTimeout = time.Duration(options.TokenTimeout) * time.Millisecond
 
@@ -227,9 +285,19 @@ func main() {
 		}
 
 		config.ShellBinary = shell
-		config.ShellPromptModel = cli.Shell.Model
+		
+		// Load model configs from env first
+		loadModelConfig(config)
+		
+		// Command line args override env settings
+		if cli.Shell.Model != "" {
+			config.ShellPromptModel = cli.Shell.Model
+		}
+		if cli.Shell.AutosuggestModel != "" {
+			config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
+		}
+		
 		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
-		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellNewlineAutosuggestTimeout = time.Duration(cli.Shell.NewlineAutosuggestTimeout) * time.Millisecond
 		config.ColorDark = !cli.LightColor

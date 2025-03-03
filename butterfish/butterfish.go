@@ -26,6 +26,18 @@ import (
 	"github.com/bakks/butterfish/util"
 )
 
+// ModelType represents different LLM providers
+type ModelType int
+
+const (
+	ModelTypeUnknown ModelType = iota
+	ModelTypeOpenAI
+	ModelTypeAnthropic
+	ModelTypeGemini
+	ModelTypeLlama
+	ModelTypeMistral
+)
+
 // Main driver for the Butterfish set of command line tools. These are tools
 // for using AI capabilities on the command line.
 
@@ -67,6 +79,12 @@ type ButterfishConfig struct {
 	// The instantiated prompt library used when interpolating prompts before
 	// calling the LLM
 	PromptLibrary PromptLibrary
+
+	// Type of the model being used (OpenAI, Anthropic, etc.)
+	ModelType ModelType
+
+	// Default system message to use for the model
+	DefaultSystemMessage string
 
 	// Shell mode configuration
 	ShellMode               bool

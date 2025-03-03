@@ -64,7 +64,21 @@ The key will be written to `~/.config/butterfish/butterfish.env`, which looks li
 
 ```
 OPENAI_TOKEN=sk-foobar
+
+# Optional: Configure models
+BUTTERFISH_PROMPT_MODEL=gpt-4           # Model for manual prompts
+BUTTERFISH_AUTOSUGGEST_MODEL=gpt-3.5-turbo-instruct  # Model for autosuggestions
+BUTTERFISH_GENCMD_MODEL=gpt-4          # Model for command generation
+BUTTERFISH_EXECCHECK_MODEL=gpt-3.5-turbo # Model for execution checks
+BUTTERFISH_SUMMARIZE_MODEL=gpt-3.5-turbo # Model for summarization
+
+# Optional: Configure API endpoint
+BUTTERFISH_BASE_URL=https://api.openai.com/v1  # Default OpenAI API
+# or
+BUTTERFISH_BASE_URL=http://localhost:8080      # Local model API
 ```
+
+You can configure models and API endpoint either through environment variables in `butterfish.env` or command line arguments. Command line arguments will override environment variables.
 
 It may also be useful to alias the `butterfish` command to something shorter. If you add the following line to your `~/.zshrc` or `~/.bashrc` file then you can run it with only `bf`.
 
@@ -207,10 +221,14 @@ Here are some goals that work _sometimes_:
 ## Local Models
 
 Butterfish uses OpenAI models by default, but you can instead point it to any
-server with a OpenAI compatible API with the `--base-url (-u)` flag. For example:
+server with a OpenAI compatible API with the `--base-url (-u)` flag or by setting the `BUTTERFISH_BASE_URL` environment variable in `~/.config/butterfish/butterfish.env`. For example:
 
-```
+```bash
+# Using command line flag
 butterfish prompt -u "http://localhost:5000/v1" "Is this thing working?"
+
+# Or using environment variable in butterfish.env
+BUTTERFISH_BASE_URL="http://localhost:5000/v1"
 ```
 
 This enables using Butterfish with local or remote non-OpenAI models. Notes on this feature:
