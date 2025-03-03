@@ -1286,12 +1286,16 @@ func (this *ShellState) GoalModeStart() {
 		return
 	}
 
+	log.Printf("[DEBUG] GoalMode: Starting with goal: %s", goal)
+
 	// If the prompt is preceded with two bangs then go to unsafe mode
 	if goal[0] == '!' {
 		goal = goal[1:]
 		this.GoalModeUnsafe = true
+		log.Printf("[DEBUG] GoalMode: Unsafe mode enabled")
 	} else {
 		this.GoalModeUnsafe = false
+		log.Printf("[DEBUG] GoalMode: Safe mode enabled")
 	}
 
 	this.GoalMode = true
@@ -1300,7 +1304,7 @@ func (this *ShellState) GoalModeStart() {
 	this.Prompt.Clear()
 
 	prompt := "Start now."
-	log.Printf("Starting goal mode: %s", this.GoalModeGoal)
+	log.Printf("[DEBUG] GoalMode: Initiating with prompt: %s", prompt)
 	this.goalModePrompt(prompt)
 }
 
@@ -1321,49 +1325,110 @@ func (this *ShellState) GoalModeFunctionResponse(output string) {
 	this.goalModePrompt("")
 }
 
+func extractCommandFromCodeBlock(response string) string {
+	// Check for command pattern first
+	cmdRegex := regexp.MustCompile(`command\(\s*{\s*"cmd"\s*:\s*"([^"]+)"\s*}\s*\)`)
+	if matches := cmdRegex.FindStringSubmatch(response); len(matches) > 1 {
+		// Remove command repetition check
+		return matches[1]
+	}
+
+	// Look for complete_goal pattern
+	completeRegex := regexp.MustCompile(`complete_goal\(\s*{.*?"result"\s*:\s*"([^"]+)"\s*}.*?\)`)
+	if matches := completeRegex.FindStringSubmatch(response); len(matches) > 1 {
+		log.Printf("[DEBUG] GoalMode: Converting complete_goal to finish function")
+		return "finish"
+	}
+
+	// Check completion phrases
+	completionPhrases := []string{
+		"goal is now fully achieved",
+		"task is now complete", 
+		"goal has been achieved",
+		"successfully completed",
+		"goal is accomplished",
+		"no further commands are needed",
+		"no more commands needed",
+		"task has been completed",
+		"we are done",
+		"that completes the",
+	}
+
+	responseLower := strings.ToLower(response)
+	for _, phrase := range completionPhrases {
+		if strings.Contains(responseLower, phrase) {
+			log.Printf("[DEBUG] GoalMode: Detected completion phrase: %q", phrase)
+			return "finish"
+		}
+	}
+
+	return ""
+}
+
 func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
+	// Try to extract command from code block if no function was called
+	if output.FunctionName == "" {
+		log.Printf("[DEBUG] GoalMode: Attempting to parse command from response: %s", output.Completion)
+		// Extract command from code block
+		if cmd := extractCommandFromCodeBlock(output.Completion); cmd != "" {
+			log.Printf("[DEBUG] GoalMode: Extracted command: %s", cmd)
+			if cmd == "finish" {
+				output.FunctionName = "finish"
+				output.FunctionParameters = `{"success": true}`
+				log.Printf("[DEBUG] GoalMode: Converting to finish function call")
+			} else {
+				output.FunctionName = "command"
+				output.FunctionParameters = fmt.Sprintf(`{"cmd": %q}`, cmd)
+			}
+		} else {
+			log.Printf("[DEBUG] GoalMode: No command or completion detected in response")
+		}
+	}
+
 	switch output.FunctionName {
 	case "command":
-		log.Printf("Goal mode command: %s", output.FunctionParameters)
+		log.Printf("[DEBUG] GoalMode: Executing command function")
 		this.GoalModeBuffer = ""
 		this.PromptSuffixCounter = 0
 		this.setState(stateNormal)
 		cmd, err := parseCommandParams(output.FunctionParameters)
 		if err != nil {
-			// we failed to parse the command json, send error back to model
-			log.Printf("Error parsing function arguments: %s", err)
+			log.Printf("[DEBUG] GoalMode: Error parsing command: %v", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
 			this.GoalModeFunctionResponse(modelStr)
 			return
 		}
-		log.Printf("Goal mode command: %s", cmd)
+		log.Printf("[DEBUG] GoalMode: Parsed command: %s", cmd)
 		fmt.Fprintf(this.ChildIn, "%s", cmd)
 		if this.GoalModeUnsafe {
+			log.Printf("[DEBUG] GoalMode: Unsafe mode - auto executing command")
 			fmt.Fprintf(this.ChildIn, "\n")
+		} else {
+			log.Printf("[DEBUG] GoalMode: Safe mode - waiting for user confirmation")
 		}
 
 	case "user_input":
-		log.Printf("Goal mode user_input: %s", output.FunctionParameters)
+		log.Printf("[DEBUG] GoalMode: Requesting user input")
 		this.GoalModeBuffer = ""
 		this.PromptSuffixCounter = -999999
 		this.setState(stateNormal)
 		question, err := parseUserInputParams(output.FunctionParameters)
 		if err != nil {
-			log.Printf("Error parsing function arguments: %s", err)
+			log.Printf("[DEBUG] GoalMode: Error parsing user input: %v", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
 			this.GoalModeFunctionResponse(modelStr)
 			return
 		}
-
+		log.Printf("[DEBUG] GoalMode: Asking user: %s", question)
 		fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s\n", this.Color.Answer, question, this.Color.Command)
 
 	case "finish":
-		log.Printf("Goal mode finishing: %s", output.FunctionParameters)
+		log.Printf("[DEBUG] GoalMode: Finishing goal mode")
 		this.GoalModeBuffer = ""
 		this.setState(stateNormal)
 		success, err := parseFinishParams(output.FunctionParameters)
 		if err != nil {
-			log.Printf("Error parsing function arguments: %s", err)
+			log.Printf("[DEBUG] GoalMode: Error parsing finish params: %v", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
 			this.History.AppendFunctionOutput(output.FunctionName, modelStr)
 			this.GoalModeFunctionResponse(modelStr)
@@ -1373,22 +1438,24 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 		result := "SUCCESS"
 		if !success {
 			result = "FAILURE"
+			log.Printf("[DEBUG] GoalMode: Finished with failure")
+		} else {
+			log.Printf("[DEBUG] GoalMode: Finished successfully") 
 		}
 
 		fmt.Fprintf(this.PromptGoalAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
 		this.GoalMode = false
 
 	case "":
-		log.Printf("No function called in goal mode")
+		log.Printf("[DEBUG] GoalMode: Error - no function called")
 		modelStr := fmt.Sprintf("You must call a function in goal mode responses.")
 		this.History.Append(historyTypePrompt, modelStr)
 		this.GoalModeFunctionResponse("")
 
 	default:
-		log.Printf("Invalid function name called in goal mode: %s", output.FunctionName)
+		log.Printf("[DEBUG] GoalMode: Error - invalid function: %s", output.FunctionName)
 		modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
 		this.GoalModeFunctionResponse(modelStr)
-
 	}
 }
 
@@ -1396,16 +1463,16 @@ var goalModeFunctions = []util.FunctionDefinition{
 	{
 		Name:        "command",
 		Description: "Run a command in the shell to help achieve your goal",
-		Parameters: jsonschema.Definition{
-			Type: jsonschema.Object,
-			Properties: map[string]jsonschema.Definition{
-				"cmd": {
-					Type:        jsonschema.String,
-					Description: "The string command including any arguments, for example 'ls ~'",
+			Parameters: jsonschema.Definition{
+				Type: jsonschema.Object,
+				Properties: map[string]jsonschema.Definition{
+					"cmd": {
+						Type:        jsonschema.String,
+						Description: "The string command including any arguments, for example 'ls ~'",
+					},
 				},
+				Required: []string{"cmd"},
 			},
-			Required: []string{"cmd"},
-		},
 	},
 
 	{
@@ -1455,6 +1522,7 @@ func getGoalModeFunctionsString() string {
 }
 
 func (this *ShellState) goalModePrompt(lastPrompt string) {
+	log.Printf("[DEBUG] GoalMode: Processing prompt: %s", lastPrompt)
 	this.setState(statePromptResponse)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
@@ -1464,6 +1532,7 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		"goal", this.GoalModeGoal,
 		"sysinfo", GetSystemInfo())
 	if err != nil {
+		log.Printf("[DEBUG] GoalMode: Error getting system message: %v", err)
 		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
 		log.Println(msg)
 		this.PrintError(msg)
@@ -1473,10 +1542,12 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	tokensForAnswer := 1024
 	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString(), tokensForAnswer)
 	if err != nil {
+		log.Printf("[DEBUG] GoalMode: Error assembling chat: %v", err)
 		this.PrintError(err)
 		return
 	}
 
+	log.Printf("[DEBUG] GoalMode: Sending request to LLM with prompt: %s", lastPrompt)
 	request := &util.CompletionRequest{
 		Ctx:           requestCtx,
 		Prompt:        lastPrompt,
