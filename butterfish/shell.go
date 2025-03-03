@@ -2130,6 +2130,7 @@ func RequestCancelableAutosuggest(
 		MaxTokens:   reserveForAnswer,
 		Temperature: 0.2,
 		Verbose:     verbose,
+		SystemMessage: rawPrompt, // Add system message
 	}
 
 	response, err := llmClient.Completion(request)
