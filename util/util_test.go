@@ -3,6 +3,7 @@ package util
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -131,4 +132,65 @@ Foo`
 
 	// assert buffer equals expected
 	assert.Equal(t, expected, buffer.String())
+}
+
+func TestImageToBase64PNG(t *testing.T) {
+	// Open test image
+	file, err := os.Open("../assets/plugin.png")
+	if err != nil {
+		t.Fatalf("Failed to open test image: %v", err)
+	}
+	defer file.Close()
+
+	// Convert to base64
+	base64Str, err := ImageToBase64PNG(file)
+	if err != nil {
+		t.Fatalf("Failed to convert image to base64: %v", err)
+	}
+
+	// Basic validation
+	if len(base64Str) == 0 {
+		t.Error("Expected non-empty base64 string")
+	}
+
+	// Validate base64 format
+	if !strings.HasPrefix(base64Str, "iVBOR") { // PNG files in base64 typically start with this
+		t.Error("Expected base64 string to start with PNG header")
+	}
+}
+
+func TestImageToBase64PNG_InvalidInput(t *testing.T) {
+	// Test with invalid input
+	invalidData := strings.NewReader("not an image")
+	_, err := ImageToBase64PNG(invalidData)
+	if err == nil {
+		t.Error("Expected error for invalid image data")
+	}
+}
+
+func TestCreateImageContent(t *testing.T) {
+	// Open test image
+	file, err := os.Open("../assets/plugin.png")
+	if err != nil {
+		t.Fatalf("Failed to open test image: %v", err)
+	}
+	defer file.Close()
+
+	description := "Test plugin icon"
+	imgContent, err := CreateImageContent(file, description)
+	if err != nil {
+		t.Fatalf("Failed to create image content: %v", err)
+	}
+
+	// Validate fields
+	assert.Equal(t, "image/png", imgContent.MimeType)
+	assert.Equal(t, description, imgContent.Description)
+	assert.True(t, len(imgContent.Base64Content) > 0)
+	assert.True(t, strings.HasPrefix(imgContent.Base64Content, "iVBOR")) // PNG header in base64
+}
+
+func TestCreateImageContent_InvalidInput(t *testing.T) {
+	invalidData := strings.NewReader("not an image")
+	_, err := CreateImageContent(invalidData, "invalid image")
+	assert.Error(t, err)
 }

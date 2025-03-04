@@ -21,9 +21,21 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/term"
 
-	"github.com/bakks/butterfish/embedding"
-	"github.com/bakks/butterfish/prompt"
-	"github.com/bakks/butterfish/util"
+	"github.com/xuzhougeng/butterfish/embedding"
+	"github.com/xuzhougeng/butterfish/prompt"
+	"github.com/xuzhougeng/butterfish/util"
+)
+
+// ModelType represents different LLM providers
+type ModelType int
+
+const (
+	ModelTypeUnknown ModelType = iota
+	ModelTypeOpenAI
+	ModelTypeAnthropic
+	ModelTypeGemini
+	ModelTypeLlama
+	ModelTypeMistral
 )
 
 // Main driver for the Butterfish set of command line tools. These are tools
@@ -68,6 +80,12 @@ type ButterfishConfig struct {
 	// calling the LLM
 	PromptLibrary PromptLibrary
 
+	// Type of the model being used (OpenAI, Anthropic, etc.)
+	ModelType ModelType
+
+	// Default system message to use for the model
+	DefaultSystemMessage string
+
 	// Shell mode configuration
 	ShellMode               bool
 	ShellPluginMode         bool
@@ -102,6 +120,9 @@ type ButterfishConfig struct {
 	SummarizeModel       string
 	SummarizeTemperature float32
 	SummarizeMaxTokens   int
+
+	// Model to use for image analysis
+	ImageModel string
 }
 
 func (this *ButterfishConfig) ParseShell() string {

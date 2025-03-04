@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -20,8 +21,8 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/term"
 
-	"github.com/bakks/butterfish/prompt"
-	"github.com/bakks/butterfish/util"
+	"github.com/xuzhougeng/butterfish/prompt"
+	"github.com/xuzhougeng/butterfish/util"
 )
 
 // Parse and execute a command in a butterfish context
@@ -128,6 +129,14 @@ type CliCommandConfig struct {
 		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt."`
 	} `cmd:"" help:"Ask a question using the embeddings index. This fetches text snippets from the index and passes them to the LLM to generate an answer, thus you need to run the index command first."`
+
+	Image struct {
+		Files       []string `arg:"" help:"Image files to analyze." optional:""`
+		Model       string   `short:"m" help:"Vision model to use for image analysis."`
+		NumTokens   int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Temperature float32  `short:"T" default:"0.7" help:"Temperature to use for the analysis."`
+		Prompt      string   `short:"p" default:"Describe this image in detail" help:"Custom prompt for image analysis."`
+	} `cmd:"" help:"Analyze images using vision models. Provide detailed descriptions and insights about the images."`
 }
 
 func (this *ButterfishCtx) getPipedStdin() string {
@@ -583,6 +592,15 @@ func (this *ButterfishCtx) ExecCommand(
 		_, err = this.LLMClient.CompletionStream(req, this.Out)
 		return err
 
+	case "image <files>":
+		files := options.Image.Files
+		if len(files) == 0 {
+			return errors.New("Please provide image files to analyze")
+		}
+
+		err := this.AnalyzeImages(files, options.Image.Model, options.Image.NumTokens, options.Image.Temperature, options.Image.Prompt, this.Config.Verbose > 0)
+		return err
+
 	default:
 		return errors.New("Unrecognized command: " + parsed.Command())
 
@@ -981,9 +999,9 @@ func (this *ButterfishCtx) SummarizePaths(paths []string, chunkSize, maxChunks i
 
 // From OpenAI documentation:
 // Tokens can be words or just chunks of characters. For example, the word
-// “hamburger” gets broken up into the tokens “ham”, “bur” and “ger”, while a
-// short and common word like “pear” is a single token. Many tokens start with
-// a whitespace, for example “ hello” and “ bye”.
+// "hamburger" gets broken up into the tokens "ham", "bur" and "ger", while a
+// short and common word like "pear" is a single token. Many tokens start with
+// a whitespace, for example " hello" and " bye".
 // The number of tokens processed in a given API request depends on the length
 // of both your inputs and outputs. As a rough rule of thumb, 1 token is
 // approximately 4 characters or 0.75 words for English text.
@@ -1067,4 +1085,78 @@ func (this *ButterfishCtx) SummarizeChunks(chunks [][]byte) error {
 	req.Prompt = prompt
 	_, err = this.LLMClient.CompletionStream(req, writer)
 	return err
+}
+
+func (this *ButterfishCtx) AnalyzeImages(files []string, model string, numTokens int, temperature float32, userPrompt string, verbose bool) error {
+	// If no model specified, use the configured one
+	if model == "" {
+		model = this.Config.ImageModel
+	}
+
+	if verbose {
+		log.Printf("[DEBUG] Using model for image analysis: %s", model)
+	}
+
+	writer := util.NewStyledWriter(this.Out, this.Config.Styles.Answer)
+
+	for _, file := range files {
+		// Open and read the image file
+		f, err := os.Open(file)
+		if err != nil {
+			return fmt.Errorf("failed to open image %s: %v", file, err)
+		}
+		defer f.Close()
+
+		// Create image content
+		imgContent, err := util.CreateImageContent(f, fmt.Sprintf("Image from file: %s", file))
+		if err != nil {
+			return fmt.Errorf("failed to process image %s: %v", file, err)
+		}
+
+		if verbose {
+			log.Printf("[DEBUG] Successfully processed image %s, base64 length: %d", file, len(imgContent.Base64Content))
+		}
+
+		// If analyzing multiple files, print the filename
+		if len(files) > 1 {
+			fmt.Fprintf(this.Out, "\nAnalyzing %s:\n", file)
+		}
+
+		// Create the completion request
+		sysMsg, err := this.PromptLibrary.GetPrompt(prompt.ImageAnalysisSystemMessage)
+		if err != nil {
+			return fmt.Errorf("failed to get system message: %v", err)
+		}
+
+		req := &util.CompletionRequest{
+			Ctx:           this.Ctx,
+			Prompt:        userPrompt,
+			Model:         model,
+			MaxTokens:     numTokens,
+			Temperature:   temperature,
+			SystemMessage: sysMsg,
+			Verbose:       verbose,
+			HistoryBlocks: []util.HistoryBlock{
+				{
+					Type:    0, // user
+					Content: fmt.Sprintf("Here is the image %s. %s", file, userPrompt),
+				},
+			},
+			Images: []util.ImageContent{*imgContent},
+		}
+
+		if verbose {
+			log.Printf("[DEBUG] Request contains %d images", len(req.Images))
+		}
+
+		// Send request to LLM
+		_, err = this.LLMClient.CompletionStream(req, writer)
+		if err != nil {
+			return fmt.Errorf("failed to analyze image %s: %v", file, err)
+		}
+
+		fmt.Fprintln(this.Out) // Add newline between files
+	}
+
+	return nil
 }

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/bakks/butterfish/proto"
+	pb "github.com/xuzhougeng/butterfish/proto"
 	"github.com/drewlanenga/govector"
 	"github.com/golang/protobuf/proto"
 	"github.com/spf13/afero"
@@ -20,7 +20,7 @@ import (
 	"golang.org/x/tools/godoc/vfs"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	util "github.com/bakks/butterfish/util"
+	util "github.com/xuzhougeng/butterfish/util"
 )
 
 type Embedder interface {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -16,8 +15,8 @@ import (
 
 	//_ "net/http/pprof"
 
-	bf "github.com/bakks/butterfish/butterfish"
-	"github.com/bakks/butterfish/util"
+	bf "github.com/xuzhougeng/butterfish/butterfish"
+	"github.com/xuzhougeng/butterfish/util"
 )
 
 var ( // these are filled in at build time
@@ -32,7 +31,7 @@ Butterfish is a command line tool for working with LLMs. It has two modes: CLI c
 
 Butterfish looks for an API key in OPENAI_API_KEY, or alternatively stores an OpenAI auth token at ~/.config/butterfish/butterfish.env.
 
-Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to the system temp dir, usually to /var/tmp/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/bakks/butterfish.
+Prompts are stored in ~/.config/butterfish/prompts.yaml. Butterfish logs to ~/.butterfish/logs/butterfish.log. To print the full prompts and responses from the OpenAI API, use the --verbose flag. Support can be found at https://github.com/xuzhougeng/butterfish.
 
 If you do not have OpenAI free credits then you will need a subscription and you will need to pay for OpenAI API use. If you're using Shell Mode, autosuggest will probably be the most expensive part. You can reduce spend by disabling shell autosuggest (-A) or increasing the autosuggest timeout (e.g. -t 2000). See "butterfish shell --help".
 `
@@ -73,28 +72,146 @@ func (v *VerboseFlag) BeforeResolve() error {
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
 	Verbose      VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
-	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
+	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually ~/.butterfish/logs/butterfish.log"`
 	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
 	BaseURL      string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
 	TokenTimeout int              `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 	LightColor   bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 
 	Shell struct {
-		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" default:"gpt-4o" help:"Model for when the user manually enters a prompt."`
-		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
-		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
-		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
-		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
-		MaxPromptTokens           int    `short:"P" default:"16384" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
-		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
-		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
-	} `cmd:"" help:"${shell_help}"`
+		Bin                        string  `short:"b" default:"" help:"Shell binary to use, defaults to $SHELL."`
+		Model                      string  `short:"m" default:"" help:"LLM to use for shell prompts."`
+		AutosuggestModel           string  `short:"a" default:"" help:"LLM to use for shell autosuggestions."`
+		AutosuggestDisabled        bool    `short:"A" default:"false" help:"Disable shell autosuggestions."`
+		AutosuggestTimeout         int     `short:"t" default:"1000" help:"Timeout for shell autosuggestions in milliseconds."`
+		NewlineAutosuggestTimeout  int     `short:"T" default:"2000" help:"Timeout for shell autosuggestions after newline in milliseconds."`
+		NoCommandPrompt            bool    `short:"P" default:"false" help:"Don't modify the command prompt."`
+		MaxPromptTokens            int     `short:"p" default:"4096" help:"Maximum number of tokens to use for shell prompts."`
+		MaxHistoryBlockTokens      int     `short:"H" default:"2048" help:"Maximum number of tokens to use for shell history blocks."`
+		MaxResponseTokens          int     `short:"r" default:"1024" help:"Maximum number of tokens to generate for shell responses."`
+	} `cmd:"shell" help:"${shell_help}"`
 
-	// We include the cliConsole options here so that we can parse them and hand them
-	// to the console executor, even though we're in the shell context here
+	Completion struct {
+		Shell string `arg:"" required:"" enum:"bash,zsh,fish" help:"Shell to generate completion script for (bash, zsh, fish)"`
+	} `cmd:"completion" help:"Generate shell completion script"`
+
 	bf.CliCommandConfig
+}
+
+const bashCompletion = `
+_butterfish_completion() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="shell prompt promptedit edit summarize gencmd exec index clearindex loadindex showindex indexsearch indexquestion image completion"
+
+    case "${prev}" in
+        butterfish)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        completion)
+            COMPREPLY=( $(compgen -W "bash zsh fish" -- ${cur}) )
+            return 0
+            ;;
+        *)
+            COMPREPLY=()
+            return 0
+            ;;
+    esac
+}
+
+complete -F _butterfish_completion butterfish
+`
+
+const zshCompletion = `#compdef butterfish
+
+_butterfish() {
+    local -a commands
+    commands=(
+        'shell:Start the Butterfish shell wrapper'
+        'prompt:Run an LLM prompt'
+        'promptedit:Edit and run a prompt'
+        'edit:Edit a file using LLM'
+        'summarize:Summarize files'
+        'gencmd:Generate shell commands'
+        'exec:Execute and debug commands'
+        'index:Index files for search'
+        'clearindex:Clear index'
+        'loadindex:Load index'
+        'showindex:Show indexed files'
+        'indexsearch:Search in indexed files'
+        'indexquestion:Ask questions about indexed files'
+        'image:Analyze images'
+        'completion:Generate shell completion script'
+    )
+
+    _arguments -C \
+        '1: :->cmds' \
+        '*:: :->args'
+
+    case "$state" in
+        cmds)
+            _describe -t commands 'butterfish commands' commands
+            ;;
+        args)
+            case $words[1] in
+                completion)
+                    _values 'shell' 'bash' 'zsh' 'fish'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_butterfish
+`
+
+const fishCompletion = `
+function __fish_butterfish_no_subcommand
+    set cmd (commandline -opc)
+    if [ (count $cmd) -eq 1 ]
+        return 0
+    end
+    return 1
+end
+
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a shell -d 'Start the Butterfish shell wrapper'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a prompt -d 'Run an LLM prompt'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a promptedit -d 'Edit and run a prompt'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a edit -d 'Edit a file using LLM'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a summarize -d 'Summarize files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a gencmd -d 'Generate shell commands'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a exec -d 'Execute and debug commands'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a index -d 'Index files for search'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a clearindex -d 'Clear index'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a loadindex -d 'Load index'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a showindex -d 'Show indexed files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a indexsearch -d 'Search in indexed files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a indexquestion -d 'Ask questions about indexed files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a image -d 'Analyze images'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a completion -d 'Generate shell completion script'
+
+complete -c butterfish -n '__fish_seen_subcommand_from completion' -a "bash zsh fish" -d 'Shell type'
+`
+
+func getModelType(model string) bf.ModelType {
+	model = strings.ToLower(model)
+	switch {
+	case strings.Contains(model, "gpt") || strings.HasPrefix(model, "openai/"):
+		return bf.ModelTypeOpenAI
+	case strings.Contains(model, "claude") || strings.HasPrefix(model, "anthropic/"):
+		return bf.ModelTypeAnthropic
+	case strings.Contains(model, "gemini") || strings.HasPrefix(model, "google/"):
+		return bf.ModelTypeGemini
+	case strings.Contains(model, "llama"):
+		return bf.ModelTypeLlama
+	case strings.Contains(model, "mistral"):
+		return bf.ModelTypeMistral
+	default:
+		return bf.ModelTypeUnknown
+	}
 }
 
 func getOpenAIToken() string {
@@ -116,49 +233,96 @@ func getOpenAIToken() string {
 		return token
 	}
 
-	// If we don't have a token, we'll prompt the user to create one
-	fmt.Printf("Butterfish requires an OpenAI API key, please visit https://beta.openai.com/account/api-keys to create one and paste it below (it should start with sk-):\n")
+	return ""
+}
 
-	// read in the token and validate
-	fmt.Scanln(&token)
-	token = strings.TrimSpace(token)
-	if token == "" {
-		log.Fatal("No token provided, exiting")
+func isAnthropicModel(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "claude") || strings.HasPrefix(model, "anthropic/")
+}
+
+func loadModelConfig(config *bf.ButterfishConfig) {
+	// Load model configs from env if present
+	if model := os.Getenv("BUTTERFISH_PROMPT_MODEL"); model != "" {
+		config.ShellPromptModel = model
+		config.ModelType = getModelType(model)
 	}
-	if !strings.HasPrefix(token, "sk-") {
-		log.Fatal("Invalid token provided, exiting")
+	if model := os.Getenv("BUTTERFISH_AUTOSUGGEST_MODEL"); model != "" {
+		config.ShellAutosuggestModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-
-	// attempt to write a .env file
-	fmt.Printf("\nSaving token to %s\n", path)
-	err = os.MkdirAll(filepath.Dir(path), 0755)
-	if err != nil {
-		fmt.Printf("Error creating directory: %s\n", err.Error())
-		return token
+	if model := os.Getenv("BUTTERFISH_GENCMD_MODEL"); model != "" {
+		config.GencmdModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-
-	envFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		fmt.Printf("Error creating file: %s\n", err.Error())
-		return token
+	if model := os.Getenv("BUTTERFISH_EXECCHECK_MODEL"); model != "" {
+		config.ExeccheckModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-	defer envFile.Close()
-
-	content := fmt.Sprintf("OPENAI_TOKEN=%s\n", token)
-	_, err = envFile.WriteString(content)
-	if err != nil {
-		fmt.Printf("Error writing file: %s\n", err.Error())
+	if model := os.Getenv("BUTTERFISH_SUMMARIZE_MODEL"); model != "" {
+		config.SummarizeModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
 	}
-
-	fmt.Printf("Token saved, you can edit it at any time at %s\n\n", path)
-
-	return token
+	if model := os.Getenv("BUTTERFISH_IMAGE_MODEL"); model != "" {
+		config.ImageModel = model
+		if config.ModelType == bf.ModelTypeUnknown {
+			config.ModelType = getModelType(model)
+		}
+	}
 }
 
 func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.OpenAIToken = getOpenAIToken()
-	config.BaseURL = options.BaseURL
+	
+	// Check env for BASE_URL first
+	if baseURL := os.Getenv("BUTTERFISH_BASE_URL"); baseURL != "" {
+		config.BaseURL = baseURL
+	} else {
+		config.BaseURL = options.BaseURL
+	}
+	
+	// Load model configs from env first
+	loadModelConfig(config)
+	
+	// Set default models if not specified in env
+	if config.ShellPromptModel == "" {
+		config.ShellPromptModel = "gpt-3.5-turbo"
+		config.ModelType = bf.ModelTypeOpenAI
+	}
+	if config.ShellAutosuggestModel == "" {
+		config.ShellAutosuggestModel = "gpt-3.5-turbo-instruct"
+	}
+	if config.GencmdModel == "" {
+		config.GencmdModel = "gpt-3.5-turbo"
+	}
+	if config.ExeccheckModel == "" {
+		config.ExeccheckModel = "gpt-3.5-turbo"
+	}
+	if config.SummarizeModel == "" {
+		config.SummarizeModel = "gpt-3.5-turbo"
+	}
+
+	// Set model-specific configurations
+	switch config.ModelType {
+	case bf.ModelTypeAnthropic:
+		config.DefaultSystemMessage = "You are Claude, an AI assistant. You help users with their tasks in a clear and concise way."
+	case bf.ModelTypeGemini:
+		config.DefaultSystemMessage = "You are Gemini, an AI assistant. You help users with their tasks in a clear and concise way."
+	case bf.ModelTypeLlama:
+		config.DefaultSystemMessage = "You are a helpful AI assistant. You help users with their tasks in a clear and concise way."
+	case bf.ModelTypeMistral:
+		config.DefaultSystemMessage = "You are a helpful AI assistant. You help users with their tasks in a clear and concise way."
+	}
+	
 	config.PromptLibraryPath = defaultPromptPath
 	config.TokenTimeout = time.Duration(options.TokenTimeout) * time.Millisecond
 
@@ -176,29 +340,37 @@ func getBuildInfo() string {
 }
 
 func main() {
-	// start pprof server in goroutine
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
-	// }()
-
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
 	cli := &CliConfig{}
-
-	cliParser, err := kong.New(cli,
+	parser := kong.Must(cli,
 		kong.Name("butterfish"),
 		kong.Description(desc),
-		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{
+			Compact: true,
+		}),
 		kong.Vars{
 			"shell_help": shell_help,
-			"version":    getBuildInfo(),
 		})
 
+	kongCtx, err := parser.Parse(os.Args[1:])
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	parsedCmd, err := cliParser.Parse(os.Args[1:])
-	cliParser.FatalIfErrorf(err)
+	cmd := kongCtx.Command()
+	if cmd == "completion <shell>" {
+		switch cli.Completion.Shell {
+		case "bash":
+			fmt.Print(bashCompletion)
+		case "zsh":
+			fmt.Print(zshCompletion)
+		case "fish":
+			fmt.Print(fishCompletion)
+		default:
+			log.Fatalf("unsupported shell: %s", cli.Completion.Shell)
+		}
+		return
+	}
 
 	config := makeButterfishConfig(cli)
 	config.BuildInfo = getBuildInfo()
@@ -206,7 +378,7 @@ func main() {
 
 	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
 
-	switch parsedCmd.Command() {
+	switch cmd {
 	case "shell":
 		logfileName := util.InitLogging(ctx)
 		fmt.Printf("Logging to %s\n", logfileName)
@@ -227,9 +399,19 @@ func main() {
 		}
 
 		config.ShellBinary = shell
-		config.ShellPromptModel = cli.Shell.Model
+		
+		// Load model configs from env first
+		loadModelConfig(config)
+		
+		// Command line args override env settings
+		if cli.Shell.Model != "" {
+			config.ShellPromptModel = cli.Shell.Model
+		}
+		if cli.Shell.AutosuggestModel != "" {
+			config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
+		}
+		
 		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
-		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond
 		config.ShellNewlineAutosuggestTimeout = time.Duration(cli.Shell.NewlineAutosuggestTimeout) * time.Millisecond
 		config.ColorDark = !cli.LightColor
@@ -250,10 +432,8 @@ func main() {
 			fmt.Fprintf(errorWriter, err.Error())
 			os.Exit(3)
 		}
-		//butterfishCtx.Config.Styles.PrintTestColors()
 
-		err = butterfishCtx.ExecCommand(parsedCmd, &cli.CliCommandConfig)
-
+		err = butterfishCtx.ExecCommand(kongCtx, &cli.CliCommandConfig)
 		if err != nil {
 			butterfishCtx.StylePrintf(config.Styles.Error, "Error: %s\n", err.Error())
 			os.Exit(4)

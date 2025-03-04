@@ -1,7 +1,7 @@
 package altscreenwrapper
 
 import (
-	"github.com/bakks/butterfish/bubbles/util"
+	"github.com/xuzhougeng/butterfish/bubbles/util"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

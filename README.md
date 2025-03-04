@@ -2,7 +2,7 @@
 
 A shell with AI superpowers
 
-[![Website](https://img.shields.io/badge/website-https://butterfi.sh-blue)](https://butterfi.sh) [![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) [![Latest Version](https://img.shields.io/github/v/release/bakks/butterfish)](https://github.com/bakks/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
+[![GoDoc](https://godoc.org/github.com/xuzhougeng/butterfish?status.svg)](https://godoc.org/github.com/xuzhougeng/butterfish) [![Latest Version](https://img.shields.io/github/v/release/xuzhougeng/butterfish)](https://github.com/xuzhougeng/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
 
 #### ** New **
 
@@ -34,7 +34,7 @@ Feedback and external contribution is very welcome! Butterfish is open source un
 
 Many AI-enabled products obscure the prompt (instructional text) sent to the AI model, Butterfish makes it transparent and configurable.
 
-To see the raw AI requests / responses you can run Butterfish in verbose mode (`butterfish shell -v`) and watch the log file (`/var/tmp/butterfish.log` on MacOS). For more verbosity, use `-vv`.
+To see the raw AI requests / responses you can run Butterfish in verbose mode (`butterfish shell -v`) and watch the log file (`~/.butterfish/logs/butterfish.log`). For more verbosity, use `-vv`.
 
 To configure the prompts you can edit `~/.config/butterfish/prompts.yaml`.
 
@@ -53,10 +53,48 @@ Is this thing working? # Type this literally into the CLI
 You can also install with `go install`:
 
 ```bash
-go install github.com/bakks/butterfish/cmd/butterfish@latest
+go install github.com/xuzhougeng/butterfish/cmd/butterfish@latest
 $(go env GOPATH)/bin/butterfish shell
 Is this thing working? # Type this literally into the CLI
 ```
+
+### Shell Completion
+
+Butterfish supports command completion for bash, zsh, and fish shells. To enable it:
+
+For bash:
+```bash
+butterfish completion bash > ~/.bash_completion.d/butterfish
+source ~/.bash_completion.d/butterfish
+```
+
+For zsh:
+```bash
+# 1. Create completion directory
+mkdir -p ~/.zsh/completion
+
+# 2. Generate completion script
+butterfish completion zsh > ~/.zsh/completion/_butterfish
+
+# 3. Add to ~/.zshrc (choose one method):
+# Method 1: Add directly to existing fpath
+echo 'fpath=(~/.zsh/completion $fpath)' >> ~/.zshrc
+
+# Method 2: If using oh-my-zsh, you can put completion file in its completion directory
+butterfish completion zsh > ~/.oh-my-zsh/completions/_butterfish
+
+# 4. Reload zsh configuration
+source ~/.zshrc
+```
+
+For fish:
+```bash
+butterfish completion fish > ~/.config/fish/completions/butterfish.fish
+```
+
+After enabling completion, you can use TAB to complete butterfish subcommands like `shell`, `prompt`, `edit`, etc.
+
+### Authentication
 
 The first invocation will prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
 
@@ -64,7 +102,22 @@ The key will be written to `~/.config/butterfish/butterfish.env`, which looks li
 
 ```
 OPENAI_TOKEN=sk-foobar
+
+# Optional: Configure models
+BUTTERFISH_PROMPT_MODEL=gpt-4           # Model for manual prompts
+BUTTERFISH_AUTOSUGGEST_MODEL=gpt-3.5-turbo-instruct  # Model for autosuggestions
+BUTTERFISH_GENCMD_MODEL=gpt-4          # Model for command generation
+BUTTERFISH_EXECCHECK_MODEL=gpt-3.5-turbo # Model for execution checks
+BUTTERFISH_SUMMARIZE_MODEL=gpt-3.5-turbo # Model for summarization
+BUTTERFISH_IMAGE_MODEL=gpt-4-vision-preview # Model for image analysis
+
+# Optional: Configure API endpoint
+BUTTERFISH_BASE_URL=https://api.openai.com/v1  # Default OpenAI API
+# or
+BUTTERFISH_BASE_URL=http://localhost:8080      # Local model API
 ```
+
+You can configure models and API endpoint either through environment variables in `butterfish.env` or command line arguments. Command line arguments will override environment variables.
 
 It may also be useful to alias the `butterfish` command to something shorter. If you add the following line to your `~/.zshrc` or `~/.bashrc` file then you can run it with only `bf`.
 
@@ -207,10 +260,14 @@ Here are some goals that work _sometimes_:
 ## Local Models
 
 Butterfish uses OpenAI models by default, but you can instead point it to any
-server with a OpenAI compatible API with the `--base-url (-u)` flag. For example:
+server with a OpenAI compatible API with the `--base-url (-u)` flag or by setting the `BUTTERFISH_BASE_URL` environment variable in `~/.config/butterfish/butterfish.env`. For example:
 
-```
+```bash
+# Using command line flag
 butterfish prompt -u "http://localhost:5000/v1" "Is this thing working?"
+
+# Or using environment variable in butterfish.env
+BUTTERFISH_BASE_URL="http://localhost:5000/v1"
 ```
 
 This enables using Butterfish with local or remote non-OpenAI models. Notes on this feature:
@@ -222,7 +279,31 @@ This enables using Butterfish with local or remote non-OpenAI models. Notes on t
 
 ## CLI Examples
 
-Shell Mode is the primary focus of Butterfish but it also includes more specific command line utilities for prompting, generating commands, summarizing text, and managing embeddings of local files.
+Shell Mode is the primary focus of Butterfish but it also includes more specific command line utilities for prompting, generating commands, summarizing text, managing embeddings of local files, and analyzing images.
+
+### `image` - Analyze images using vision models
+
+Examples:
+
+```bash
+# Analyze a single image
+butterfish image image.png
+
+# Analyze multiple images
+butterfish image *.jpg
+
+# Use a custom prompt
+butterfish image -p "What objects can you see in this image?" image.png
+
+# Configure the model in butterfish.env
+BUTTERFISH_IMAGE_MODEL=gpt-4-vision-preview  # Model for image analysis
+```
+
+The image command supports:
+- Multiple image analysis in one command
+- Custom prompts for specific analysis needs
+- Model configuration via environment variables or command line flags
+- Detailed analysis including object identification, text recognition, and contextual understanding
 
 ### `prompt` - Straightforward LLM prompt
 
@@ -367,7 +448,7 @@ Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
 
 Butterfish stores an OpenAI auth token at ~/.config/butterfish/butterfish.env
 and the prompt wrappers it uses at ~/.config/butterfish/prompts.yaml. Butterfish
-logs to the system temp dir, usually to /var/tmp/butterfish.log.
+logs to user's home directory at `~/.butterfish/logs/butterfish.log`.
 
 To print the full prompts and responses from the OpenAI API, use the --verbose
 flag. Support can be found at https://github.com/bakks/butterfish.
@@ -561,7 +642,7 @@ I've been developing Butterfish on an Intel Mac, but it should work fine on ARM 
 
 ```
 brew install git go protobuf protoc-gen-go protoc-gen-go-grpc
-git clone https://github.com/bakks/butterfish
+git clone https://github.com/xuzhougeng/butterfish
 cd butterfish
 make
 ./bin/butterfish prompt "Is this thing working?"

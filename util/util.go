@@ -3,8 +3,11 @@ package util
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log"
 	"os"
@@ -34,6 +37,7 @@ type CompletionRequest struct {
 	Tools         []ToolDefinition
 	Verbose       bool
 	TokenTimeout  time.Duration
+	Images        []ImageContent
 }
 
 type FunctionCall struct {
@@ -72,6 +76,27 @@ type HistoryBlock struct {
 	FunctionParams string
 	ToolCalls      []*ToolCall
 	ToolCallId     string
+}
+
+// ImageContent represents an image with its base64 content and optional metadata
+type ImageContent struct {
+	Base64Content string `json:"base64_content"`
+	MimeType      string `json:"mime_type"`
+	Description   string `json:"description,omitempty"`
+}
+
+// CreateImageContent creates an ImageContent from a reader
+func CreateImageContent(input io.Reader, description string) (*ImageContent, error) {
+	base64Str, err := ImageToBase64PNG(input)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ImageContent{
+		Base64Content: base64Str,
+		MimeType:      "image/png",
+		Description:   description,
+	}, nil
 }
 
 func (this HistoryBlock) String() string {
@@ -702,19 +727,20 @@ func NewStyledWriter(writer io.Writer, style lipgloss.Style) *StyledWriter {
 	}
 }
 
-// Open a log file named butterfish.log in a temporary directory
+// Open a log file named butterfish.log in user's home directory
 func InitLogging(ctx context.Context) string {
-	logDir := "/var/tmp"
-	_, err := os.Stat(logDir)
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Create a temporary directory to hold the log file
-		logDir, err = os.MkdirTemp("", "butterfish")
-		if err != nil {
-			panic(err)
-		}
+		panic(err)
 	}
 
-	// Create a log file in the temporary directory
+	logDir := filepath.Join(homeDir, ".butterfish", "logs")
+	err = os.MkdirAll(logDir, 0700)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create a log file in the user's .butterfish/logs directory
 	filename := filepath.Join(logDir, "butterfish.log")
 	logFile, err := os.OpenFile(filename,
 		os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
@@ -734,4 +760,26 @@ func InitLogging(ctx context.Context) string {
 	}()
 
 	return filename
+}
+
+// ImageToBase64PNG converts an image to base64 encoded PNG format.
+// Supports PNG and JPEG input formats.
+func ImageToBase64PNG(input io.Reader) (string, error) {
+	// Decode the image
+	img, _, err := image.Decode(input)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode image: %v", err)
+	}
+
+	// Create buffer to store PNG data
+	var buf bytes.Buffer
+
+	// Encode as PNG
+	if err := png.Encode(&buf, img); err != nil {
+		return "", fmt.Errorf("failed to encode as PNG: %v", err)
+	}
+
+	// Encode to base64
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+	return encoded, nil
 }
