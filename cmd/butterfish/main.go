@@ -79,22 +79,122 @@ type CliConfig struct {
 	LightColor   bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 
 	Shell struct {
-		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" help:"Model for when the user manually enters a prompt."`
-		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel          string `short:"a" help:"Model for autosuggest"`
-		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
-		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
-		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
-		MaxPromptTokens           int    `short:"P" default:"16384" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
-		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
-		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
-	} `cmd:"" help:"${shell_help}"`
+		Bin                        string  `short:"b" default:"" help:"Shell binary to use, defaults to $SHELL."`
+		Model                      string  `short:"m" default:"" help:"LLM to use for shell prompts."`
+		AutosuggestModel           string  `short:"a" default:"" help:"LLM to use for shell autosuggestions."`
+		AutosuggestDisabled        bool    `short:"A" default:"false" help:"Disable shell autosuggestions."`
+		AutosuggestTimeout         int     `short:"t" default:"1000" help:"Timeout for shell autosuggestions in milliseconds."`
+		NewlineAutosuggestTimeout  int     `short:"T" default:"2000" help:"Timeout for shell autosuggestions after newline in milliseconds."`
+		NoCommandPrompt            bool    `short:"P" default:"false" help:"Don't modify the command prompt."`
+		MaxPromptTokens            int     `short:"p" default:"4096" help:"Maximum number of tokens to use for shell prompts."`
+		MaxHistoryBlockTokens      int     `short:"H" default:"2048" help:"Maximum number of tokens to use for shell history blocks."`
+		MaxResponseTokens          int     `short:"r" default:"1024" help:"Maximum number of tokens to generate for shell responses."`
+	} `cmd:"shell" help:"${shell_help}"`
 
-	// We include the cliConsole options here so that we can parse them and hand them
-	// to the console executor, even though we're in the shell context here
+	Completion struct {
+		Shell string `arg:"" required:"" enum:"bash,zsh,fish" help:"Shell to generate completion script for (bash, zsh, fish)"`
+	} `cmd:"completion" help:"Generate shell completion script"`
+
 	bf.CliCommandConfig
 }
+
+const bashCompletion = `
+_butterfish_completion() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="shell prompt promptedit edit summarize gencmd exec index clearindex loadindex showindex indexsearch indexquestion image completion"
+
+    case "${prev}" in
+        butterfish)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        completion)
+            COMPREPLY=( $(compgen -W "bash zsh fish" -- ${cur}) )
+            return 0
+            ;;
+        *)
+            COMPREPLY=()
+            return 0
+            ;;
+    esac
+}
+
+complete -F _butterfish_completion butterfish
+`
+
+const zshCompletion = `#compdef butterfish
+
+_butterfish() {
+    local -a commands
+    commands=(
+        'shell:Start the Butterfish shell wrapper'
+        'prompt:Run an LLM prompt'
+        'promptedit:Edit and run a prompt'
+        'edit:Edit a file using LLM'
+        'summarize:Summarize files'
+        'gencmd:Generate shell commands'
+        'exec:Execute and debug commands'
+        'index:Index files for search'
+        'clearindex:Clear index'
+        'loadindex:Load index'
+        'showindex:Show indexed files'
+        'indexsearch:Search in indexed files'
+        'indexquestion:Ask questions about indexed files'
+        'image:Analyze images'
+        'completion:Generate shell completion script'
+    )
+
+    _arguments -C \
+        '1: :->cmds' \
+        '*:: :->args'
+
+    case "$state" in
+        cmds)
+            _describe -t commands 'butterfish commands' commands
+            ;;
+        args)
+            case $words[1] in
+                completion)
+                    _values 'shell' 'bash' 'zsh' 'fish'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_butterfish
+`
+
+const fishCompletion = `
+function __fish_butterfish_no_subcommand
+    set cmd (commandline -opc)
+    if [ (count $cmd) -eq 1 ]
+        return 0
+    end
+    return 1
+end
+
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a shell -d 'Start the Butterfish shell wrapper'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a prompt -d 'Run an LLM prompt'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a promptedit -d 'Edit and run a prompt'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a edit -d 'Edit a file using LLM'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a summarize -d 'Summarize files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a gencmd -d 'Generate shell commands'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a exec -d 'Execute and debug commands'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a index -d 'Index files for search'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a clearindex -d 'Clear index'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a loadindex -d 'Load index'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a showindex -d 'Show indexed files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a indexsearch -d 'Search in indexed files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a indexquestion -d 'Ask questions about indexed files'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a image -d 'Analyze images'
+complete -c butterfish -n '__fish_butterfish_no_subcommand' -a completion -d 'Generate shell completion script'
+
+complete -c butterfish -n '__fish_seen_subcommand_from completion' -a "bash zsh fish" -d 'Shell type'
+`
 
 func getModelType(model string) bf.ModelType {
 	model = strings.ToLower(model)
@@ -240,29 +340,37 @@ func getBuildInfo() string {
 }
 
 func main() {
-	// start pprof server in goroutine
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
-	// }()
-
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
 	cli := &CliConfig{}
-
-	cliParser, err := kong.New(cli,
+	parser := kong.Must(cli,
 		kong.Name("butterfish"),
 		kong.Description(desc),
-		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{
+			Compact: true,
+		}),
 		kong.Vars{
 			"shell_help": shell_help,
-			"version":    getBuildInfo(),
 		})
 
+	kongCtx, err := parser.Parse(os.Args[1:])
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	parsedCmd, err := cliParser.Parse(os.Args[1:])
-	cliParser.FatalIfErrorf(err)
+	cmd := kongCtx.Command()
+	if cmd == "completion <shell>" {
+		switch cli.Completion.Shell {
+		case "bash":
+			fmt.Print(bashCompletion)
+		case "zsh":
+			fmt.Print(zshCompletion)
+		case "fish":
+			fmt.Print(fishCompletion)
+		default:
+			log.Fatalf("unsupported shell: %s", cli.Completion.Shell)
+		}
+		return
+	}
 
 	config := makeButterfishConfig(cli)
 	config.BuildInfo = getBuildInfo()
@@ -270,7 +378,7 @@ func main() {
 
 	errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
 
-	switch parsedCmd.Command() {
+	switch cmd {
 	case "shell":
 		logfileName := util.InitLogging(ctx)
 		fmt.Printf("Logging to %s\n", logfileName)
@@ -324,10 +432,8 @@ func main() {
 			fmt.Fprintf(errorWriter, err.Error())
 			os.Exit(3)
 		}
-		//butterfishCtx.Config.Styles.PrintTestColors()
 
-		err = butterfishCtx.ExecCommand(parsedCmd, &cli.CliCommandConfig)
-
+		err = butterfishCtx.ExecCommand(kongCtx, &cli.CliCommandConfig)
 		if err != nil {
 			butterfishCtx.StylePrintf(config.Styles.Error, "Error: %s\n", err.Error())
 			os.Exit(4)

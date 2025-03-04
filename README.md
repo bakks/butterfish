@@ -58,6 +58,44 @@ $(go env GOPATH)/bin/butterfish shell
 Is this thing working? # Type this literally into the CLI
 ```
 
+### Shell Completion
+
+Butterfish supports command completion for bash, zsh, and fish shells. To enable it:
+
+For bash:
+```bash
+butterfish completion bash > ~/.bash_completion.d/butterfish
+source ~/.bash_completion.d/butterfish
+```
+
+For zsh:
+```bash
+# 1. Create completion directory
+mkdir -p ~/.zsh/completion
+
+# 2. Generate completion script
+butterfish completion zsh > ~/.zsh/completion/_butterfish
+
+# 3. Add to ~/.zshrc (choose one method):
+# Method 1: Add directly to existing fpath
+echo 'fpath=(~/.zsh/completion $fpath)' >> ~/.zshrc
+
+# Method 2: If using oh-my-zsh, you can put completion file in its completion directory
+butterfish completion zsh > ~/.oh-my-zsh/completions/_butterfish
+
+# 4. Reload zsh configuration
+source ~/.zshrc
+```
+
+For fish:
+```bash
+butterfish completion fish > ~/.config/fish/completions/butterfish.fish
+```
+
+After enabling completion, you can use TAB to complete butterfish subcommands like `shell`, `prompt`, `edit`, etc.
+
+### Authentication
+
 The first invocation will prompt you to paste in an OpenAI API secret key. You can get an OpenAI key at [https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys).
 
 The key will be written to `~/.config/butterfish/butterfish.env`, which looks like:
