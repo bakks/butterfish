@@ -250,6 +250,16 @@ func ApplyEditToolToLineBuffer(toolCall *util.ToolCall, lineBuffer *LineBuffer) 
 	lineBuffer.ReplaceRange(params.RangeStart, params.RangeEnd, params.CodeEdit)
 	return nil
 }
+func getBaseModel(defaultModel string) string {
+	envBaseModel := os.Getenv("BASE_MODEL")
+	if envBaseModel != "" {
+		if defaultModel != "gpt-4-turbo" && defaultModel != envBaseModel {
+			print("Both environment variable and command line option for BaseMODEL are provided. Using BaseMODEL from environment variable: %s\n", envBaseModel)
+		}
+		return envBaseModel
+	}
+	return defaultModel
+}
 
 // A function to handle a cmd string when received from consoleCommand channel
 func (this *ButterfishCtx) ExecCommand(
@@ -293,7 +303,7 @@ func (this *ButterfishCtx) ExecCommand(
 		commandConfig := &promptCommand{
 			Prompt:      input,
 			SysMsg:      options.Prompt.SystemMessage,
-			Model:       options.Prompt.Model,
+			Model:       getBaseModel(options.Prompt.Model),
 			NumTokens:   options.Prompt.NumTokens,
 			Temperature: options.Prompt.Temperature,
 			Functions:   options.Prompt.Functions,
