@@ -560,6 +560,7 @@ func (this *GPT) doChatStreamCompletion(
 		}
 
 		text := chunk.Choices[0].Delta.Content
+		fmt.Println("text", text)
 		chunkToolCalls := chunk.Choices[0].Delta.ToolCalls
 
 		// Handle incremental tool call chunks
@@ -622,7 +623,9 @@ func (this *GPT) doChatStreamCompletion(
 
 	for stream.Next() {
 		chunk := stream.Current()
+		fmt.Printf("chunk: %v\n", chunk)
 		err = stream.Err()
+		fmt.Printf("err: %v\n", err)
 
 		if err != nil {
 			if chunkTimeoutErr != nil {
