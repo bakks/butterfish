@@ -19,7 +19,6 @@ import (
 
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
-	"github.com/sashabaranov/go-openai/jsonschema"
 
 	"github.com/bakks/tiktoken-go"
 	"github.com/mitchellh/go-ps"
@@ -31,8 +30,8 @@ import (
 // in Tiktoken
 // These models are used specifically for counting tokens to pack into
 // the prompt context
-const DEFAULT_AUTOSUGGEST_ENCODER = "gpt-3.5-turbo-instruct"
-const DEFAULT_PROMPT_ENCODER = "gpt-4-turbo"
+const DEFAULT_AUTOSUGGEST_ENCODER = tiktoken.MODEL_CL100K_BASE
+const DEFAULT_PROMPT_ENCODER = tiktoken.MODEL_CL100K_BASE
 
 const ESC_CUP = "\x1b[6n" // Request the cursor position
 const ESC_UP = "\x1b[%dA"
@@ -124,6 +123,15 @@ func HistoryTypeToString(historyType int) string {
 	}
 }
 
+func ShellHistoryTypeToRole(historyType int) string {
+	switch historyType {
+	case historyTypeLLMOutput:
+		return "assistant"
+	default:
+		return "user"
+	}
+}
+
 type Tokenization struct {
 	InputLength int    // the unprocessed length of the pretokenized plus truncated content
 	NumTokens   int    // number of tokens in the data
@@ -139,6 +147,7 @@ type HistoryBuffer struct {
 	Content        *ShellBuffer
 	FunctionName   string
 	FunctionParams string
+	ToolCallID     string
 
 	// This is to cache tokenization plus truncation of the content
 	// It maps from encoding name to the tokenization of the output
@@ -219,7 +228,7 @@ func (this *ShellHistory) Append(historyType int, data string) {
 	this.add(historyType, data)
 }
 
-func (this *ShellHistory) AddFunctionCall(name, params string) {
+func (this *ShellHistory) AddFunctionCall(name, params, callID string) {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
 
@@ -227,11 +236,12 @@ func (this *ShellHistory) AddFunctionCall(name, params string) {
 		Type:           historyTypeLLMOutput,
 		FunctionName:   name,
 		FunctionParams: params,
+		ToolCallID:     callID,
 		Content:        NewShellBuffer(),
 	})
 }
 
-func (this *ShellHistory) AppendFunctionOutput(name, data string) {
+func (this *ShellHistory) AppendFunctionOutput(name, callID, data string) {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
 
@@ -245,7 +255,7 @@ func (this *ShellHistory) AppendFunctionOutput(name, data string) {
 	// if we have a block already, and it matches the type, append to it
 	if numBlocks > 0 {
 		lastBlock = this.Blocks[numBlocks-1]
-		if lastBlock.Type == historyTypeFunctionOutput && lastBlock.FunctionName == name {
+		if lastBlock.Type == historyTypeFunctionOutput && lastBlock.FunctionName == name && lastBlock.ToolCallID == callID {
 			lastBlock.Content.Write(data)
 			return
 		}
@@ -255,6 +265,7 @@ func (this *ShellHistory) AppendFunctionOutput(name, data string) {
 	this.add(historyTypeFunctionOutput, data)
 	lastBlock = this.Blocks[numBlocks]
 	lastBlock.FunctionName = name
+	lastBlock.ToolCallID = callID
 }
 
 // Go back in history for a certain number of bytes.
@@ -274,8 +285,9 @@ func (this *ShellHistory) GetLastNBytes(numBytes int, truncateLength int) []util
 			break // we don't want a weird partial line so we bail out here
 		}
 		blocks = append(blocks, util.HistoryBlock{
-			Type:    block.Type,
-			Content: content,
+			Type:       block.Type,
+			Content:    content,
+			ToolCallId: block.ToolCallID,
 		})
 		numBytes -= len(content)
 	}
@@ -309,7 +321,7 @@ func (this *ShellHistory) LogRecentHistory() {
 	for _, block := range blocks {
 		builder.WriteString(fmt.Sprintf("%s: %s\n", HistoryTypeToString(block.Type), block.Content))
 	}
-	log.Printf(builder.String())
+	log.Print(builder.String())
 	log.Printf("=======================================")
 }
 
@@ -372,6 +384,7 @@ type ShellState struct {
 	GoalModeGoal           string
 	GoalModeUnsafe         bool
 	ActiveFunction         string
+	ActiveFunctionCallID   string
 	PromptSuffixCounter    int
 	ChildOutReader         chan *byteMsg
 	ParentInReader         chan *byteMsg
@@ -812,7 +825,11 @@ func (this *ShellState) Mux() {
 				this.History.Append(historyTypeLLMOutput, historyData)
 			}
 			if output.FunctionName != "" {
-				this.History.AddFunctionCall(output.FunctionName, output.FunctionParameters)
+				callID := ""
+				if len(output.ToolCalls) > 0 {
+					callID = output.ToolCalls[0].Id
+				}
+				this.History.AddFunctionCall(output.FunctionName, output.FunctionParameters, callID)
 			}
 
 			// If there is child output waiting to be printed, print that now
@@ -827,6 +844,11 @@ func (this *ShellState) Mux() {
 
 			if this.GoalMode {
 				this.ActiveFunction = output.FunctionName
+				if len(output.ToolCalls) > 0 {
+					this.ActiveFunctionCallID = output.ToolCalls[0].Id
+				} else {
+					this.ActiveFunctionCallID = ""
+				}
 				this.GoalModeFunction(output)
 				if this.GoalMode {
 					continue
@@ -880,6 +902,7 @@ func (this *ShellState) Mux() {
 				}
 			} else if this.ActiveFunction != "" {
 				this.ActiveFunction = ""
+				this.ActiveFunctionCallID = ""
 			}
 
 			// If we're getting child output while typing in a shell command, this
@@ -887,7 +910,7 @@ func (this *ShellState) Mux() {
 			// completion, or something unknown, so we don't want to add to history.
 			if this.State != stateShell && !this.FilterChildOut(string(childOutMsg.Data)) {
 				if this.ActiveFunction != "" {
-					this.History.AppendFunctionOutput(this.ActiveFunction, childOutStr)
+					this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, childOutStr)
 				} else {
 					this.History.Append(historyTypeShellOutput, childOutStr)
 				}
@@ -923,6 +946,7 @@ func (this *ShellState) Mux() {
 				}
 				this.GoalModeFunctionResponse(status)
 				this.ActiveFunction = ""
+				this.ActiveFunctionCallID = ""
 				this.GoalModeBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
@@ -1315,9 +1339,10 @@ func (this *ShellState) GoalModeChat() {
 func (this *ShellState) GoalModeFunctionResponse(output string) {
 	log.Printf("Goal mode response: %s\n", output)
 	if output != "" {
-		this.History.AppendFunctionOutput(this.ActiveFunction, output)
+		this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, output)
 	}
 	this.ActiveFunction = ""
+	this.ActiveFunctionCallID = ""
 	this.goalModePrompt("")
 }
 
@@ -1365,7 +1390,7 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 		if err != nil {
 			log.Printf("Error parsing function arguments: %s", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-			this.History.AppendFunctionOutput(output.FunctionName, modelStr)
+			this.History.AppendFunctionOutput(output.FunctionName, this.ActiveFunctionCallID, modelStr)
 			this.GoalModeFunctionResponse(modelStr)
 			return
 		}
@@ -1396,45 +1421,48 @@ var goalModeFunctions = []util.FunctionDefinition{
 	{
 		Name:        "command",
 		Description: "Run a command in the shell to help achieve your goal",
-		Parameters: jsonschema.Definition{
-			Type: jsonschema.Object,
-			Properties: map[string]jsonschema.Definition{
-				"cmd": {
-					Type:        jsonschema.String,
-					Description: "The string command including any arguments, for example 'ls ~'",
+		Parameters: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"cmd": map[string]any{
+					"type":        "string",
+					"description": "The string command including any arguments, for example 'ls ~'",
 				},
 			},
-			Required: []string{"cmd"},
+			"required": []string{"cmd"},
 		},
 	},
 
 	{
 		Name:        "user_input",
 		Description: "Resolve an ambiguity in the goal or provide additional information or hand off a goal that can't be accomplished to the user.",
-		Parameters: jsonschema.Definition{
-			Type: jsonschema.Object,
-			Properties: map[string]jsonschema.Definition{
-				"question": {
-					Type:        jsonschema.String,
-					Description: "The question to ask the user",
+		Parameters: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"question": map[string]any{
+					"type":        "string",
+					"description": "The question to ask the user",
 				},
 			},
-			Required: []string{"question"},
+			"required": []string{"question"},
 		},
 	},
 
 	{
 		Name:        "finish",
 		Description: "Finish the goal and exit goal mode, call only if the goal is accomplished or multiple strategies have been attempted and the goal is impossible.",
-		Parameters: jsonschema.Definition{
-			Type: jsonschema.Object,
-			Properties: map[string]jsonschema.Definition{
-				"success": {
-					Type:        jsonschema.Boolean,
-					Description: "Whether the goal was accomplished",
+		Parameters: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"success": map[string]any{
+					"type":        "boolean",
+					"description": "Whether the goal was accomplished",
 				},
 			},
-			Required: []string{"success"},
+			"required": []string{"success"},
 		},
 	},
 }
@@ -1680,6 +1708,7 @@ func getHistoryBlocksByTokens(
 			Content:        content,
 			FunctionName:   block.FunctionName,
 			FunctionParams: block.FunctionParams,
+			ToolCallId:     block.ToolCallID,
 		}
 
 		// we prepend the block so that the history is in the correct order
@@ -1924,9 +1953,9 @@ func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
 		encoder, err := tiktoken.EncodingForModel(modelName)
 		if err != nil {
 			log.Printf("Warning: Error getting encoder for autosuggest model %s: %s", modelName, err)
-			encoder, err = tiktoken.EncodingForModel(DEFAULT_AUTOSUGGEST_ENCODER)
+			encoder, err = tiktoken.GetEncoding(DEFAULT_AUTOSUGGEST_ENCODER)
 			if err != nil {
-				panic(fmt.Sprintf("Error getting encoder for fallback autosuggest model %s: %s", modelName, err))
+				panic(fmt.Sprintf("Error getting fallback autosuggest encoder %s: %s", DEFAULT_AUTOSUGGEST_ENCODER, err))
 			}
 		}
 
@@ -1942,9 +1971,9 @@ func (this *ShellState) getPromptEncoder() *tiktoken.Tiktoken {
 		encoder, err := tiktoken.EncodingForModel(modelName)
 		if err != nil {
 			log.Printf("Warning: Error getting encoder for prompt model %s: %s", modelName, err)
-			encoder, err = tiktoken.EncodingForModel(DEFAULT_PROMPT_ENCODER)
+			encoder, err = tiktoken.GetEncoding(DEFAULT_PROMPT_ENCODER)
 			if err != nil {
-				panic(fmt.Sprintf("Error getting encoder for fallback prompt model %s: %s", modelName, err))
+				panic(fmt.Sprintf("Error getting fallback prompt encoder %s: %s", DEFAULT_PROMPT_ENCODER, err))
 			}
 		}
 

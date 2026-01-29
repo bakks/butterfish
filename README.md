@@ -85,10 +85,10 @@ How does this work? Shell mode _wraps_ your shell rather than replacing it.
 
 This pattern is shockingly effective because your shell history becomes the AI chat context. For example, if you `cat` a file to print it out then the AI will see it. If you tried a command that failed, the AI can see the command and the error.
 
-Shell mode defaults to using `gpt-3.5-turbo` for prompting, if you have access to GPT-4 you can use it with:
+Shell mode defaults to using `gpt-5.2` for prompting, you can override it with:
 
 ```bash
-butterfish shell -m gpt-4
+butterfish shell -m gpt-5.2
 ```
 
 ### Shell Mode Command Reference
@@ -135,11 +135,11 @@ Flags:
 
   -b, --bin=STRING                 Shell to use (e.g. /bin/zsh), defaults to
                                    $SHELL.
-  -m, --prompt-model="gpt-3.5-turbo"
+  -m, --prompt-model="gpt-5.2"
                                    Model for when the user manually enters a
                                    prompt.
   -A, --autosuggest-disabled       Disable autosuggest.
-  -a, --autosuggest-model="gpt-3.5-turbo-instruct"
+  -a, --autosuggest-model="gpt-5.2"
                                    Model for autosuggest
   -t, --autosuggest-timeout=400    Delay after typing before autosuggest (lower
                                    values trigger more calls and are more
@@ -210,14 +210,14 @@ Butterfish uses OpenAI models by default, but you can instead point it to any
 server with a OpenAI compatible API with the `--base-url (-u)` flag. For example:
 
 ```
-butterfish prompt -u "http://localhost:5000/v1" "Is this thing working?"
+butterfish prompt -u "http://localhost:5000/v1/responses" "Is this thing working?"
 ```
 
 This enables using Butterfish with local or remote non-OpenAI models. Notes on this feature:
 
--   In practice using hosted models is much simpler than running your own, and Butterfish's prompts have been tuned for GPT-3.5/4, so you will probably get the best results using the default OpenAI models.
--   Being OpenAI-API compatible in this case means implementing the [Chat Completions endpoint](https://platform.openai.com/docs/api-reference/chat/create) with streaming results.
--   Butterfish will add your token to requests to the chat completions endpoint, so be careful about accidentally leaking credentials if you don't trust the server.
+-   In practice using hosted models is much simpler than running your own, and Butterfish's prompts have been tuned for OpenAI models, so you will probably get the best results using the default OpenAI models.
+-   Being OpenAI-API compatible in this case means implementing the [Responses endpoint](https://platform.openai.com/docs/api-reference/responses/create) with streaming results.
+-   Butterfish will add your token to requests to the Responses endpoint, so be careful about accidentally leaking credentials if you don't trust the server.
 -   Options for running a local model with a compatible interface include [LM Studio](https://lmstudio.ai/) and [text-generation-webui](https://github.com/oobabooga/text-generation-webui).
 
 ## CLI Examples
@@ -242,7 +242,7 @@ Run an LLM prompt without wrapping, stream results back. This is a
 straight-through call to the LLM from the command line with a given prompt.
 This accepts piped input, if there is both piped input and a prompt then they
 will be concatenated together (prompt first). It is recommended that you wrap
-the prompt with quotes. The default GPT model is gpt-3.5-turbo.
+the prompt with quotes. The default GPT model is gpt-5.2.
 
 Arguments:
   [<prompt> ...]    Prompt to use.
@@ -254,7 +254,7 @@ Flags:
                                  more verbosity, e.g. -vv.
   -V, --version                  Print version information and exit.
 
-  -m, --model="gpt-3.5-turbo"    GPT model to use for the prompt.
+  -m, --model="gpt-5.2"    GPT model to use for the prompt.
   -n, --num-tokens=1024          Maximum number of tokens to generate.
   -T, --temperature=0.7          Temperature to use for the prompt, higher
                                  temperature indicates more freedom/randomness
@@ -376,7 +376,7 @@ Commands:
     straight-through call to the LLM from the command line with a given prompt.
     This accepts piped input, if there is both piped input and a prompt then
     they will be concatenated together (prompt first). It is recommended that
-    you wrap the prompt with quotes. The default GPT model is gpt-3.5-turbo.
+    you wrap the prompt with quotes. The default GPT model is gpt-5.2.
 
   promptedit
     Like the prompt command, but this opens a local file with your default

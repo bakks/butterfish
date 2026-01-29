@@ -16,7 +16,6 @@ import (
 
 	"github.com/alecthomas/chroma/quick"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/spf13/afero"
 )
 
@@ -55,9 +54,9 @@ type CompletionResponse struct {
 }
 
 type FunctionDefinition struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Parameters  jsonschema.Definition `json:"parameters"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 type ToolDefinition struct {

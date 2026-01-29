@@ -186,7 +186,7 @@ var GruvboxLight = ColorScheme{
 	Grey:       "#928374",
 }
 
-const BestCompletionModel = "gpt-3.5-turbo"
+const BestCompletionModel = "gpt-5.2"
 
 func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
@@ -394,8 +394,8 @@ func initLLM(config *ButterfishConfig) (LLM, error) {
 	} else if config.OpenAIToken != "" && config.LLMClient != nil {
 		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
 	} else if config.OpenAIToken != "" {
-		gpt := NewGPT(config.OpenAIToken, config.BaseURL)
-		return gpt, nil
+		client := NewOpenAIClient(config.OpenAIToken, config.BaseURL)
+		return client, nil
 	} else {
 		return config.LLMClient, nil
 	}
