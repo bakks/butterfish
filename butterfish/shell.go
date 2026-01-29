@@ -143,11 +143,14 @@ type Tokenization struct {
 // content. Tokenizations are cached for specific encodings, for example
 // newer models use a different encoding than older models.
 type HistoryBuffer struct {
-	Type           int
-	Content        *ShellBuffer
-	FunctionName   string
-	FunctionParams string
-	ToolCallID     string
+	Type            int
+	Content         *ShellBuffer
+	FunctionName    string
+	FunctionParams  string
+	ToolCallID      string
+	ToolType        string
+	ShellCall       *util.ShellCall
+	ShellCallOutput *util.ShellCallOutput
 
 	// This is to cache tokenization plus truncation of the content
 	// It maps from encoding name to the tokenization of the output
@@ -241,6 +244,25 @@ func (this *ShellHistory) AddFunctionCall(name, params, callID string) {
 	})
 }
 
+func (this *ShellHistory) AddShellCall(call *util.ShellCall) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
+	if call == nil {
+		return
+	}
+
+	this.Blocks = append(this.Blocks, &HistoryBuffer{
+		Type:           historyTypeLLMOutput,
+		ToolCallID:     call.CallID,
+		ToolType:       "shell",
+		ShellCall:      call,
+		Content:        NewShellBuffer(),
+		FunctionName:   "",
+		FunctionParams: "",
+	})
+}
+
 func (this *ShellHistory) AppendFunctionOutput(name, callID, data string) {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
@@ -266,6 +288,57 @@ func (this *ShellHistory) AppendFunctionOutput(name, callID, data string) {
 	lastBlock = this.Blocks[numBlocks]
 	lastBlock.FunctionName = name
 	lastBlock.ToolCallID = callID
+}
+
+func (this *ShellHistory) AppendFunctionOutputAllowEmpty(name, callID string) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
+	numBlocks := len(this.Blocks)
+	if numBlocks > 0 {
+		lastBlock := this.Blocks[numBlocks-1]
+		if lastBlock.Type == historyTypeFunctionOutput && lastBlock.FunctionName == name && lastBlock.ToolCallID == callID {
+			return
+		}
+	}
+
+	this.add(historyTypeFunctionOutput, "")
+	lastBlock := this.Blocks[len(this.Blocks)-1]
+	lastBlock.FunctionName = name
+	lastBlock.ToolCallID = callID
+}
+
+func (this *ShellHistory) AppendShellCallOutput(output *util.ShellCallOutput) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
+	if output == nil {
+		return
+	}
+
+	combined := strings.Builder{}
+	for _, item := range output.Output {
+		if item.Stdout != "" {
+			combined.WriteString(item.Stdout)
+		}
+		if item.Stderr != "" {
+			if combined.Len() > 0 && !strings.HasSuffix(combined.String(), "\n") {
+				combined.WriteString("\n")
+			}
+			combined.WriteString(item.Stderr)
+		}
+	}
+
+	data := combined.String()
+	if data == "" {
+		data = "(no output)"
+	}
+
+	this.add(historyTypeToolOutput, data)
+	lastBlock := this.Blocks[len(this.Blocks)-1]
+	lastBlock.ToolCallID = output.CallID
+	lastBlock.ToolType = "shell"
+	lastBlock.ShellCallOutput = output
 }
 
 // Go back in history for a certain number of bytes.
@@ -378,31 +451,32 @@ type ShellState struct {
 	AutosuggestMaxTokens int
 
 	// The current state of the shell
-	State                  int
-	GoalMode               bool
-	GoalModeBuffer         string
-	GoalModeGoal           string
-	GoalModeUnsafe         bool
-	ActiveFunction         string
-	ActiveFunctionCallID   string
-	PromptSuffixCounter    int
-	ChildOutReader         chan *byteMsg
-	ParentInReader         chan *byteMsg
-	CursorPosChan          chan *cursorPosition
-	PromptOutputChan       chan *util.CompletionResponse
-	PrintErrorChan         chan error
-	AutosuggestChan        chan *AutosuggestResult
-	History                *ShellHistory
-	PromptAnswerWriter     io.Writer
-	PromptGoalAnswerWriter io.Writer
-	StyleWriter            *util.StyleCodeblocksWriter
-	Prompt                 *ShellBuffer
-	PromptResponseCancel   context.CancelFunc
-	Command                *ShellBuffer
-	TerminalWidth          int
-	Color                  *ShellColorScheme
-	LastTabPassthrough     time.Time
-	parentInBuffer         []byte
+	State                      int
+	GoalMode                   bool
+	GoalModeBuffer             string
+	GoalModeGoal               string
+	GoalModeUnsafe             bool
+	ActiveFunction             string
+	ActiveFunctionCallID       string
+	ActiveShellMaxOutputLength int64
+	PromptSuffixCounter        int
+	ChildOutReader             chan *byteMsg
+	ParentInReader             chan *byteMsg
+	CursorPosChan              chan *cursorPosition
+	PromptOutputChan           chan *util.CompletionResponse
+	PrintErrorChan             chan error
+	AutosuggestChan            chan *AutosuggestResult
+	History                    *ShellHistory
+	PromptAnswerWriter         io.Writer
+	PromptGoalAnswerWriter     io.Writer
+	StyleWriter                *util.StyleCodeblocksWriter
+	Prompt                     *ShellBuffer
+	PromptResponseCancel       context.CancelFunc
+	Command                    *ShellBuffer
+	TerminalWidth              int
+	Color                      *ShellColorScheme
+	LastTabPassthrough         time.Time
+	parentInBuffer             []byte
 	// these are used to estimate number of tokens
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
@@ -831,6 +905,11 @@ func (this *ShellState) Mux() {
 				}
 				this.History.AddFunctionCall(output.FunctionName, output.FunctionParameters, callID)
 			}
+			if len(output.ShellCalls) > 0 {
+				for _, shellCall := range output.ShellCalls {
+					this.History.AddShellCall(shellCall)
+				}
+			}
 
 			// If there is child output waiting to be printed, print that now
 			if len(childOutBuffer) > 0 {
@@ -846,6 +925,10 @@ func (this *ShellState) Mux() {
 				this.ActiveFunction = output.FunctionName
 				if len(output.ToolCalls) > 0 {
 					this.ActiveFunctionCallID = output.ToolCalls[0].Id
+				} else if len(output.ShellCalls) > 0 {
+					this.ActiveFunction = "shell"
+					this.ActiveFunctionCallID = output.ShellCalls[0].CallID
+					this.ActiveShellMaxOutputLength = output.ShellCalls[0].MaxOutputLength
 				} else {
 					this.ActiveFunctionCallID = ""
 				}
@@ -943,10 +1026,15 @@ func (this *ShellState) Mux() {
 				var status string
 				if this.ActiveFunction == "command" {
 					status = fmt.Sprintf("Exit Code: %d\n", lastStatus)
+					this.GoalModeFunctionResponse(status)
+				} else if this.ActiveFunction == "shell" {
+					this.GoalModeShellCallResponse(lastStatus)
+				} else {
+					this.GoalModeFunctionResponse(status)
 				}
-				this.GoalModeFunctionResponse(status)
 				this.ActiveFunction = ""
 				this.ActiveFunctionCallID = ""
+				this.ActiveShellMaxOutputLength = 0
 				this.GoalModeBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
@@ -1346,7 +1434,55 @@ func (this *ShellState) GoalModeFunctionResponse(output string) {
 	this.goalModePrompt("")
 }
 
+func (this *ShellState) GoalModeShellCallResponse(exitStatus int) {
+	output := strings.TrimSpace(this.GoalModeBuffer)
+	shellOutput := &util.ShellCallOutput{
+		CallID:          this.ActiveFunctionCallID,
+		MaxOutputLength: this.ActiveShellMaxOutputLength,
+		Output: []util.ShellCallOutputItem{
+			{
+				Stdout: output,
+				Stderr: "",
+				Outcome: util.ShellCallOutcome{
+					Type:     "exit",
+					ExitCode: exitStatus,
+				},
+			},
+		},
+	}
+
+	this.History.AppendShellCallOutput(shellOutput)
+	this.ActiveFunction = ""
+	this.ActiveFunctionCallID = ""
+	this.ActiveShellMaxOutputLength = 0
+	this.goalModePrompt("")
+}
+
 func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
+	if output.Error != "" {
+		fmt.Fprintf(this.PromptGoalAnswerWriter, "%sGoal mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		this.GoalMode = false
+		return
+	}
+	if len(output.ShellCalls) > 0 {
+		call := output.ShellCalls[0]
+		this.GoalModeBuffer = ""
+		this.PromptSuffixCounter = 0
+		this.setState(stateNormal)
+		if len(call.Commands) == 0 {
+			this.GoalModeShellCallResponse(0)
+			return
+		}
+
+		log.Printf("Goal mode shell_call: %v", call.Commands)
+		command := strings.Join(call.Commands, " && ")
+		fmt.Fprintf(this.ChildIn, "%s", command)
+		if this.GoalModeUnsafe {
+			fmt.Fprintf(this.ChildIn, "\n")
+		}
+		return
+	}
+
 	switch output.FunctionName {
 	case "command":
 		log.Printf("Goal mode command: %s", output.FunctionParameters)
@@ -1394,6 +1530,7 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 			this.GoalModeFunctionResponse(modelStr)
 			return
 		}
+		this.History.AppendFunctionOutputAllowEmpty(output.FunctionName, this.ActiveFunctionCallID)
 
 		result := "SUCCESS"
 		if !success {
@@ -1467,19 +1604,34 @@ var goalModeFunctions = []util.FunctionDefinition{
 	},
 }
 
-var goalModeFunctionsString string
+var goalModeFunctionsShellTool = []util.FunctionDefinition{
+	goalModeFunctions[1],
+	goalModeFunctions[2],
+}
 
-// serialize goalModeFunctions to json and cache in goalModeFunctionsString
-func getGoalModeFunctionsString() string {
-	if goalModeFunctionsString == "" {
-		bytes, err := json.Marshal(goalModeFunctions)
-		if err != nil {
-			log.Fatal(err)
-		}
-		goalModeFunctionsString = string(bytes)
-		log.Printf("goalModeFunctionsString: %s", goalModeFunctionsString)
+var goalModeFunctionsStringCache = map[string]string{}
+
+// serialize goal mode functions to json and cache by name list
+func getGoalModeFunctionsString(functions []util.FunctionDefinition) string {
+	names := make([]string, 0, len(functions))
+	for _, fn := range functions {
+		names = append(names, fn.Name)
 	}
-	return goalModeFunctionsString
+	key := strings.Join(names, ",")
+	if cached, ok := goalModeFunctionsStringCache[key]; ok {
+		return cached
+	}
+	bytes, err := json.Marshal(functions)
+	if err != nil {
+		log.Fatal(err)
+	}
+	goalModeFunctionsStringCache[key] = string(bytes)
+	return goalModeFunctionsStringCache[key]
+}
+
+func supportsShellToolModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gpt-5.1") || strings.HasPrefix(model, "gpt-5.2")
 }
 
 func (this *ShellState) goalModePrompt(lastPrompt string) {
@@ -1498,8 +1650,17 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		return
 	}
 
+	useShellTool := supportsShellToolModel(this.Butterfish.Config.ShellPromptModel)
+	functions := goalModeFunctions
+	tools := []util.ToolDefinition{}
+	if useShellTool {
+		functions = goalModeFunctionsShellTool
+		tools = append(tools, util.ToolDefinition{Type: "shell"})
+		sysMsg += "\n\nUse the shell tool to run commands. Use user_input to ask clarifying questions and finish when done."
+	}
+
 	tokensForAnswer := 1024
-	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString(), tokensForAnswer)
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString(functions), tokensForAnswer)
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -1513,7 +1674,8 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 		Temperature:   0.6,
 		HistoryBlocks: historyBlocks,
 		SystemMessage: sysMsg,
-		Functions:     goalModeFunctions,
+		Functions:     functions,
+		Tools:         tools,
 		Verbose:       this.Butterfish.Config.Verbose > 0,
 	}
 
@@ -1657,7 +1819,7 @@ func getHistoryBlocksByTokens(
 	usedTokens := 0
 
 	history.IterateBlocks(func(block *HistoryBuffer) bool {
-		if block.Content.Size() == 0 && block.FunctionName == "" {
+		if block.Content.Size() == 0 && block.FunctionName == "" && block.ToolType == "" && block.ShellCall == nil && block.ShellCallOutput == nil {
 			// empty block, skip
 			return true
 		}
@@ -1704,11 +1866,14 @@ func getHistoryBlocksByTokens(
 
 		usedTokens += msgTokens
 		newBlock := util.HistoryBlock{
-			Type:           block.Type,
-			Content:        content,
-			FunctionName:   block.FunctionName,
-			FunctionParams: block.FunctionParams,
-			ToolCallId:     block.ToolCallID,
+			Type:            block.Type,
+			Content:         content,
+			FunctionName:    block.FunctionName,
+			FunctionParams:  block.FunctionParams,
+			ToolCallId:      block.ToolCallID,
+			ToolType:        block.ToolType,
+			ShellCall:       block.ShellCall,
+			ShellCallOutput: block.ShellCallOutput,
 		}
 
 		// we prepend the block so that the history is in the correct order
@@ -1788,7 +1953,9 @@ func CompletionRoutine(
 	}
 
 	if output == nil && err != nil {
-		output = &util.CompletionResponse{Completion: err.Error()}
+		output = &util.CompletionResponse{Completion: err.Error(), Error: err.Error()}
+	} else if output != nil && err != nil {
+		output.Error = err.Error()
 	}
 
 	if styleWriter != nil {

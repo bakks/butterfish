@@ -89,18 +89,23 @@ func buildTools(functions []util.FunctionDefinition, tools []util.ToolDefinition
 	}
 
 	for _, tool := range tools {
-		if tool.Type != "function" {
-			continue
+		switch tool.Type {
+		case "function":
+			fn := tool.Function
+			toolParams = append(toolParams, responses.ToolUnionParam{
+				OfFunction: &responses.FunctionToolParam{
+					Name:        fn.Name,
+					Description: param.NewOpt(fn.Description),
+					Parameters:  fn.Parameters,
+					Strict:      param.NewOpt(true),
+				},
+			})
+		case "shell":
+			shellTool := responses.NewFunctionShellToolParam()
+			toolParams = append(toolParams, responses.ToolUnionParam{
+				OfShell: &shellTool,
+			})
 		}
-		fn := tool.Function
-		toolParams = append(toolParams, responses.ToolUnionParam{
-			OfFunction: &responses.FunctionToolParam{
-				Name:        fn.Name,
-				Description: param.NewOpt(fn.Description),
-				Parameters:  fn.Parameters,
-				Strict:      param.NewOpt(true),
-			},
-		})
 	}
 
 	return toolParams
@@ -117,16 +122,75 @@ func roleForHistoryBlock(block *util.HistoryBlock) responses.EasyInputMessageRol
 
 func buildInputItems(request *util.CompletionRequest) responses.ResponseInputParam {
 	items := responses.ResponseInputParam{}
+	seenFunctionCalls := map[string]bool{}
+	seenShellCalls := map[string]bool{}
 
 	for _, block := range request.HistoryBlocks {
-		if block.Type == historyTypeFunctionOutput || block.Type == historyTypeToolOutput {
+		if block.FunctionName != "" {
+			callID := block.ToolCallId
+			if callID == "" {
+				callID = block.FunctionName
+			}
+			seenFunctionCalls[callID] = true
+		}
+		if len(block.ToolCalls) > 0 {
+			for _, toolCall := range block.ToolCalls {
+				callID := toolCall.Id
+				if callID == "" {
+					callID = toolCall.Function.Name
+				}
+				seenFunctionCalls[callID] = true
+			}
+		}
+		if block.ShellCall != nil && block.ShellCall.CallID != "" {
+			seenShellCalls[block.ShellCall.CallID] = true
+		}
+	}
+
+	for _, block := range request.HistoryBlocks {
+		if block.Type == historyTypeFunctionOutput {
 			if block.ToolCallId == "" {
+				continue
+			}
+			if !seenFunctionCalls[block.ToolCallId] {
 				continue
 			}
 			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(
 				block.ToolCallId,
 				block.Content,
 			))
+			continue
+		}
+		if block.Type == historyTypeToolOutput && block.ToolType == "shell" && block.ShellCallOutput != nil {
+			if block.ShellCallOutput.CallID == "" || !seenShellCalls[block.ShellCallOutput.CallID] {
+				continue
+			}
+			var outputs []responses.ResponseFunctionShellCallOutputContentParam
+			for _, out := range block.ShellCallOutput.Output {
+				content := responses.ResponseFunctionShellCallOutputContentParam{
+					Stdout: out.Stdout,
+					Stderr: out.Stderr,
+				}
+				switch out.Outcome.Type {
+				case "timeout":
+					timeout := responses.NewResponseFunctionShellCallOutputContentOutcomeTimeoutParam()
+					content.Outcome.OfTimeout = &timeout
+				default:
+					exit := responses.ResponseFunctionShellCallOutputContentOutcomeExitParam{
+						ExitCode: int64(out.Outcome.ExitCode),
+					}
+					content.Outcome.OfExit = &exit
+				}
+				outputs = append(outputs, content)
+			}
+
+			var shellCallOutput responses.ResponseInputItemShellCallOutputParam
+			shellCallOutput.CallID = block.ShellCallOutput.CallID
+			shellCallOutput.Output = outputs
+			if block.ShellCallOutput.MaxOutputLength > 0 {
+				shellCallOutput.MaxOutputLength = param.NewOpt(block.ShellCallOutput.MaxOutputLength)
+			}
+			items = append(items, responses.ResponseInputItemUnionParam{OfShellCallOutput: &shellCallOutput})
 			continue
 		}
 
@@ -140,6 +204,19 @@ func buildInputItems(request *util.CompletionRequest) responses.ResponseInputPar
 				callID,
 				block.FunctionName,
 			))
+		}
+
+		if block.ShellCall != nil {
+			action := responses.ResponseInputItemShellCallActionParam{
+				Commands: block.ShellCall.Commands,
+			}
+			if block.ShellCall.TimeoutMs > 0 {
+				action.TimeoutMs = param.NewOpt(block.ShellCall.TimeoutMs)
+			}
+			if block.ShellCall.MaxOutputLength > 0 {
+				action.MaxOutputLength = param.NewOpt(block.ShellCall.MaxOutputLength)
+			}
+			items = append(items, responses.ResponseInputItemParamOfShellCall(action, block.ShellCall.CallID))
 		}
 
 		if len(block.ToolCalls) > 0 {
@@ -266,6 +343,25 @@ func formatInputItemBox(item responses.ResponseInputItemUnionParam, index int) L
 		}
 	}
 
+	if item.OfShellCall != nil {
+		action := item.OfShellCall.Action
+		content := formatJSONLog(action)
+		return LoggingBox{
+			Title:   fmt.Sprintf("%s: shell_call", titlePrefix),
+			Content: content,
+			Color:   2,
+		}
+	}
+
+	if item.OfShellCallOutput != nil {
+		content := formatJSONLog(item.OfShellCallOutput.Output)
+		return LoggingBox{
+			Title:   fmt.Sprintf("%s: shell_call_output", titlePrefix),
+			Content: content,
+			Color:   2,
+		}
+	}
+
 	if item.OfInputMessage != nil {
 		return LoggingBox{
 			Title:   fmt.Sprintf("%s: input_message", titlePrefix),
@@ -336,16 +432,72 @@ func toolCallsFromOutputItems(items []responses.ResponseOutputItemUnion) []*util
 	return toolCalls
 }
 
-func finalizeCompletionResponse(completion string, toolCalls []*util.ToolCall) *util.CompletionResponse {
+func shellCallsFromOutputItems(items []responses.ResponseOutputItemUnion) []*util.ShellCall {
+	var shellCalls []*util.ShellCall
+	for _, item := range items {
+		if item.Type != "shell_call" {
+			continue
+		}
+		call := item.AsShellCall()
+		shellCalls = append(shellCalls, &util.ShellCall{
+			CallID:          call.CallID,
+			Commands:        call.Action.Commands,
+			TimeoutMs:       call.Action.TimeoutMs,
+			MaxOutputLength: call.Action.MaxOutputLength,
+		})
+	}
+	return shellCalls
+}
+
+func finalizeCompletionResponse(completion string, toolCalls []*util.ToolCall, shellCalls []*util.ShellCall) *util.CompletionResponse {
 	resp := &util.CompletionResponse{
 		Completion: completion,
 		ToolCalls:  toolCalls,
+		ShellCalls: shellCalls,
 	}
 	if len(toolCalls) > 0 {
 		resp.FunctionName = toolCalls[0].Function.Name
 		resp.FunctionParameters = toolCalls[0].Function.Parameters
 	}
 	return resp
+}
+
+func recordShellCall(shellCallMap map[string]*util.ShellCall, shellCallOrder *[]string, call *util.ShellCall) {
+	if call == nil || call.CallID == "" {
+		return
+	}
+
+	existing, ok := shellCallMap[call.CallID]
+	if !ok {
+		shellCallMap[call.CallID] = call
+		*shellCallOrder = append(*shellCallOrder, call.CallID)
+		return
+	}
+
+	if len(call.Commands) > 0 {
+		existing.Commands = call.Commands
+	}
+	if call.TimeoutMs != 0 {
+		existing.TimeoutMs = call.TimeoutMs
+	}
+	if call.MaxOutputLength != 0 {
+		existing.MaxOutputLength = call.MaxOutputLength
+	}
+}
+
+func mergeShellCallsFromOutput(shellCallMap map[string]*util.ShellCall, shellCallOrder *[]string, output []responses.ResponseOutputItemUnion) {
+	for _, item := range output {
+		if item.Type != "shell_call" {
+			continue
+		}
+		call := item.AsShellCall()
+		recordShellCall(shellCallMap, shellCallOrder, &util.ShellCall{
+			CallID:          call.CallID,
+			Commands:        call.Action.Commands,
+			TimeoutMs:       call.Action.TimeoutMs,
+			MaxOutputLength: call.Action.MaxOutputLength,
+		})
+	}
 }
 
 func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
@@ -370,7 +522,8 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 	}
 
 	toolCalls := toolCallsFromOutputItems(response.Output)
-	final := finalizeCompletionResponse(response.OutputText(), toolCalls)
+	shellCalls := shellCallsFromOutputItems(response.Output)
+	final := finalizeCompletionResponse(response.OutputText(), toolCalls, shellCalls)
 	if request.Verbose {
 		responseText := response.OutputText()
 		if response.ID != "" {
@@ -385,6 +538,13 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 			box.Children = append(box.Children, LoggingBox{
 				Title:   "Tool Calls",
 				Content: formatJSONLog(toolCalls),
+				Color:   1,
+			})
+		}
+		if len(shellCalls) > 0 {
+			box.Children = append(box.Children, LoggingBox{
+				Title:   "Shell Calls",
+				Content: formatJSONLog(shellCalls),
 				Color:   1,
 			})
 		}
@@ -458,6 +618,8 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	toolCallOrder := []string{}
 	responseID := ""
 	var completedResponse *responses.Response
+	shellCallMap := map[string]*util.ShellCall{}
+	shellCallOrder := []string{}
 
 	for stream.Next() {
 		if request.TokenTimeout > 0 {
@@ -500,6 +662,14 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 				}
 				toolCalls[call.ID] = info
 				toolCallOrder = append(toolCallOrder, call.ID)
+			} else if added.Item.Type == "shell_call" {
+				call := added.Item.AsShellCall()
+				recordShellCall(shellCallMap, &shellCallOrder, &util.ShellCall{
+					CallID:          call.CallID,
+					Commands:        call.Action.Commands,
+					TimeoutMs:       call.Action.TimeoutMs,
+					MaxOutputLength: call.Action.MaxOutputLength,
+				})
 			}
 		case "response.output_item.done":
 			done := event.AsResponseOutputItemDone()
@@ -524,6 +694,14 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 					info.Arguments.Reset()
 					info.Arguments.WriteString(call.Arguments)
 				}
+			} else if done.Item.Type == "shell_call" {
+				call := done.Item.AsShellCall()
+				recordShellCall(shellCallMap, &shellCallOrder, &util.ShellCall{
+					CallID:          call.CallID,
+					Commands:        call.Action.Commands,
+					TimeoutMs:       call.Action.TimeoutMs,
+					MaxOutputLength: call.Action.MaxOutputLength,
+				})
 			}
 		case "response.function_call_arguments.delta":
 			delta := event.AsResponseFunctionCallArgumentsDelta()
@@ -589,8 +767,19 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 			completion.WriteString(completedResponse.OutputText())
 		}
 	}
+	if completedResponse != nil {
+		mergeShellCallsFromOutput(shellCallMap, &shellCallOrder, completedResponse.Output)
+	}
+	shellCallResults := make([]*util.ShellCall, 0, len(shellCallOrder))
+	for _, id := range shellCallOrder {
+		call, ok := shellCallMap[id]
+		if !ok {
+			continue
+		}
+		shellCallResults = append(shellCallResults, call)
+	}
 
-	final := finalizeCompletionResponse(completion.String(), toolCallResults)
+	final := finalizeCompletionResponse(completion.String(), toolCallResults, shellCallResults)
 	if request.Verbose {
 		responseText := completion.String()
 		if responseID != "" {
@@ -605,6 +794,13 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 			box.Children = append(box.Children, LoggingBox{
 				Title:   "Tool Calls",
 				Content: formatJSONLog(toolCallResults),
+				Color:   1,
+			})
+		}
+		if len(shellCallResults) > 0 {
+			box.Children = append(box.Children, LoggingBox{
+				Title:   "Shell Calls",
+				Content: formatJSONLog(shellCallResults),
 				Color:   1,
 			})
 		}
