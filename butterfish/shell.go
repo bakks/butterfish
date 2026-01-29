@@ -2170,9 +2170,14 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 	var suggestPrompt string
 	var err error
 
+	trimmed := strings.TrimSpace(command)
+
 	if len(command) == 0 {
 		// command completion when we haven't started a command
 		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestNewCommand)
+	} else if strings.HasPrefix(trimmed, "!") || this.GoalMode {
+		// goal mode prompts should autocomplete like natural language
+		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestPrompt)
 	} else if !unicode.IsUpper(rune(command[0])) {
 		// command completion when we have started typing a command
 		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestCommand)
