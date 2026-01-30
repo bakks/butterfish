@@ -2,11 +2,7 @@ package prompt
 
 const (
 	PromptFixCommand           = "fix_command"
-	PromptSummarize            = "summarize"
-	PromptSummarizeFacts       = "summarize_facts"
-	PromptSummarizeListOfFacts = "summarize_list_of_facts"
 	PromptGenerateCommand      = "generate_command"
-	PromptQuestion             = "question"
 	PromptSystemMessage        = "prompt_system_message"
 	ShellAutosuggestCommand    = "shell_autocomplete_command"
 	ShellAutosuggestNewCommand = "shell_autocomplete_new_command"
@@ -35,7 +31,7 @@ var DefaultPrompts []Prompt = []Prompt{
 
 	{
 		Name:        GoalModeSystemMessage,
-		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. To execute a command, call the command function. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then ask me questions. You must verify that the goal is achieved. You must call one of the functions in your response but state your reasoning before calling the function. Here is system info about the local machine: '{sysinfo}'",
+		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. Use the shell tool to run commands (or call the command function if the shell tool is unavailable). Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then ask me questions. You must verify that the goal is achieved. You must call one of the functions in your response but state your reasoning before calling the function. Here is system info about the local machine: '{sysinfo}'",
 		OkToReplace: true,
 	},
 
@@ -110,42 +106,6 @@ predicted question:
 		2. Edit the command to fix the problem, don't use placeholders. If unsure, explain that you do not know. If sure, then a new line beginning with '>' and then have the updated command. The final line of your response should only have the updated command.`,
 	},
 
-	// PromptSummarize is a prompt for summarizing a command
-	{
-		Name:        PromptSummarize,
-		OkToReplace: true,
-		Prompt: `The following is a raw text file, summarize the file contents, the file's purpose, and write a list of the file's key elements:
-'''
-{content}
-'''
-
-Summary:`,
-	},
-
-	// PromptSummarizeFacts is a prompt for summarizing facts
-	{
-		Name:        PromptSummarizeFacts,
-		OkToReplace: true,
-		Prompt: `The following is a raw text file, write a bullet-point list of facts from the document starting with the most important.
-'''
-{content}
-'''
-
-Summary:`,
-	},
-
-	// PromptSummarizeListOfFacts is a prompt for summarizing a list of facts
-	{
-		Name:        PromptSummarizeListOfFacts,
-		OkToReplace: true,
-		Prompt: `The following is a list of facts, write a general description of the document and summarize its important facts in a bulleted list.
-'''
-{content}
-'''
-
-Description and Important Facts:`,
-	},
-
 	// PromptGenerateCommand is a prompt for generating a command
 	{
 		Name:        PromptGenerateCommand,
@@ -156,16 +116,5 @@ Description and Important Facts:`,
 '''
 
 Shell command:`,
-	},
-
-	// PromptQuestion is a prompt for answering a question
-	{
-		Name:        PromptQuestion,
-		OkToReplace: true,
-		Prompt: `Answer this question about files stored on disk. Here are some snippets from the file separated by '---'.
-'''
-{snippets}
-'''
-{question}:`,
 	},
 }

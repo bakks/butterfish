@@ -28,7 +28,7 @@ var ( // these are filled in at build time
 
 const description = `Do useful things with LLMs from the command line, with a bent towards software engineering.
 
-Butterfish is a command line tool for working with LLMs. It has two modes: CLI command mode, used to prompt LLMs, summarize files, and manage embeddings, and Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
+Butterfish is a command line tool for working with LLMs. It has two modes: CLI command mode, used to prompt LLMs and generate commands, and Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
 
 Butterfish looks for an API key in OPENAI_API_KEY, or alternatively stores an OpenAI auth token at ~/.config/butterfish/butterfish.env.
 
@@ -75,15 +75,15 @@ type CliConfig struct {
 	Verbose      VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
 	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
 	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
-	BaseURL      string           `short:"u" default:"https://api.openai.com/v1" help:"Base URL for OpenAI-compatible API. Enables local models with a compatible interface."`
+	BaseURL      string           `short:"u" default:"https://api.openai.com/v1/responses" help:"Base URL for OpenAI-compatible API. The default points directly at the Responses endpoint."`
 	TokenTimeout int              `short:"z" default:"10000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 	LightColor   bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" default:"gpt-4o" help:"Model for when the user manually enters a prompt."`
+		Model                     string `short:"m" default:"gpt-5.2" help:"Model for when the user manually enters a prompt."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel          string `short:"a" default:"gpt-3.5-turbo-instruct" help:"Model for autosuggest"`
+		AutosuggestModel          string `short:"a" default:"gpt-5.2" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
 		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
@@ -247,7 +247,7 @@ func main() {
 		}
 		butterfishCtx, err := bf.NewButterfish(ctx, config)
 		if err != nil {
-			fmt.Fprintf(errorWriter, err.Error())
+			fmt.Fprint(errorWriter, err.Error())
 			os.Exit(3)
 		}
 		//butterfishCtx.Config.Styles.PrintTestColors()

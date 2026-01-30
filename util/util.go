@@ -16,7 +16,6 @@ import (
 
 	"github.com/alecthomas/chroma/quick"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/spf13/afero"
 )
 
@@ -52,12 +51,14 @@ type CompletionResponse struct {
 	FunctionName       string
 	FunctionParameters string
 	ToolCalls          []*ToolCall
+	ShellCalls         []*ShellCall
+	Error              string
 }
 
 type FunctionDefinition struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Parameters  jsonschema.Definition `json:"parameters"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 type ToolDefinition struct {
@@ -66,12 +67,39 @@ type ToolDefinition struct {
 }
 
 type HistoryBlock struct {
-	Type           int
-	Content        string
-	FunctionName   string
-	FunctionParams string
-	ToolCalls      []*ToolCall
-	ToolCallId     string
+	Type            int
+	Content         string
+	FunctionName    string
+	FunctionParams  string
+	ToolCalls       []*ToolCall
+	ToolCallId      string
+	ToolType        string
+	ShellCall       *ShellCall
+	ShellCallOutput *ShellCallOutput
+}
+
+type ShellCall struct {
+	CallID          string   `json:"call_id"`
+	Commands        []string `json:"commands"`
+	TimeoutMs       int64    `json:"timeout_ms"`
+	MaxOutputLength int64    `json:"max_output_length"`
+}
+
+type ShellCallOutput struct {
+	CallID          string                `json:"call_id"`
+	MaxOutputLength int64                 `json:"max_output_length,omitempty"`
+	Output          []ShellCallOutputItem `json:"output"`
+}
+
+type ShellCallOutputItem struct {
+	Stdout  string           `json:"stdout"`
+	Stderr  string           `json:"stderr"`
+	Outcome ShellCallOutcome `json:"outcome"`
+}
+
+type ShellCallOutcome struct {
+	Type     string `json:"type"`
+	ExitCode int    `json:"exit_code,omitempty"`
 }
 
 func (this HistoryBlock) String() string {

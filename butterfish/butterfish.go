@@ -21,7 +21,6 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/term"
 
-	"github.com/bakks/butterfish/embedding"
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
 )
@@ -97,11 +96,6 @@ type ButterfishConfig struct {
 	ExeccheckModel       string
 	ExeccheckTemperature float32
 	ExeccheckMaxTokens   int
-
-	// Model, temp, and max tokens to use when executing the `summarize` command
-	SummarizeModel       string
-	SummarizeTemperature float32
-	SummarizeMaxTokens   int
 }
 
 func (this *ButterfishConfig) ParseShell() string {
@@ -129,7 +123,6 @@ type PromptLibrary interface {
 type LLM interface {
 	CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error)
 	Completion(request *util.CompletionRequest) (*util.CompletionResponse, error)
-	Embeddings(ctx context.Context, input []string, verbose bool) ([][]float32, error)
 }
 
 type ButterfishCtx struct {
@@ -150,8 +143,6 @@ type ButterfishCtx struct {
 	LLMClient LLM
 	// landing space for generated commands
 	CommandRegister string
-	// embedding index for searching local files
-	VectorIndex embedding.FileEmbeddingIndex
 }
 
 type ColorScheme struct {
@@ -195,7 +186,7 @@ var GruvboxLight = ColorScheme{
 	Grey:       "#928374",
 }
 
-const BestCompletionModel = "gpt-3.5-turbo"
+const BestCompletionModel = "gpt-5.2"
 
 func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
@@ -210,9 +201,6 @@ func MakeButterfishConfig() *ButterfishConfig {
 		ExeccheckModel:       BestCompletionModel,
 		ExeccheckTemperature: 0.6,
 		ExeccheckMaxTokens:   512,
-		SummarizeModel:       BestCompletionModel,
-		SummarizeTemperature: 0.7,
-		SummarizeMaxTokens:   1024,
 	}
 }
 
@@ -314,10 +302,6 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 	return ptmx, cleanup, nil
 }
 
-func (this *ButterfishCtx) CalculateEmbeddings(ctx context.Context, content []string) ([][]float32, error) {
-	return this.LLMClient.Embeddings(ctx, content, this.Config.Verbose > 0)
-}
-
 // A local printf that writes to the butterfishctx out using a lipgloss style
 func (this *ButterfishCtx) StylePrintf(style lipgloss.Style, format string, a ...any) {
 	str := util.MultilineLipglossRender(style, fmt.Sprintf(format, a...))
@@ -336,37 +320,6 @@ func (this *ButterfishCtx) ErrorPrintf(format string, a ...any) {
 	this.StylePrintf(this.Config.Styles.Error, format, a...)
 }
 
-// Ensure we have a vector index object, idempotent
-func (this *ButterfishCtx) initVectorIndex(pathsToLoad []string) error {
-	if this.VectorIndex != nil {
-		return nil
-	}
-
-	out := util.NewStyledWriter(this.Out, this.Config.Styles.Foreground)
-	index := embedding.NewDiskCachedEmbeddingIndex(this, out)
-
-	if this.Config.Verbose > 0 {
-		index.SetOutput(this.Out)
-	}
-
-	this.VectorIndex = index
-
-	if !this.InConsoleMode {
-		// if we're running from the command line then we first load the curr
-		// dir index
-		if pathsToLoad == nil || len(pathsToLoad) == 0 {
-			pathsToLoad = []string{"."}
-		}
-
-		err := this.VectorIndex.LoadPaths(this.Ctx, pathsToLoad)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func (this *ButterfishCtx) printError(err error, prefix ...string) {
 	if len(prefix) > 0 {
 		fmt.Fprintf(this.Out, "%s error: %s\n", prefix[0], err.Error())
@@ -379,7 +332,6 @@ type styles struct {
 	Question   lipgloss.Style
 	Answer     lipgloss.Style
 	Go         lipgloss.Style
-	Summarize  lipgloss.Style
 	Highlight  lipgloss.Style
 	Prompt     lipgloss.Style
 	Error      lipgloss.Style
@@ -391,7 +343,6 @@ func (this *styles) PrintTestColors() {
 	fmt.Println(this.Question.Render("Question"))
 	fmt.Println(this.Answer.Render("Answer"))
 	fmt.Println(this.Go.Render("Go"))
-	fmt.Println(this.Summarize.Render("Summarize"))
 	fmt.Println(this.Highlight.Render("Highlight"))
 	fmt.Println(this.Prompt.Render("Prompt"))
 	fmt.Println(this.Error.Render("Error"))
@@ -405,7 +356,6 @@ func ColorSchemeToStyles(colorScheme *ColorScheme) *styles {
 		Answer:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Go:         lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color5)),
 		Highlight:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
-		Summarize:  lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color2)),
 		Prompt:     lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Color4)),
 		Error:      lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Error)),
 		Foreground: lipgloss.NewStyle().Foreground(lipgloss.Color(colorScheme.Foreground)),
@@ -444,8 +394,8 @@ func initLLM(config *ButterfishConfig) (LLM, error) {
 	} else if config.OpenAIToken != "" && config.LLMClient != nil {
 		return nil, errors.New("Must provide either an OpenAI Token or an LLM client, not both.")
 	} else if config.OpenAIToken != "" {
-		gpt := NewGPT(config.OpenAIToken, config.BaseURL)
-		return gpt, nil
+		client := NewOpenAIClient(config.OpenAIToken, config.BaseURL)
+		return client, nil
 	} else {
 		return config.LLMClient, nil
 	}
