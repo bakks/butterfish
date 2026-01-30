@@ -29,7 +29,7 @@ brews:
     repository:
       owner: bakks
       name: homebrew-bakks
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: bakks
       email: pbbakkum@gmail.com
