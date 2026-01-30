@@ -24,6 +24,9 @@ func TestSkippedShellCallOutput(t *testing.T) {
 	if out.Output[0].Stderr == "" {
 		t.Fatal("expected skipped message in stderr")
 	}
+	if out.Output[0].Outcome.ExitCode == 0 {
+		t.Fatal("expected non-zero exit code for skipped call")
+	}
 }
 
 func TestGoalModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.T) {
@@ -62,5 +65,8 @@ func TestGoalModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.T
 	}
 	if block.ShellCallOutput == nil || len(block.ShellCallOutput.Output) != 1 {
 		t.Fatal("expected shell_call_output for skipped call")
+	}
+	if block.ShellCallOutput.Output[0].Outcome.ExitCode == 0 {
+		t.Fatal("expected skipped call to be non-successful")
 	}
 }

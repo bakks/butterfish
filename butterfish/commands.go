@@ -14,7 +14,6 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mitchellh/go-homedir"
 	"golang.org/x/term"
 
 	"github.com/bakks/butterfish/prompt"
@@ -60,14 +59,6 @@ type CliCommandConfig struct {
 		NoColor       bool     `default:"false" help:"Disable color output."`
 		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
 	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-5.2."`
-
-	Promptedit struct {
-		File        string  `short:"f" default:"~/.config/butterfish/prompt.txt" help:"Cached prompt file to use." optional:""`
-		Editor      string  `short:"e" default:"" help:"Editor to use for the prompt."`
-		Model       string  `short:"m" default:"gpt-5.2" help:"GPT model to use for the prompt."`
-		NumTokens   int     `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature float32 `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
-	} `cmd:"" help:"Like the prompt command, but this opens a local file with your default editor (set with the EDITOR env var) that will then be passed as a prompt in the LLM call."`
 
 	Gencmd struct {
 		Prompt []string `arg:"" help:"Prompt describing the desired shell command."`
@@ -173,61 +164,6 @@ func (this *ButterfishCtx) ExecCommand(
 		}
 
 		_, err := this.Prompt(commandConfig)
-		return err
-
-	case "promptedit":
-		targetFile := options.Promptedit.File
-		editor := options.Promptedit.Editor
-
-		targetFile, err := homedir.Expand(targetFile)
-		if err != nil {
-			return err
-		}
-
-		// get EDITOR env var if not specified
-		if editor == "" {
-			editor = os.Getenv("EDITOR")
-		}
-		if editor == "" {
-			editor = "vi"
-			if this.Config.Verbose > 0 {
-				this.StylePrintf(this.Config.Styles.Grey, "Defaulting to %s for editor, you can set this with --editor or the EDITOR env var\n", editor)
-			}
-		}
-
-		if this.Config.Verbose > 0 {
-			this.StylePrintf(this.Config.Styles.Grey, "%s %s\n", editor, targetFile)
-		}
-
-		cmd := exec.Command(editor, targetFile)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Env = os.Environ()
-
-		err = cmd.Run()
-		if err != nil {
-			return err
-		}
-
-		content, err := os.ReadFile(targetFile)
-		if err != nil {
-			return err
-		}
-
-		if this.Config.Verbose > 0 {
-			this.StylePrintf(this.Config.Styles.Question, "%s\n", string(content))
-		}
-
-		commandConfig := &promptCommand{
-			Prompt:      string(content),
-			Model:       options.Promptedit.Model,
-			NumTokens:   options.Promptedit.NumTokens,
-			Temperature: options.Promptedit.Temperature,
-			Verbose:     this.Config.Verbose,
-		}
-
-		_, err = this.Prompt(commandConfig)
 		return err
 
 	case "gencmd <prompt>":

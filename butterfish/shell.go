@@ -1478,7 +1478,7 @@ func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
 				Stderr: "skipped: butterfish only executes the first shell_call in a response",
 				Outcome: util.ShellCallOutcome{
 					Type:     "exit",
-					ExitCode: 0,
+					ExitCode: 1,
 				},
 			},
 		},

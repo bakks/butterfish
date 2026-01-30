@@ -6,20 +6,17 @@ flags := -X main.BuildVersion=dev -X main.BuildCommit=${commit} -X main.BuildTim
 
 all: build test
 
-proto/ibodai.pb.go: proto/ibodai.proto
-	cd proto && protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ibodai.proto
-
-bin/butterfish: proto/ibodai.pb.go $(gofiles) Makefile go.mod go.sum
+bin/butterfish: $(gofiles) Makefile go.mod go.sum
 	mkdir -p bin
 	go build -ldflags "${flags}" -o ./bin/butterfish ./cmd/butterfish
 
 clean:
-	rm -f bin/butterfish proto/*.go
+	rm -f bin/butterfish proto/ibodai*.go
 
 watch: Makefile
 	find . -name "*.go" -o -name "*.proto" | entr -c make
 
-test: proto/ibodai.pb.go
+test:
 	go test ./...
 
 build: bin/butterfish
