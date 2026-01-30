@@ -26,9 +26,10 @@ brews:
     homepage: "https://github.com/bakks/butterfish"
     license: "MIT"
     description: "A tool for using LLMs on the command line"
-    tap:
+    repository:
       owner: bakks
       name: homebrew-bakks
+      token: "{{ .Env.GITHUB_TOKEN }}"
     commit_author:
       name: bakks
       email: pbbakkum@gmail.com
