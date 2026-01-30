@@ -1436,13 +1436,19 @@ func (this *ShellState) GoalModeFunctionResponse(output string) {
 
 func (this *ShellState) GoalModeShellCallResponse(exitStatus int) {
 	output := strings.TrimSpace(this.GoalModeBuffer)
+	stderr := ""
+	// Goal mode captures PTY output as a single stream; if the command failed,
+	// include it as stderr so the model can reason about errors.
+	if exitStatus != 0 {
+		stderr = output
+	}
 	shellOutput := &util.ShellCallOutput{
 		CallID:          this.ActiveFunctionCallID,
 		MaxOutputLength: this.ActiveShellMaxOutputLength,
 		Output: []util.ShellCallOutputItem{
 			{
 				Stdout: output,
-				Stderr: "",
+				Stderr: stderr,
 				Outcome: util.ShellCallOutcome{
 					Type:     "exit",
 					ExitCode: exitStatus,
@@ -1458,6 +1464,27 @@ func (this *ShellState) GoalModeShellCallResponse(exitStatus int) {
 	this.goalModePrompt("")
 }
 
+func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
+	if call == nil || call.CallID == "" {
+		return nil
+	}
+
+	return &util.ShellCallOutput{
+		CallID:          call.CallID,
+		MaxOutputLength: call.MaxOutputLength,
+		Output: []util.ShellCallOutputItem{
+			{
+				Stdout: "",
+				Stderr: "skipped: butterfish only executes the first shell_call in a response",
+				Outcome: util.ShellCallOutcome{
+					Type:     "exit",
+					ExitCode: 0,
+				},
+			},
+		},
+	}
+}
+
 func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 	if output.Error != "" {
 		fmt.Fprintf(this.PromptGoalAnswerWriter, "%sGoal mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
@@ -1465,6 +1492,15 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 		return
 	}
 	if len(output.ShellCalls) > 0 {
+		// The Responses API can return multiple shell_call items. We execute the
+		// first one and acknowledge the rest so follow-up requests don't fail due
+		// to missing tool outputs.
+		for i := 1; i < len(output.ShellCalls); i++ {
+			if skipped := skippedShellCallOutput(output.ShellCalls[i]); skipped != nil {
+				this.History.AppendShellCallOutput(skipped)
+			}
+		}
+
 		call := output.ShellCalls[0]
 		this.GoalModeBuffer = ""
 		this.PromptSuffixCounter = 0
@@ -1475,7 +1511,7 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 		}
 
 		log.Printf("Goal mode shell_call: %v", call.Commands)
-		command := strings.Join(call.Commands, " && ")
+		command := strings.Join(call.Commands, "\n")
 		fmt.Fprintf(this.ChildIn, "%s", command)
 		if this.GoalModeUnsafe {
 			fmt.Fprintf(this.ChildIn, "\n")

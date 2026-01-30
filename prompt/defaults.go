@@ -31,7 +31,7 @@ var DefaultPrompts []Prompt = []Prompt{
 
 	{
 		Name:        GoalModeSystemMessage,
-		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. To execute a command, call the command function. Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then ask me questions. You must verify that the goal is achieved. You must call one of the functions in your response but state your reasoning before calling the function. Here is system info about the local machine: '{sysinfo}'",
+		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. Use the shell tool to run commands (or call the command function if the shell tool is unavailable). Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then ask me questions. You must verify that the goal is achieved. You must call one of the functions in your response but state your reasoning before calling the function. Here is system info about the local machine: '{sysinfo}'",
 		OkToReplace: true,
 	},
 

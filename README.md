@@ -170,7 +170,9 @@ Mode will populate a command in your shell, which you can execute with `Enter`,
 or you can edit the command, or give feedback to the agent by doing a shell
 prompt (by starting a command with a capital letter). Goal Mode will exit
 if it decides the goal is met or impossible, or you can manually exit with
-`Ctrl-C`.
+`Ctrl-C`. For models that support it (for example GPT-5.1+), Goal Mode uses
+the Responses API shell tool; older models fall back to the structured
+`command` function.
 
 You can trigger Unsafe Goal Mode by starting a command with `!!`, which will
 execute commands without confirmation, and is thus potentially dangerous.
@@ -216,7 +218,7 @@ butterfish prompt -u "http://localhost:5000/v1/responses" "Is this thing working
 This enables using Butterfish with local or remote non-OpenAI models. Notes on this feature:
 
 -   In practice using hosted models is much simpler than running your own, and Butterfish's prompts have been tuned for OpenAI models, so you will probably get the best results using the default OpenAI models.
--   Being OpenAI-API compatible in this case means implementing the [Responses endpoint](https://platform.openai.com/docs/api-reference/responses/create) with streaming results.
+-   Being OpenAI-API compatible in this case means implementing the [Responses endpoint](https://platform.openai.com/docs/api-reference/responses/create) with streaming results. Butterfish will normalize a base URL ending in `/responses` down to `/v1` and send requests to `/v1/responses`.
 -   Butterfish will add your token to requests to the Responses endpoint, so be careful about accidentally leaking credentials if you don't trust the server.
 -   Options for running a local model with a compatible interface include [LM Studio](https://lmstudio.ai/) and [text-generation-webui](https://github.com/oobabooga/text-generation-webui).
 
@@ -377,11 +379,6 @@ Commands:
     This accepts piped input, if there is both piped input and a prompt then
     they will be concatenated together (prompt first). It is recommended that
     you wrap the prompt with quotes. The default GPT model is gpt-5.2.
-
-  promptedit
-    Like the prompt command, but this opens a local file with your default
-    editor (set with the EDITOR env var) that will then be passed as a prompt in
-    the LLM call.
 
   gencmd <prompt> ...
     Generate a shell command from a prompt, i.e. pass in what you want, a shell
