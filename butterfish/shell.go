@@ -32,6 +32,8 @@ import (
 // the prompt context
 const DEFAULT_AUTOSUGGEST_ENCODER = tiktoken.MODEL_CL100K_BASE
 const DEFAULT_PROMPT_ENCODER = tiktoken.MODEL_CL100K_BASE
+const defaultShellMaxPromptTokens = 16384
+const gpt5ShellMaxPromptTokens = 65536
 
 const ESC_CUP = "\x1b[6n" // Request the cursor position
 const ESC_UP = "\x1b[%dA"
@@ -130,6 +132,16 @@ func ShellHistoryTypeToRole(historyType int) string {
 	default:
 		return "user"
 	}
+}
+
+func shellPromptWindowForModel(model string, configuredMax int) int {
+	effectiveMax := configuredMax
+	modelLower := strings.ToLower(strings.TrimSpace(model))
+	if configuredMax == defaultShellMaxPromptTokens && strings.HasPrefix(modelLower, "gpt-5") {
+		effectiveMax = gpt5ShellMaxPromptTokens
+	}
+
+	return min(NumTokensForModel(model), effectiveMax)
 }
 
 type Tokenization struct {
@@ -712,9 +724,10 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 
-	promptMaxTokens := min(
-		NumTokensForModel(this.Config.ShellPromptModel),
-		this.Config.ShellMaxPromptTokens)
+	promptMaxTokens := shellPromptWindowForModel(
+		this.Config.ShellPromptModel,
+		this.Config.ShellMaxPromptTokens,
+	)
 	autoSuggestMaxTokens := min(
 		NumTokensForModel(this.Config.ShellAutosuggestModel),
 		this.Config.ShellMaxPromptTokens)
