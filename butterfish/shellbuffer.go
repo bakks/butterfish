@@ -66,82 +66,82 @@ var CONTROL_STARTS = map[byte]bool{
 	0x05: true,
 }
 
-func (this *ShellBuffer) Write(data string) []byte {
+func (this *ShellBuffer) writeInternal(data string) {
 	if len(data) == 0 {
-		return []byte{}
+		return
 	}
 
-	startingCursor := this.cursor
 	runes := []rune(data)
 
 	this.oldLength = len(this.buffer)
 
 	for i := 0; i < len(runes); i++ {
+		if runes[i] == 0x1b {
+			if len(runes) >= i+3 && runes[i+1] == 0x5b {
+				// we have an escape sequence
+				switch runes[i+2] {
+				case 0x41, 0x42:
+					// up or down arrow, ignore these because they will break the editing line
+					i += 2
+					continue
 
-		if len(runes) >= i+3 && runes[i] == 0x1b && runes[i+1] == 0x5b {
-			// we have an escape sequence
+				case 'C':
+					// right arrow
+					if this.cursor < len(this.buffer) {
+						this.cursor++
+					}
+					i += 2
+					continue
 
-			switch runes[i+2] {
-			case 0x41, 0x42:
-				// up or down arrow, ignore these because they will break the editing line
-				i += 2
-				continue
+				case 'D':
+					// left arrow
+					if this.cursor > 0 {
+						this.cursor--
+					}
+					i += 2
+					continue
 
-			case 'C':
-				// right arrow
-				if this.cursor < len(this.buffer) {
-					this.cursor++
+				case 'H':
+					// home
+					this.cursor = 0
+					i += 2
+					continue
+
+				case 'F':
+					// end
+					this.cursor = len(this.buffer)
+					i += 2
+					continue
 				}
-				i += 2
-				continue
+			}
 
-			case 'D':
-				// left arrow
-				if this.cursor > 0 {
-					this.cursor--
+			// match alt-left 0x1b5b313b3344 and alt-right 0x1b5b313b3343
+			if len(runes) >= i+6 &&
+				runes[i+1] == 0x5b &&
+				runes[i+2] == 0x31 &&
+				runes[i+3] == 0x3b &&
+				runes[i+4] == 0x33 {
+				if runes[i+5] == 0x44 {
+					for this.cursor > 0 && this.buffer[this.cursor-1] == ' ' {
+						this.cursor--
+					}
+					for this.cursor > 0 && this.buffer[this.cursor-1] != ' ' {
+						this.cursor--
+					}
+					i += 5
+					continue
 				}
-				i += 2
-				continue
-
-			case 'H':
-				// home
-				this.cursor = 0
-				i += 2
-				continue
-
-			case 'F':
-				// end
-				this.cursor = len(this.buffer)
-				i += 2
-				continue
-
+				if runes[i+5] == 0x43 {
+					for this.cursor < len(this.buffer) && this.buffer[this.cursor] == ' ' {
+						this.cursor++
+					}
+					for this.cursor < len(this.buffer) && this.buffer[this.cursor] != ' ' {
+						this.cursor++
+					}
+					i += 5
+					continue
+				}
 			}
-		}
-
-		// match 0x1b5b313b3344
-		if bytes.Equal([]byte{0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x44}, []byte(string(runes[i:]))) {
-			// alt-left arrow
-			for this.cursor > 0 && this.buffer[this.cursor-1] == ' ' {
-				this.cursor--
-			}
-			for this.cursor > 0 && this.buffer[this.cursor-1] != ' ' {
-				this.cursor--
-			}
-			i += 5
-			continue
-		}
-
-		// match 0x1b5b313b3343
-		if bytes.Equal([]byte{0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x43}, []byte(string(runes[i:]))) {
-			// alt-right arrow
-			for this.cursor < len(this.buffer) && this.buffer[this.cursor] == ' ' {
-				this.cursor++
-			}
-			for this.cursor < len(this.buffer) && this.buffer[this.cursor] != ' ' {
-				this.cursor++
-			}
-			i += 5
-			continue
 		}
 
 		r := rune(runes[i])
@@ -186,10 +186,24 @@ func (this *ShellBuffer) Write(data string) []byte {
 	}
 
 	this.newLength = len(this.buffer)
+}
+
+func (this *ShellBuffer) Write(data string) []byte {
+	if len(data) == 0 {
+		return []byte{}
+	}
+
+	startingCursor := this.cursor
+	this.writeInternal(data)
 
 	//log.Printf("Buffer update, cursor: %d, buffer: %s, written: %s  %x", this.cursor, string(this.buffer), data, []byte(data))
-
 	return this.calculateShellUpdate(startingCursor)
+}
+
+// Update the logical buffer content without generating terminal redraw bytes.
+// This is used by history accumulation paths where redraw output is discarded.
+func (this *ShellBuffer) WriteNoRender(data string) {
+	this.writeInternal(data)
 }
 
 func (this *ShellBuffer) calculateShellUpdate(startingCursor int) []byte {

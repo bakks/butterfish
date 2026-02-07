@@ -212,7 +212,7 @@ func NewShellHistory() *ShellHistory {
 
 func (this *ShellHistory) add(historyType int, block string) {
 	buffer := NewShellBuffer()
-	buffer.Write(block)
+	buffer.WriteNoRender(block)
 	this.Blocks = append(this.Blocks, &HistoryBuffer{
 		Type:    historyType,
 		Content: buffer,
@@ -234,7 +234,7 @@ func (this *ShellHistory) Append(historyType int, data string) {
 		lastBlock := this.Blocks[numBlocks-1]
 
 		if lastBlock.Type == historyType {
-			lastBlock.Content.Write(data)
+			lastBlock.Content.WriteNoRender(data)
 			return
 		}
 	}
@@ -290,7 +290,7 @@ func (this *ShellHistory) AppendFunctionOutput(name, callID, data string) {
 	if numBlocks > 0 {
 		lastBlock = this.Blocks[numBlocks-1]
 		if lastBlock.Type == historyTypeFunctionOutput && lastBlock.FunctionName == name && lastBlock.ToolCallID == callID {
-			lastBlock.Content.Write(data)
+			lastBlock.Content.WriteNoRender(data)
 			return
 		}
 	}
@@ -499,6 +499,15 @@ type ShellState struct {
 	AutosuggestCtx     context.Context
 	AutosuggestCancel  context.CancelFunc
 	AutosuggestBuffer  *ShellBuffer
+
+	// Track whether we should bypass output parsing/history for an active TUI app.
+	InteractiveChildPassthrough  bool
+	RunningChildren              bool
+	RunningChildrenLastCheck     time.Time
+	RunningChildrenCheckInterval time.Duration
+	HasRunningChildrenFn         func() bool
+	TUITailBuffer                []byte
+	TUITailMaxBytes              int
 }
 
 func (this *ShellState) setState(state int) {
@@ -511,6 +520,138 @@ func (this *ShellState) setState(state int) {
 	}
 
 	this.State = state
+}
+
+// Cache the expensive child-process scan for a short interval so typing in
+// stateNormal does not trigger ps.Processes() calls on every keystroke.
+func (this *ShellState) hasRunningChildrenCached(force bool) bool {
+	interval := this.RunningChildrenCheckInterval
+	if interval <= 0 {
+		interval = 250 * time.Millisecond
+	}
+
+	now := time.Now()
+	needRefresh := force ||
+		this.RunningChildrenLastCheck.IsZero() ||
+		now.Sub(this.RunningChildrenLastCheck) >= interval
+	if needRefresh {
+		checkFn := this.HasRunningChildrenFn
+		if checkFn == nil {
+			checkFn = HasRunningChildren
+		}
+		this.RunningChildren = checkFn()
+		this.RunningChildrenLastCheck = now
+		if !this.RunningChildren && this.InteractiveChildPassthrough {
+			this.InteractiveChildPassthrough = false
+			this.flushTUITailToHistory()
+		}
+	}
+
+	return this.RunningChildren
+}
+
+// Keep only human-useful plain text from TUI output before adding to the tail.
+// We strip escape/control traffic because TUI redraw streams are mostly cursor
+// movement bytes and can dominate history size/cost.
+func sanitizeTUITailData(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	i := 0
+	for i < len(data) {
+		b := data[i]
+
+		if b == 0x1b {
+			// Skip CSI sequence: ESC [ ... final-byte
+			if i+1 < len(data) && data[i+1] == '[' {
+				i += 2
+				for i < len(data) {
+					if data[i] >= 0x40 && data[i] <= 0x7e {
+						i++
+						break
+					}
+					i++
+				}
+				continue
+			}
+
+			// Skip OSC sequence: ESC ] ... BEL or ESC \
+			if i+1 < len(data) && data[i+1] == ']' {
+				i += 2
+				for i < len(data) {
+					if data[i] == 0x07 {
+						i++
+						break
+					}
+					if data[i] == 0x1b && i+1 < len(data) && data[i+1] == '\\' {
+						i += 2
+						break
+					}
+					i++
+				}
+				continue
+			}
+
+			i++
+			continue
+		}
+
+		switch b {
+		case '\n', '\t':
+			out = append(out, b)
+		case '\r':
+			// ignore carriage returns
+		default:
+			if b >= 0x20 && b <= 0x7e {
+				out = append(out, b)
+			}
+		}
+		i++
+	}
+
+	return out
+}
+
+// Append sanitized interactive output and keep only the last TUITailMaxBytes.
+func (this *ShellState) appendTUITail(data []byte) {
+	if this.TUITailMaxBytes <= 0 {
+		return
+	}
+
+	cleaned := sanitizeTUITailData(data)
+	if len(cleaned) == 0 {
+		return
+	}
+
+	if len(cleaned) >= this.TUITailMaxBytes {
+		this.TUITailBuffer = append([]byte{}, cleaned[len(cleaned)-this.TUITailMaxBytes:]...)
+		return
+	}
+
+	next := make([]byte, 0, len(this.TUITailBuffer)+len(cleaned))
+	next = append(next, this.TUITailBuffer...)
+	next = append(next, cleaned...)
+
+	if len(next) > this.TUITailMaxBytes {
+		next = next[len(next)-this.TUITailMaxBytes:]
+	}
+
+	this.TUITailBuffer = next
+}
+
+// Flush a bounded interactive tail snapshot to history when the TUI session
+// ends, so prompts still get some recent context without unbounded redraw spam.
+func (this *ShellState) flushTUITailToHistory() {
+	if len(this.TUITailBuffer) == 0 {
+		return
+	}
+
+	trimmed := strings.TrimSpace(string(this.TUITailBuffer))
+	this.TUITailBuffer = nil
+	if trimmed == "" {
+		return
+	}
+
+	text := fmt.Sprintf("\n[interactive session tail]\n%s\n", trimmed)
+	this.History.Append(historyTypeShellOutput, text)
 }
 
 func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
@@ -672,6 +813,33 @@ func (this *ShellState) FilterChildOut(data string) bool {
 	return false
 }
 
+// Heuristic: detect CSI sequences typically used by interactive TUI redraws.
+// We intentionally ignore SGR ('m') color-only sequences common in normal output.
+func likelyTUIControlSequence(data []byte) bool {
+	for i := 0; i+2 < len(data); i++ {
+		if data[i] != 0x1b || data[i+1] != '[' {
+			continue
+		}
+
+		for j := i + 2; j < len(data); j++ {
+			b := data[j]
+			if b < 0x40 || b > 0x7e {
+				continue
+			}
+
+			switch b {
+			case 'm':
+				// style/color only
+			case 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'S', 'T', 'L', 'M', 'P', 'X', 'd', 'f', 'h', 'l', 'r', 's', 'u':
+				return true
+			}
+			break
+		}
+	}
+
+	return false
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -733,29 +901,32 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		this.Config.ShellMaxPromptTokens)
 
 	shellState := &ShellState{
-		Butterfish:             this,
-		ParentOut:              parentOut,
-		ChildIn:                childIn,
-		Sigwinch:               sigwinch,
-		State:                  stateNormal,
-		ChildOutReader:         childOutReader,
-		ParentInReader:         parentInReader,
-		CursorPosChan:          parentPositionChan,
-		PrintErrorChan:         make(chan error, 8),
-		History:                NewShellHistory(),
-		PromptOutputChan:       make(chan *util.CompletionResponse),
-		PromptAnswerWriter:     styleCodeblocksWriter,
-		PromptGoalAnswerWriter: styleCodeblocksWriterGoal,
-		StyleWriter:            styleCodeblocksWriter,
-		Command:                NewShellBuffer(),
-		Prompt:                 NewShellBuffer(),
-		TerminalWidth:          termWidth,
-		AutosuggestEnabled:     this.Config.ShellAutosuggestEnabled,
-		AutosuggestChan:        make(chan *AutosuggestResult),
-		Color:                  colorScheme,
-		parentInBuffer:         []byte{},
-		PromptMaxTokens:        promptMaxTokens,
-		AutosuggestMaxTokens:   autoSuggestMaxTokens,
+		Butterfish:                   this,
+		ParentOut:                    parentOut,
+		ChildIn:                      childIn,
+		Sigwinch:                     sigwinch,
+		State:                        stateNormal,
+		ChildOutReader:               childOutReader,
+		ParentInReader:               parentInReader,
+		CursorPosChan:                parentPositionChan,
+		PrintErrorChan:               make(chan error, 8),
+		History:                      NewShellHistory(),
+		PromptOutputChan:             make(chan *util.CompletionResponse),
+		PromptAnswerWriter:           styleCodeblocksWriter,
+		PromptGoalAnswerWriter:       styleCodeblocksWriterGoal,
+		StyleWriter:                  styleCodeblocksWriter,
+		Command:                      NewShellBuffer(),
+		Prompt:                       NewShellBuffer(),
+		TerminalWidth:                termWidth,
+		AutosuggestEnabled:           this.Config.ShellAutosuggestEnabled,
+		AutosuggestChan:              make(chan *AutosuggestResult),
+		Color:                        colorScheme,
+		parentInBuffer:               []byte{},
+		PromptMaxTokens:              promptMaxTokens,
+		AutosuggestMaxTokens:         autoSuggestMaxTokens,
+		RunningChildrenCheckInterval: 250 * time.Millisecond,
+		HasRunningChildrenFn:         HasRunningChildren,
+		TUITailMaxBytes:              4096,
 	}
 
 	shellState.Prompt.SetTerminalWidth(termWidth)
@@ -966,10 +1137,38 @@ func (this *ShellState) Mux() {
 				log.Printf("Child out: %x", string(childOutMsg.Data))
 			}
 
+			// When an interactive child (e.g. neovim) is active, bypass costly prompt
+			// parsing/history updates and forward bytes directly.
+			if this.State == stateNormal && !this.GoalMode && this.ActiveFunction == "" {
+				hasPromptMarkers := bytes.Contains(childOutMsg.Data, []byte(PROMPT_PREFIX)) ||
+					bytes.Contains(childOutMsg.Data, []byte(PROMPT_SUFFIX))
+				runningChildren := this.hasRunningChildrenCached(false)
+
+				if this.InteractiveChildPassthrough {
+					if runningChildren && !hasPromptMarkers {
+						this.appendTUITail(childOutMsg.Data)
+						this.ParentOut.Write(childOutMsg.Data)
+						continue
+					}
+					this.InteractiveChildPassthrough = false
+					this.flushTUITailToHistory()
+				} else if runningChildren && !hasPromptMarkers && likelyTUIControlSequence(childOutMsg.Data) {
+					this.InteractiveChildPassthrough = true
+					this.appendTUITail(childOutMsg.Data)
+					this.ParentOut.Write(childOutMsg.Data)
+					continue
+				}
+			}
+
 			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
 			this.PromptSuffixCounter += prompts
 
 			if prompts > 0 && this.State == stateNormal && !this.GoalMode {
+				// Prompt observed means child command is done.
+				this.RunningChildren = false
+				this.RunningChildrenLastCheck = time.Now()
+				this.InteractiveChildPassthrough = false
+
 				// If we get a prompt and we're at the start of a command
 				// then we should request autosuggest
 				newAutosuggestDelay := this.Butterfish.Config.ShellNewlineAutosuggestTimeout
@@ -1131,7 +1330,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 		return data
 
 	case stateNormal:
-		if HasRunningChildren() {
+		if this.hasRunningChildrenCached(false) {
 			// If we have running children then the shell is running something,
 			// so just forward the input.
 			this.ChildIn.Write(data)
