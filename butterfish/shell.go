@@ -1607,13 +1607,22 @@ func (this *ShellState) PrintStatus() {
 func (this *ShellState) PrintHelp() {
 	text := `You're using the Butterfish Shell Mode, which means you have a Butterfish wrapper around your normal shell. Here's how you use it:
 
-	- Type a normal command, like "ls -l" and press enter to execute it
-	- Start a command with a capital letter to send it to GPT, like "How do I find local .py files?"
-	- Autosuggest will print command completions, press tab to fill them in
-	- GPT will be able to see your shell history, so you can ask contextual questions like "why didn't my last command work?"
-	- Type "Status" to show the current Butterfish configuration
-	- Type "History" to show the recent history that will be sent to GPT
-`
+	Quick usage:
+		- Type a normal shell command (for example: "ls -la") and press enter.
+		- Start with a capital letter to ask Butterfish a question (for example: "How do I find .py files?").
+		- Press tab to accept autosuggested command completions.
+
+	Goal mode:
+		- Start goal mode with a leading bang, for example: "!clean up this repo and run tests".
+		- Use "!!" for unsafe goal mode if you want the agent to skip safety confirmations.
+		- While in goal mode, keep chatting with capitalized prompts to guide the agent.
+		- Press Ctrl-C to exit goal mode at any time.
+
+	Useful local commands:
+		- "Help" shows this message.
+		- "Status" shows current Butterfish configuration.
+		- "History" shows recent context that will be sent to the model.
+	`
 	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.Color.Answer, text, this.Color.Command)
 	this.SendPromptResponse(text)
 }
