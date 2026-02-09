@@ -950,6 +950,29 @@ func (this *ShellState) PrintError(err error) {
 	this.PrintErrorChan <- err
 }
 
+func writeAll(w io.Writer, data []byte) error {
+	for len(data) > 0 {
+		n, err := w.Write(data)
+		if err != nil {
+			return err
+		}
+		if n <= 0 {
+			return io.ErrShortWrite
+		}
+		data = data[n:]
+	}
+	return nil
+}
+
+func (this *ShellState) writeChild(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	if err := writeAll(this.ChildIn, data); err != nil {
+		log.Printf("Error writing child input: %s", err)
+	}
+}
+
 // We're asking GPT to generate bash commands, which can use some escapes
 // like \' which aren't valid JSON but are valid bash. This function identifies
 // those and adds an extra escape so that the JSON is valid.
@@ -1103,7 +1126,7 @@ func (this *ShellState) Mux() {
 			}
 
 			// Get a new prompt
-			this.ChildIn.Write([]byte("\n"))
+			this.writeChild([]byte("\n"))
 
 			if this.GoalMode {
 				this.ActiveFunction = output.FunctionName
@@ -1333,9 +1356,11 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 		if this.hasRunningChildrenCached(false) {
 			// If we have running children then the shell is running something,
 			// so just forward the input.
-			this.ChildIn.Write(data)
+			this.writeChild(data)
 			return nil
 		}
+
+		first := data[:1]
 
 		if data[0] == 0x03 {
 			if this.GoalMode {
@@ -1351,7 +1376,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 				this.Prompt.Clear()
 			}
 			this.setState(stateNormal)
-			this.ChildIn.Write([]byte{data[0]})
+			this.writeChild([]byte{data[0]})
 
 			return data[1:]
 		}
@@ -1361,7 +1386,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			this.setState(statePrompting)
 			this.ClearAutosuggest(this.Color.Command)
 			this.Prompt.Clear()
-			this.Prompt.Write(string(data))
+			this.Prompt.Write(string(first))
 
 			// Write the actual prompt start
 			color := this.Color.Prompt
@@ -1369,7 +1394,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 				color = this.Color.PromptGoal
 			}
 			this.Prompt.SetColor(color)
-			fmt.Fprintf(this.ParentOut, "%s%s", color, data)
+			fmt.Fprintf(this.ParentOut, "%s%s", color, first)
 
 			// We're starting a prompt managed here in the wrapper, so we want to
 			// get the cursor position
@@ -1385,30 +1410,42 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.LastTabPassthrough = time.Now()
-				this.ChildIn.Write([]byte{data[0]})
+				this.writeChild([]byte{data[0]})
 			}
 			return data[1:]
 
 		} else if data[0] == '\r' {
 			this.ClearAutosuggest(this.Color.Command)
-			this.ChildIn.Write(data)
+			this.writeChild(first)
 			return data[1:]
 
 		} else {
+			// Only consume the first printable byte when transitioning from
+			// stateNormal to stateShell/statePrompting. If we consume an entire paste
+			// burst here we can duplicate input and skip stateShell carriage handling.
+			consumed := first
+			leftover := data[1:]
+			if data[0] == 0x1b {
+				// Preserve full ANSI control sequences while idle in stateNormal.
+				consumed = data
+				leftover = nil
+			}
+
 			this.Command = NewShellBuffer()
-			this.Command.Write(string(data))
+			this.Command.Write(string(consumed))
 
 			if this.Command.Size() > 0 {
 				// this means that the command is not empty, i.e. the input wasn't
 				// some control character
-				this.RefreshAutosuggest(data, this.Command, this.Color.Command)
+				this.RefreshAutosuggest(consumed, this.Command, this.Color.Command)
 				this.setState(stateShell)
 			} else {
 				this.ClearAutosuggest(this.Color.Command)
 			}
 
 			this.ParentOut.Write([]byte(this.Color.Command))
-			this.ChildIn.Write(data)
+			this.writeChild(consumed)
+			return leftover
 		}
 
 	case statePrompting:
@@ -1485,7 +1522,12 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			this.setState(stateNormal)
 
 			index := bytes.Index(data, []byte{'\r'})
-			this.ChildIn.Write(data[:index+1])
+			// Keep command history in sync for paste bursts that include '\r'
+			// in the same read chunk.
+			if index > 0 {
+				this.Command.Write(string(data[:index]))
+			}
+			this.writeChild(data[:index+1])
 			this.History.Append(historyTypeShellInput, this.Command.String())
 			this.Command = NewShellBuffer()
 
@@ -1499,7 +1541,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 		} else if data[0] == 0x03 { // Ctrl-C
 			this.Command.Clear()
 			this.setState(stateNormal)
-			this.ChildIn.Write([]byte{data[0]})
+			this.writeChild([]byte{data[0]})
 
 			if this.AutosuggestCancel != nil {
 				// We'll likely have a pending autosuggest in the background, cancel it
@@ -1515,14 +1557,14 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.LastTabPassthrough = time.Now()
-				this.ChildIn.Write([]byte{data[0]})
+				this.writeChild([]byte{data[0]})
 			}
 			return data[1:]
 
 		} else { // otherwise user is typing a command
 			this.Command.Write(string(data))
 			this.RefreshAutosuggest(data, this.Command, this.Color.Command)
-			this.ChildIn.Write(data)
+			this.writeChild(data)
 			if this.Command.Size() == 0 {
 				this.setState(stateNormal)
 			}

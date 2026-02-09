@@ -4,7 +4,7 @@ buildtime := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 commit := $(shell bash ./bin/gitcommit.sh)
 flags := -X main.BuildVersion=dev -X main.BuildCommit=${commit} -X main.BuildTimestamp=${buildtime}
 # Use repo-local Go env/cache paths to avoid host Go env issues.
-go_local := ./bin/go-local
+go_local := go
 # Number of benchmark samples to collect in file capture targets.
 bench_count ?= 5
 
@@ -21,7 +21,7 @@ watch: Makefile
 	find . -name "*.go" -o -name "*.proto" | entr -c make
 
 test:
-	go test ./...
+	$(go_local) test ./...
 
 test-local:
 	$(go_local) test ./...

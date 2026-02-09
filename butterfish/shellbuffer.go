@@ -113,31 +113,49 @@ func (this *ShellBuffer) writeInternal(data string) {
 					i += 2
 					continue
 				}
-			}
 
-			// match alt-left 0x1b5b313b3344 and alt-right 0x1b5b313b3343
-			if len(runes) >= i+6 &&
-				runes[i+1] == 0x5b &&
-				runes[i+2] == 0x31 &&
-				runes[i+3] == 0x3b &&
-				runes[i+4] == 0x33 {
-				if runes[i+5] == 0x44 {
-					for this.cursor > 0 && this.buffer[this.cursor-1] == ' ' {
-						this.cursor--
+				// match alt-left 0x1b5b313b3344 and alt-right 0x1b5b313b3343
+				if len(runes) >= i+6 &&
+					runes[i+1] == 0x5b &&
+					runes[i+2] == 0x31 &&
+					runes[i+3] == 0x3b &&
+					runes[i+4] == 0x33 {
+					if runes[i+5] == 0x44 {
+						for this.cursor > 0 && this.buffer[this.cursor-1] == ' ' {
+							this.cursor--
+						}
+						for this.cursor > 0 && this.buffer[this.cursor-1] != ' ' {
+							this.cursor--
+						}
+						i += 5
+						continue
 					}
-					for this.cursor > 0 && this.buffer[this.cursor-1] != ' ' {
-						this.cursor--
+					if runes[i+5] == 0x43 {
+						for this.cursor < len(this.buffer) && this.buffer[this.cursor] == ' ' {
+							this.cursor++
+						}
+						for this.cursor < len(this.buffer) && this.buffer[this.cursor] != ' ' {
+							this.cursor++
+						}
+						i += 5
+						continue
 					}
+				}
+				// Ignore bracketed paste wrappers from the terminal while keeping the
+				// pasted payload text itself.
+				if len(runes) >= i+6 &&
+					runes[i+2] == '2' &&
+					runes[i+3] == '0' &&
+					runes[i+4] == '0' &&
+					runes[i+5] == '~' {
 					i += 5
 					continue
 				}
-				if runes[i+5] == 0x43 {
-					for this.cursor < len(this.buffer) && this.buffer[this.cursor] == ' ' {
-						this.cursor++
-					}
-					for this.cursor < len(this.buffer) && this.buffer[this.cursor] != ' ' {
-						this.cursor++
-					}
+				if len(runes) >= i+6 &&
+					runes[i+2] == '2' &&
+					runes[i+3] == '0' &&
+					runes[i+4] == '1' &&
+					runes[i+5] == '~' {
 					i += 5
 					continue
 				}
