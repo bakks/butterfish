@@ -72,6 +72,7 @@ type ButterfishConfig struct {
 	ShellPluginMode         bool
 	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
 	ShellPromptModel        string // used when the user enters an explicit prompt
+	ShellReasoningEffort    string // reasoning effort for shell prompts + goal mode
 	ShellLeavePromptAlone   bool   // don't try to edit the shell prompt
 	ShellAutosuggestEnabled bool   // whether to use autosuggest
 	ShellAutosuggestModel   string // used when we're autocompleting a command
@@ -87,15 +88,13 @@ type ButterfishConfig struct {
 	// Maximum tokens for the response, reserved when calculating history and passed as max_tokens during inference
 	ShellMaxResponseTokens int
 
-	// Model, temp, and max tokens to use when executing the `gencmd` command
-	GencmdModel       string
-	GencmdTemperature float32
-	GencmdMaxTokens   int
+	// Model and max tokens to use when executing the `gencmd` command
+	GencmdModel     string
+	GencmdMaxTokens int
 
-	// Model, temp, and max tokens to use when executing the `exec` command
-	ExeccheckModel       string
-	ExeccheckTemperature float32
-	ExeccheckMaxTokens   int
+	// Model and max tokens to use when executing the `exec` command
+	ExeccheckModel     string
+	ExeccheckMaxTokens int
 }
 
 func (this *ButterfishConfig) ParseShell() string {
@@ -195,11 +194,10 @@ func MakeButterfishConfig() *ButterfishConfig {
 		Verbose:              0,
 		ColorScheme:          colorScheme,
 		Styles:               ColorSchemeToStyles(colorScheme),
+		ShellReasoningEffort: "medium",
 		GencmdModel:          BestCompletionModel,
-		GencmdTemperature:    0.6,
 		GencmdMaxTokens:      512,
 		ExeccheckModel:       BestCompletionModel,
-		ExeccheckTemperature: 0.6,
 		ExeccheckMaxTokens:   512,
 	}
 }

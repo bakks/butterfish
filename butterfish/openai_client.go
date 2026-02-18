@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bakks/butterfish/util"
@@ -25,6 +26,9 @@ const ERR_429_HELP = "You are likely using a free OpenAI account without a subsc
 
 type OpenAIClient struct {
 	client openai.Client
+
+	reasoningMutex       sync.RWMutex
+	reasoningUnsupported map[string]bool
 }
 
 func NewOpenAIClient(token, baseURL string) *OpenAIClient {
@@ -39,7 +43,8 @@ func NewOpenAIClient(token, baseURL string) *OpenAIClient {
 
 	client := openai.NewClient(opts...)
 	return &OpenAIClient{
-		client: client,
+		client:               client,
+		reasoningUnsupported: make(map[string]bool),
 	}
 }
 
@@ -54,6 +59,63 @@ func normalizeBaseURL(baseURL string) string {
 		return strings.TrimSuffix(baseURL, "/responses")
 	}
 	return baseURL
+}
+
+func normalizeModelKey(model string) string {
+	return strings.ToLower(strings.TrimSpace(model))
+}
+
+func (this *OpenAIClient) isReasoningUnsupportedForModel(model string) bool {
+	key := normalizeModelKey(model)
+	if key == "" {
+		return false
+	}
+
+	this.reasoningMutex.RLock()
+	unsupported := this.reasoningUnsupported[key]
+	this.reasoningMutex.RUnlock()
+	return unsupported
+}
+
+func (this *OpenAIClient) markReasoningUnsupportedForModel(model string) {
+	key := normalizeModelKey(model)
+	if key == "" {
+		return
+	}
+
+	this.reasoningMutex.Lock()
+	this.reasoningUnsupported[key] = true
+	this.reasoningMutex.Unlock()
+}
+
+func isReasoningUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode == 400 {
+			paramLower := strings.ToLower(apiErr.Param)
+			if strings.Contains(paramLower, "reasoning") {
+				return true
+			}
+			msgLower := strings.ToLower(apiErr.Message)
+			if strings.Contains(msgLower, "reasoning") &&
+				(strings.Contains(msgLower, "not supported") ||
+					strings.Contains(msgLower, "unsupported") ||
+					strings.Contains(msgLower, "unknown parameter")) {
+				return true
+			}
+		}
+		return false
+	}
+
+	errLower := strings.ToLower(err.Error())
+	return strings.Contains(errLower, "reasoning") &&
+		(strings.Contains(errLower, "not supported") ||
+			strings.Contains(errLower, "unsupported") ||
+			strings.Contains(errLower, "unknown parameter"))
 }
 
 func withExponentialBackoff(f func() error) error {
@@ -252,7 +314,7 @@ func buildInputItems(request *util.CompletionRequest) responses.ResponseInputPar
 	return items
 }
 
-func buildResponseParams(request *util.CompletionRequest) responses.ResponseNewParams {
+func buildResponseParams(request *util.CompletionRequest, reasoningEffort string) responses.ResponseNewParams {
 	params := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(request.Model),
 	}
@@ -263,7 +325,11 @@ func buildResponseParams(request *util.CompletionRequest) responses.ResponseNewP
 	if request.MaxTokens > 0 {
 		params.MaxOutputTokens = param.NewOpt(int64(request.MaxTokens))
 	}
-	params.Temperature = param.NewOpt(float64(request.Temperature))
+	if reasoningEffort != "" {
+		params.Reasoning = shared.ReasoningParam{
+			Effort: shared.ReasoningEffort(reasoningEffort),
+		}
+	}
 
 	inputItems := buildInputItems(request)
 	if len(inputItems) > 0 {
@@ -377,13 +443,18 @@ func formatInputItemBox(item responses.ResponseInputItemUnionParam, index int) L
 	}
 }
 
-func logCompletionRequest(request *util.CompletionRequest, inputItems responses.ResponseInputParam, tools []responses.ToolUnionParam) {
+func logCompletionRequest(request *util.CompletionRequest, inputItems responses.ResponseInputParam, tools []responses.ToolUnionParam, reasoningEffort string) {
+	reasoning := "(default)"
+	if reasoningEffort != "" {
+		reasoning = reasoningEffort
+	}
+
 	box := LoggingBox{
 		Title: "LLM Request",
-		Content: fmt.Sprintf("model: %s\nmax_tokens: %d\ntemperature: %.2f",
+		Content: fmt.Sprintf("model: %s\nmax_tokens: %d\nreasoning_effort: %s",
 			request.Model,
 			request.MaxTokens,
-			request.Temperature,
+			reasoning,
 		),
 		Color: 0,
 	}
@@ -501,11 +572,19 @@ func mergeShellCallsFromOutput(shellCallMap map[string]*util.ShellCall, shellCal
 }
 
 func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
-	params := buildResponseParams(request)
+	reasoningEffort := strings.TrimSpace(request.ReasoningEffort)
+	if reasoningEffort != "" && this.isReasoningUnsupportedForModel(request.Model) {
+		if request.Verbose {
+			log.Printf("Reasoning disabled for model %s (requested effort=%q): model is cached as reasoning-unsupported.", request.Model, reasoningEffort)
+		}
+		reasoningEffort = ""
+	}
+
+	params := buildResponseParams(request, reasoningEffort)
 	if request.Verbose {
 		inputItems := buildInputItems(request)
 		tools := buildTools(request.Functions, request.Tools)
-		logCompletionRequest(request, inputItems, tools)
+		logCompletionRequest(request, inputItems, tools, reasoningEffort)
 	}
 	var response *responses.Response
 
@@ -514,6 +593,21 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 		response, innerErr = this.client.Responses.New(request.Ctx, params)
 		return innerErr
 	})
+	if err != nil && reasoningEffort != "" && isReasoningUnsupportedError(err) {
+		log.Printf("Model %s rejected reasoning parameter (effort=%q): %v", request.Model, reasoningEffort, err)
+		this.markReasoningUnsupportedForModel(request.Model)
+		log.Printf("Retrying model %s without reasoning parameter.", request.Model)
+
+		params = buildResponseParams(request, "")
+		err = withExponentialBackoff(func() error {
+			var innerErr error
+			response, innerErr = this.client.Responses.New(request.Ctx, params)
+			return innerErr
+		})
+		if err == nil {
+			log.Printf("Retry without reasoning succeeded for model %s.", request.Model)
+		}
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), ERR_429) {
 			return nil, errors.New(ERR_429_HELP)
@@ -562,11 +656,19 @@ type streamToolCallInfo struct {
 }
 
 func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
-	params := buildResponseParams(request)
+	reasoningEffort := strings.TrimSpace(request.ReasoningEffort)
+	if reasoningEffort != "" && this.isReasoningUnsupportedForModel(request.Model) {
+		if request.Verbose {
+			log.Printf("Reasoning disabled for model %s (requested effort=%q): model is cached as reasoning-unsupported.", request.Model, reasoningEffort)
+		}
+		reasoningEffort = ""
+	}
+
+	params := buildResponseParams(request, reasoningEffort)
 	if request.Verbose {
 		inputItems := buildInputItems(request)
 		tools := buildTools(request.Functions, request.Tools)
-		logCompletionRequest(request, inputItems, tools)
+		logCompletionRequest(request, inputItems, tools, reasoningEffort)
 	}
 
 	var stream *ssestream.Stream[responses.ResponseStreamEventUnion]
@@ -602,6 +704,24 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		innerErr = stream.Err()
 		return innerErr
 	})
+	if err != nil && reasoningEffort != "" && isReasoningUnsupportedError(err) {
+		log.Printf("Model %s rejected reasoning parameter for streaming request (effort=%q): %v", request.Model, reasoningEffort, err)
+		this.markReasoningUnsupportedForModel(request.Model)
+		log.Printf("Retrying streaming request for model %s without reasoning parameter.", request.Model)
+		if stream != nil {
+			stream.Close()
+		}
+
+		params = buildResponseParams(request, "")
+		err = withExponentialBackoff(func() error {
+			stream = this.client.Responses.NewStreaming(innerCtx, params)
+			innerErr = stream.Err()
+			return innerErr
+		})
+		if err == nil {
+			log.Printf("Streaming retry without reasoning succeeded for model %s.", request.Model)
+		}
+	}
 	if err != nil {
 		if chunkTimeoutErr != nil {
 			return nil, chunkTimeoutErr

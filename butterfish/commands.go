@@ -54,7 +54,6 @@ type CliCommandConfig struct {
 		SystemMessage string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
 		Model         string   `short:"m" default:"gpt-5.2" help:"LLM to use for the prompt."`
 		NumTokens     int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Temperature   float32  `short:"T" default:"0.7" help:"Temperature to use for the prompt, higher temperature indicates more freedom/randomness when generating each token."`
 		Functions     string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
 		NoColor       bool     `default:"false" help:"Disable color output."`
 		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
@@ -156,7 +155,6 @@ func (this *ButterfishCtx) ExecCommand(
 			SysMsg:      options.Prompt.SystemMessage,
 			Model:       options.Prompt.Model,
 			NumTokens:   options.Prompt.NumTokens,
-			Temperature: options.Prompt.Temperature,
 			Functions:   options.Prompt.Functions,
 			NoColor:     options.Prompt.NoColor,
 			NoBackticks: options.Prompt.NoBackticks,
@@ -221,7 +219,6 @@ type promptCommand struct {
 	SysMsg      string
 	Model       string
 	NumTokens   int
-	Temperature float32
 	Functions   string
 	NoColor     bool
 	NoBackticks bool
@@ -285,7 +282,6 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 		Prompt:        cmd.Prompt,
 		Model:         cmd.Model,
 		MaxTokens:     cmd.NumTokens,
-		Temperature:   cmd.Temperature,
 		SystemMessage: sysMsg,
 		Verbose:       cmd.Verbose > 0,
 		Functions:     functions,
@@ -314,7 +310,6 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 		Prompt:        promptStr,
 		Model:         this.Config.GencmdModel,
 		MaxTokens:     this.Config.GencmdMaxTokens,
-		Temperature:   this.Config.GencmdTemperature,
 		SystemMessage: sysMsg,
 		TokenTimeout:  this.Config.TokenTimeout,
 	}
@@ -385,7 +380,6 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 			Prompt:        prompt,
 			Model:         this.Config.ExeccheckModel,
 			MaxTokens:     this.Config.ExeccheckMaxTokens,
-			Temperature:   this.Config.ExeccheckTemperature,
 			SystemMessage: "N/A",
 			TokenTimeout:  this.Config.TokenTimeout,
 		}

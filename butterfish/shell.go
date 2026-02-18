@@ -1595,6 +1595,7 @@ func (this *ShellState) PrintStatus() {
 	}
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
+	text += fmt.Sprintf("Reasoning effort:      %s\n", this.configuredReasoningEffort())
 	text += fmt.Sprintf("Prompt history window: %d tokens\n", this.PromptMaxTokens)
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
@@ -1836,7 +1837,7 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 			result = "FAILURE"
 		}
 
-		fmt.Fprintf(this.PromptGoalAnswerWriter, "%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
+		fmt.Fprintf(this.PromptGoalAnswerWriter, "\n%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
 		this.GoalMode = false
 
 	case "":
@@ -1933,6 +1934,14 @@ func supportsShellToolModel(model string) bool {
 	return strings.HasPrefix(model, "gpt-5.1") || strings.HasPrefix(model, "gpt-5.2")
 }
 
+func (this *ShellState) configuredReasoningEffort() string {
+	effort := strings.ToLower(strings.TrimSpace(this.Butterfish.Config.ShellReasoningEffort))
+	if effort == "" {
+		return "medium"
+	}
+	return effort
+}
+
 func (this *ShellState) goalModePrompt(lastPrompt string) {
 	this.setState(statePromptResponse)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -1966,16 +1975,16 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	}
 
 	request := &util.CompletionRequest{
-		Ctx:           requestCtx,
-		Prompt:        lastPrompt,
-		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     tokensForAnswer,
-		Temperature:   0.6,
-		HistoryBlocks: historyBlocks,
-		SystemMessage: sysMsg,
-		Functions:     functions,
-		Tools:         tools,
-		Verbose:       this.Butterfish.Config.Verbose > 0,
+		Ctx:             requestCtx,
+		Prompt:          lastPrompt,
+		Model:           this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:       tokensForAnswer,
+		ReasoningEffort: this.configuredReasoningEffort(),
+		HistoryBlocks:   historyBlocks,
+		SystemMessage:   sysMsg,
+		Functions:       functions,
+		Tools:           tools,
+		Verbose:         this.Butterfish.Config.Verbose > 0,
 	}
 
 	// we run this in a goroutine so that we can still receive input
@@ -2206,15 +2215,15 @@ func (this *ShellState) SendPrompt() {
 	}
 
 	request := &util.CompletionRequest{
-		Ctx:           requestCtx,
-		Prompt:        prompt,
-		Model:         this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:     tokensReservedForAnswer,
-		Temperature:   0.7,
-		HistoryBlocks: historyBlocks,
-		SystemMessage: sysMsg,
-		Verbose:       this.Butterfish.Config.Verbose > 0,
-		TokenTimeout:  this.Butterfish.Config.TokenTimeout,
+		Ctx:             requestCtx,
+		Prompt:          prompt,
+		Model:           this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:       tokensReservedForAnswer,
+		ReasoningEffort: this.configuredReasoningEffort(),
+		HistoryBlocks:   historyBlocks,
+		SystemMessage:   sysMsg,
+		Verbose:         this.Butterfish.Config.Verbose > 0,
+		TokenTimeout:    this.Butterfish.Config.TokenTimeout,
 	}
 
 	this.History.Append(historyTypePrompt, this.Prompt.String())
@@ -2553,12 +2562,11 @@ func RequestCancelableAutosuggest(
 	}
 
 	request := &util.CompletionRequest{
-		Ctx:         ctx,
-		Prompt:      prmpt,
-		Model:       model,
-		MaxTokens:   reserveForAnswer,
-		Temperature: 0.2,
-		Verbose:     verbose,
+		Ctx:       ctx,
+		Prompt:    prmpt,
+		Model:     model,
+		MaxTokens: reserveForAnswer,
+		Verbose:   verbose,
 	}
 
 	response, err := llmClient.Completion(request)

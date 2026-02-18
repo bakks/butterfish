@@ -82,6 +82,7 @@ type CliConfig struct {
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		Model                     string `short:"m" default:"gpt-5.2" help:"Model for when the user manually enters a prompt."`
+		ReasoningEffort           string `short:"r" default:"medium" help:"Reasoning effort for shell prompting and Goal Mode. Ignored for autosuggest and automatically disabled for models that don't support reasoning."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-5.2" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
@@ -228,6 +229,7 @@ func main() {
 
 		config.ShellBinary = shell
 		config.ShellPromptModel = cli.Shell.Model
+		config.ShellReasoningEffort = strings.TrimSpace(cli.Shell.ReasoningEffort)
 		config.ShellAutosuggestEnabled = !cli.Shell.AutosuggestDisabled
 		config.ShellAutosuggestModel = cli.Shell.AutosuggestModel
 		config.ShellAutosuggestTimeout = time.Duration(cli.Shell.AutosuggestTimeout) * time.Millisecond

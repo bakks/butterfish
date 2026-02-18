@@ -138,6 +138,11 @@ Flags:
   -m, --prompt-model="gpt-5.2"
                                    Model for when the user manually enters a
                                    prompt.
+  -r, --reasoning-effort="medium"
+                                   Reasoning effort for shell prompting and Goal
+                                   Mode. Ignored for autosuggest and
+                                   automatically disabled for models that don't
+                                   support reasoning.
   -A, --autosuggest-disabled       Disable autosuggest.
   -a, --autosuggest-model="gpt-5.2"
                                    Model for autosuggest
@@ -258,9 +263,6 @@ Flags:
 
   -m, --model="gpt-5.2"    GPT model to use for the prompt.
   -n, --num-tokens=1024          Maximum number of tokens to generate.
-  -T, --temperature=0.7          Temperature to use for the prompt, higher
-                                 temperature indicates more freedom/randomness
-                                 when generating each token.
 
 ```
 

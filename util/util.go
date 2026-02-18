@@ -22,17 +22,17 @@ import (
 // We define types for calling LLM APIs here because I don't want the internal
 // interfaces to depend on OpenAI-specific types.
 type CompletionRequest struct {
-	Ctx           context.Context
-	Prompt        string
-	Model         string
-	MaxTokens     int
-	Temperature   float32
-	HistoryBlocks []HistoryBlock
-	SystemMessage string
-	Functions     []FunctionDefinition
-	Tools         []ToolDefinition
-	Verbose       bool
-	TokenTimeout  time.Duration
+	Ctx             context.Context
+	Prompt          string
+	Model           string
+	MaxTokens       int
+	ReasoningEffort string
+	HistoryBlocks   []HistoryBlock
+	SystemMessage   string
+	Functions       []FunctionDefinition
+	Tools           []ToolDefinition
+	Verbose         bool
+	TokenTimeout    time.Duration
 }
 
 type FunctionCall struct {

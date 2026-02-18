@@ -17,6 +17,32 @@ import (
 	"golang.org/x/term"
 )
 
+func stripEnvKeys(env []string, keys ...string) []string {
+	if len(keys) == 0 {
+		return append([]string{}, env...)
+	}
+
+	blocked := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		blocked[key] = struct{}{}
+	}
+
+	filtered := make([]string, 0, len(env))
+	for _, entry := range env {
+		eq := strings.IndexByte(entry, '=')
+		if eq <= 0 {
+			filtered = append(filtered, entry)
+			continue
+		}
+		name := entry[:eq]
+		if _, found := blocked[name]; found {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
 // PTY E2E coverage for shell/prompt editing behavior.
 //
 // These tests drive a real butterfish shell process over a pseudo-terminal,
@@ -122,7 +148,14 @@ func startShellE2EWithConfig(
 		"-A",
 		"-b", "/bin/zsh",
 	)
-	cmd.Env = append([]string{}, os.Environ()...)
+	cmd.Env = stripEnvKeys(os.Environ(),
+		"BUTTERFISH_SHELL",
+		"OPENAI_API_KEY",
+		"TERM",
+		"ZDOTDIR",
+		"HISTFILE",
+		"SAVEHIST",
+	)
 	cmd.Env = append(cmd.Env,
 		"OPENAI_API_KEY=sk-butterfish-e2e",
 		"TERM=xterm-256color",
