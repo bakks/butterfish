@@ -61,7 +61,7 @@ func TestMergeShellCallsFromOutput(t *testing.T) {
 
 func TestBuildResponseParamsIncludesReasoningEffort(t *testing.T) {
 	req := &util.CompletionRequest{
-		Model:           "gpt-5.2",
+		Model:           "gpt-5.4",
 		Prompt:          "hi",
 		MaxTokens:       64,
 		ReasoningEffort: "medium",
