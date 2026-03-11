@@ -50,22 +50,25 @@ func (this *ButterfishCtx) ParseCommand(cmd string) (*kong.Context, *CliCommandC
 // Kong CLI parser option configuration
 type CliCommandConfig struct {
 	Prompt struct {
-		Prompt        []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
-		SystemMessage string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
-		Model         string   `short:"m" default:"gpt-5.4" help:"LLM to use for the prompt."`
-		NumTokens     int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
-		Functions     string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
-		NoColor       bool     `default:"false" help:"Disable color output."`
-		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
+		Prompt          []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
+		SystemMessage   string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
+		Model           string   `short:"m" default:"gpt-5.4" help:"LLM to use for the prompt."`
+		ReasoningEffort string   `short:"r" default:"medium" help:"Reasoning effort for the prompt request. Automatically disabled for models that don't support reasoning."`
+		NumTokens       int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
+		Functions       string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
+		NoColor         bool     `default:"false" help:"Disable color output."`
+		NoBackticks     bool     `default:"false" help:"Strip out backticks around codeblocks."`
 	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-5.4."`
 
 	Gencmd struct {
-		Prompt []string `arg:"" help:"Prompt describing the desired shell command."`
-		Force  bool     `short:"f" default:"false" help:"Execute the command without prompting."`
+		Prompt          []string `arg:"" help:"Prompt describing the desired shell command."`
+		ReasoningEffort string   `short:"r" default:"medium" help:"Reasoning effort for command generation. Automatically disabled for models that don't support reasoning."`
+		Force           bool     `short:"f" default:"false" help:"Execute the command without prompting."`
 	} `cmd:"" help:"Generate a shell command from a prompt, i.e. pass in what you want, a shell command will be generated. Accepts piped input. You can use the -f command to execute it sight-unseen."`
 
 	Exec struct {
-		Command []string `arg:"" help:"Command to execute." optional:""`
+		Command         []string `arg:"" help:"Command to execute." optional:""`
+		ReasoningEffort string   `short:"r" default:"medium" help:"Reasoning effort for command debugging/fix suggestions. Automatically disabled for models that don't support reasoning."`
 	} `cmd:"" help:"Execute a command and try to debug problems. The command can either passed in or in the command register (if you have run gencmd in Console Mode)."`
 }
 
@@ -151,14 +154,15 @@ func (this *ButterfishCtx) ExecCommand(
 		}
 
 		commandConfig := &promptCommand{
-			Prompt:      input,
-			SysMsg:      options.Prompt.SystemMessage,
-			Model:       options.Prompt.Model,
-			NumTokens:   options.Prompt.NumTokens,
-			Functions:   options.Prompt.Functions,
-			NoColor:     options.Prompt.NoColor,
-			NoBackticks: options.Prompt.NoBackticks,
-			Verbose:     this.Config.Verbose,
+			Prompt:          input,
+			SysMsg:          options.Prompt.SystemMessage,
+			Model:           options.Prompt.Model,
+			ReasoningEffort: strings.TrimSpace(options.Prompt.ReasoningEffort),
+			NumTokens:       options.Prompt.NumTokens,
+			Functions:       options.Prompt.Functions,
+			NoColor:         options.Prompt.NoColor,
+			NoBackticks:     options.Prompt.NoBackticks,
+			Verbose:         this.Config.Verbose,
 		}
 
 		_, err := this.Prompt(commandConfig)
@@ -170,7 +174,7 @@ func (this *ButterfishCtx) ExecCommand(
 			return errors.New("Please provide a description to generate a command")
 		}
 
-		cmd, err := this.gencmdCommand(input)
+		cmd, err := this.gencmdCommand(input, strings.TrimSpace(options.Gencmd.ReasoningEffort))
 		if err != nil {
 			return err
 		}
@@ -198,7 +202,7 @@ func (this *ButterfishCtx) ExecCommand(
 			return errors.New("No command to execute")
 		}
 
-		return this.execAndCheck(this.Ctx, input)
+		return this.execAndCheck(this.Ctx, input, strings.TrimSpace(options.Exec.ReasoningEffort))
 
 	default:
 		return errors.New("Unrecognized command: " + parsed.Command())
@@ -215,16 +219,17 @@ func styleToEscape(color lipgloss.TerminalColor) string {
 }
 
 type promptCommand struct {
-	Prompt      string
-	SysMsg      string
-	Model       string
-	NumTokens   int
-	Functions   string
-	NoColor     bool
-	NoBackticks bool
-	Verbose     int
-	History     []util.HistoryBlock
-	Tools       []util.ToolDefinition
+	Prompt          string
+	SysMsg          string
+	Model           string
+	ReasoningEffort string
+	NumTokens       int
+	Functions       string
+	NoColor         bool
+	NoBackticks     bool
+	Verbose         int
+	History         []util.HistoryBlock
+	Tools           []util.ToolDefinition
 }
 
 func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse, error) {
@@ -278,16 +283,17 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 	}
 
 	req := &util.CompletionRequest{
-		Ctx:           this.Ctx,
-		Prompt:        cmd.Prompt,
-		Model:         cmd.Model,
-		MaxTokens:     cmd.NumTokens,
-		SystemMessage: sysMsg,
-		Verbose:       cmd.Verbose > 0,
-		Functions:     functions,
-		Tools:         cmd.Tools,
-		HistoryBlocks: cmd.History,
-		TokenTimeout:  this.Config.TokenTimeout,
+		Ctx:             this.Ctx,
+		Prompt:          cmd.Prompt,
+		Model:           cmd.Model,
+		MaxTokens:       cmd.NumTokens,
+		ReasoningEffort: strings.TrimSpace(cmd.ReasoningEffort),
+		SystemMessage:   sysMsg,
+		Verbose:         cmd.Verbose > 0,
+		Functions:       functions,
+		Tools:           cmd.Tools,
+		HistoryBlocks:   cmd.History,
+		TokenTimeout:    this.Config.TokenTimeout,
 	}
 
 	return this.LLMClient.CompletionStream(req, writer)
@@ -295,7 +301,7 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 
 // Given a description of functionality, we call GPT to generate a shell
 // command
-func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
+func (this *ButterfishCtx) gencmdCommand(description string, reasoningEffort string) (string, error) {
 	promptStr, err := this.PromptLibrary.GetPrompt("generate_command", "content", description)
 	if err != nil {
 		return "", err
@@ -306,12 +312,13 @@ func (this *ButterfishCtx) gencmdCommand(description string) (string, error) {
 		return "", err
 	}
 	req := &util.CompletionRequest{
-		Ctx:           this.Ctx,
-		Prompt:        promptStr,
-		Model:         this.Config.GencmdModel,
-		MaxTokens:     this.Config.GencmdMaxTokens,
-		SystemMessage: sysMsg,
-		TokenTimeout:  this.Config.TokenTimeout,
+		Ctx:             this.Ctx,
+		Prompt:          promptStr,
+		Model:           this.Config.GencmdModel,
+		MaxTokens:       this.Config.GencmdMaxTokens,
+		ReasoningEffort: strings.TrimSpace(reasoningEffort),
+		SystemMessage:   sysMsg,
+		TokenTimeout:    this.Config.TokenTimeout,
 	}
 
 	resp, err := this.LLMClient.Completion(req)
@@ -352,7 +359,7 @@ func fixCommandParse(s string) (string, error) {
 
 // Execute a command in a loop, if the exit status is non-zero then we call
 // GPT to give us a fixed command and ask the user if they want to run it
-func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
+func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string, reasoningEffort string) error {
 	for {
 		result, err := this.execCommand(cmd)
 		if err != nil {
@@ -376,12 +383,13 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string) error {
 		styleWriter := util.NewStyledWriter(this.Out, this.Config.Styles.Highlight)
 
 		req := &util.CompletionRequest{
-			Ctx:           this.Ctx,
-			Prompt:        prompt,
-			Model:         this.Config.ExeccheckModel,
-			MaxTokens:     this.Config.ExeccheckMaxTokens,
-			SystemMessage: "N/A",
-			TokenTimeout:  this.Config.TokenTimeout,
+			Ctx:             this.Ctx,
+			Prompt:          prompt,
+			Model:           this.Config.ExeccheckModel,
+			MaxTokens:       this.Config.ExeccheckMaxTokens,
+			ReasoningEffort: strings.TrimSpace(reasoningEffort),
+			SystemMessage:   "N/A",
+			TokenTimeout:    this.Config.TokenTimeout,
 		}
 
 		response, err := this.LLMClient.CompletionStream(req, styleWriter)

@@ -262,6 +262,10 @@ Flags:
   -V, --version                  Print version information and exit.
 
   -m, --model="gpt-5.4"    GPT model to use for the prompt.
+  -r, --reasoning-effort="medium"
+                                 Reasoning effort for the prompt request.
+                                 Automatically disabled for models that don't
+                                 support reasoning.
   -n, --num-tokens=1024          Maximum number of tokens to generate.
 
 ```
@@ -293,6 +297,9 @@ Flags:
                    file). Use multiple times for more verbosity, e.g. -vv.
   -V, --version    Print version information and exit.
 
+  -r, --reasoning-effort="medium"
+                   Reasoning effort for command generation. Automatically
+                   disabled for models that don't support reasoning.
   -f, --force      Execute the command without prompting.
 
 ```
@@ -300,6 +307,9 @@ Flags:
 <img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/gencmd.gif" alt="Butterfish" width="500px" height="250px" />
 
 ### `exec` - Run a command and suggest a fix if it fails
+
+Use `-r` to control the reasoning effort for the fix-suggestion request. It
+defaults to `medium`.
 
 ```
 butterfish exec 'find -nam foobar'
