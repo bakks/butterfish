@@ -52,12 +52,12 @@ type CliCommandConfig struct {
 	Prompt struct {
 		Prompt        []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
 		SystemMessage string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
-		Model         string   `short:"m" default:"gpt-5.2" help:"LLM to use for the prompt."`
+		Model         string   `short:"m" default:"gpt-5.4" help:"LLM to use for the prompt."`
 		NumTokens     int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Functions     string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
 		NoColor       bool     `default:"false" help:"Disable color output."`
 		NoBackticks   bool     `default:"false" help:"Strip out backticks around codeblocks."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-5.2."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-5.4."`
 
 	Gencmd struct {
 		Prompt []string `arg:"" help:"Prompt describing the desired shell command."`

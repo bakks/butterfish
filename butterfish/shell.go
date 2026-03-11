@@ -1931,7 +1931,9 @@ func getGoalModeFunctionsString(functions []util.FunctionDefinition) string {
 
 func supportsShellToolModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(model, "gpt-5.1") || strings.HasPrefix(model, "gpt-5.2")
+	return strings.HasPrefix(model, "gpt-5.1") ||
+		strings.HasPrefix(model, "gpt-5.2") ||
+		strings.HasPrefix(model, "gpt-5.4")
 }
 
 func (this *ShellState) configuredReasoningEffort() string {

@@ -81,10 +81,10 @@ type CliConfig struct {
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" default:"gpt-5.2" help:"Model for when the user manually enters a prompt."`
+		Model                     string `short:"m" default:"gpt-5.4" help:"Model for when the user manually enters a prompt."`
 		ReasoningEffort           string `short:"r" default:"medium" help:"Reasoning effort for shell prompting and Goal Mode. Ignored for autosuggest and automatically disabled for models that don't support reasoning."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel          string `short:"a" default:"gpt-5.2" help:"Model for autosuggest"`
+		AutosuggestModel          string `short:"a" default:"gpt-5.4" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
 		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
