@@ -1,6 +1,9 @@
 package butterfish
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestShellPromptWindowForModel(t *testing.T) {
 	t.Run("gpt-5 default bumps to 64k", func(t *testing.T) {
@@ -38,5 +41,28 @@ func TestSupportsShellToolModel(t *testing.T) {
 	}
 	if supportsShellToolModel("gpt-5") {
 		t.Fatal("did not expect gpt-5 to support shell tool")
+	}
+}
+
+func TestParsePS1UsesGoalModeIcons(t *testing.T) {
+	input := "before " + PROMPT_PREFIX + EMOJI_DEFAULT + " 0" + PROMPT_SUFFIX + " after"
+
+	safeState := &ShellState{
+		Butterfish: &ButterfishCtx{Config: &ButterfishConfig{}},
+		GoalMode:   true,
+	}
+	_, _, safeCleaned := safeState.ParsePS1(input)
+	if !strings.Contains(safeCleaned, EMOJI_GOAL) {
+		t.Fatalf("expected safe goal icon %q in %q", EMOJI_GOAL, safeCleaned)
+	}
+
+	unsafeState := &ShellState{
+		Butterfish:     &ButterfishCtx{Config: &ButterfishConfig{}},
+		GoalMode:       true,
+		GoalModeUnsafe: true,
+	}
+	_, _, unsafeCleaned := unsafeState.ParsePS1(input)
+	if !strings.Contains(unsafeCleaned, EMOJI_GOAL_UNSAFE) {
+		t.Fatalf("expected unsafe goal icon %q in %q", EMOJI_GOAL_UNSAFE, unsafeCleaned)
 	}
 }

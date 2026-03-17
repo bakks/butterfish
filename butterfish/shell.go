@@ -49,8 +49,8 @@ const PROMPT_SUFFIX = "\033R"
 const PROMPT_PREFIX_ESCAPED = "\\033Q"
 const PROMPT_SUFFIX_ESCAPED = "\\033R"
 const EMOJI_DEFAULT = "🐠"
-const EMOJI_GOAL = "🟦"
-const EMOJI_GOAL_UNSAFE = "⚡"
+const EMOJI_GOAL = "🐡"
+const EMOJI_GOAL_UNSAFE = "🦈"
 
 var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
 var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
