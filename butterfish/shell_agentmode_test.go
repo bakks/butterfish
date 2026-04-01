@@ -124,3 +124,71 @@ func TestGetAgentModeSystemPromptPrefersCustomizedLegacyPrompt(t *testing.T) {
 		t.Fatalf("expected legacy prompt to be used, got %q", got)
 	}
 }
+
+func TestAgentModeFinishSuccessExitsSilently(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		ActiveFunction:          "finish",
+		ActiveFunctionCallID:    "call_1",
+	}
+
+	resp := &util.CompletionResponse{
+		FunctionName:       "finish",
+		FunctionParameters: `{"success":true}`,
+	}
+
+	state.AgentModeFunction(resp)
+
+	if state.SpecialMode {
+		t.Fatal("expected agent mode to exit on successful finish")
+	}
+	if got := promptOut.String(); got != "" {
+		t.Fatalf("expected no success exit message, got %q", got)
+	}
+	if len(state.History.Blocks) != 1 {
+		t.Fatalf("expected one history block, got %d", len(state.History.Blocks))
+	}
+	block := state.History.Blocks[0]
+	if block.Type != historyTypeFunctionOutput {
+		t.Fatalf("expected function output history, got %d", block.Type)
+	}
+	if block.FunctionName != "finish" || block.ToolCallID != "call_1" {
+		t.Fatalf("unexpected history block: %#v", block)
+	}
+}
+
+func TestAgentModeFinishFailurePrintsExitMessage(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		ActiveFunction:          "finish",
+		ActiveFunctionCallID:    "call_1",
+	}
+
+	resp := &util.CompletionResponse{
+		FunctionName:       "finish",
+		FunctionParameters: `{"success":false}`,
+	}
+
+	state.AgentModeFunction(resp)
+
+	if state.SpecialMode {
+		t.Fatal("expected agent mode to exit on failed finish")
+	}
+	if !strings.Contains(promptOut.String(), "Exited agent mode with FAILURE.") {
+		t.Fatalf("expected failure exit message, got %q", promptOut.String())
+	}
+}

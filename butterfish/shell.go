@@ -2040,12 +2040,9 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 		}
 		this.History.AppendFunctionOutputAllowEmpty(output.FunctionName, this.ActiveFunctionCallID)
 
-		result := "SUCCESS"
 		if !success {
-			result = "FAILURE"
+			fmt.Fprintf(this.PromptAgentAnswerWriter, "\n%sExited agent mode with FAILURE.%s\n", this.Color.Answer, this.Color.Command)
 		}
-
-		fmt.Fprintf(this.PromptAgentAnswerWriter, "\n%sExited agent mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
 		this.clearSpecialMode()
 
 	case "":
