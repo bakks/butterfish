@@ -1,14 +1,16 @@
 package prompt
 
 const (
-	PromptFixCommand           = "fix_command"
-	PromptGenerateCommand      = "generate_command"
-	PromptSystemMessage        = "prompt_system_message"
-	ShellAutosuggestCommand    = "shell_autocomplete_command"
-	ShellAutosuggestNewCommand = "shell_autocomplete_new_command"
-	ShellAutosuggestPrompt     = "shell_autocomplete_prompt"
-	ShellSystemMessage         = "shell_system_message"
-	GoalModeSystemMessage      = "goal_mode_system_message"
+	PromptFixCommand             = "fix_command"
+	PromptGenerateCommand        = "generate_command"
+	PromptSystemMessage          = "prompt_system_message"
+	ShellAutosuggestCommand      = "shell_autocomplete_command"
+	ShellAutosuggestNewCommand   = "shell_autocomplete_new_command"
+	ShellAutosuggestPrompt       = "shell_autocomplete_prompt"
+	ShellSystemMessage           = "shell_system_message"
+	ActionModeSystemMessage      = "action_mode_system_message"
+	AgentModeSystemMessage       = "agent_mode_system_message"
+	LegacyAgentModeSystemMessage = "goal_mode_system_message"
 )
 
 // These are the default prompts used for Butterfish, they will be written
@@ -30,8 +32,22 @@ var DefaultPrompts []Prompt = []Prompt{
 	},
 
 	{
-		Name:        GoalModeSystemMessage,
+		Name:        AgentModeSystemMessage,
 		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. Use the shell tool to run commands (or call the command function if the shell tool is unavailable). Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then ask me questions. You must verify that the goal is achieved. You must call one of the functions in your response but state your reasoning before calling the function. Here is system info about the local machine: '{sysinfo}'",
+		OkToReplace: true,
+	},
+
+	// Legacy alias to preserve existing prompt customizations written before
+	// the mode rename.
+	{
+		Name:        LegacyAgentModeSystemMessage,
+		Prompt:      "You are an agent helping me achieve the following goal: '{goal}'. You will execute unix commands to achieve the goal. Use the shell tool to run commands (or call the command function if the shell tool is unavailable). Only run one command at a time. I will give you the results of the command. If the command fails, try to edit it or try another command to do the same thing. If we haven't reached our goal, you will then continue execute commands. If there is significant ambiguity then ask me questions. You must verify that the goal is achieved. You must call one of the functions in your response but state your reasoning before calling the function. Here is system info about the local machine: '{sysinfo}'",
+		OkToReplace: true,
+	},
+
+	{
+		Name:        ActionModeSystemMessage,
+		Prompt:      "You are helping with a Unix shell request that should be handled with exactly one shell command: '{goal}'. You will also receive recent shell history, including prior user prompts, shell commands, outputs, exit codes, and prior Action Mode or Agent Mode interactions. Use that history to resolve references such as 'try again', 'the opposite', 'same as before', 'that file', or 'retry', and base your command on what actually happened in the history. Decide whether a single command is appropriate. If it is, call the command function with exactly one shell command string and no surrounding explanation. Do not use placeholders, do not ask follow-up questions, and do not propose multiple commands. If a single shell command is not a good fit because the request is ambiguous, unsafe, impossible, or would require multiple steps, call the decline function with a brief reason. You must call exactly one function in every response. Here is system info about the local machine: '{sysinfo}'",
 		OkToReplace: true,
 	},
 
@@ -117,4 +133,13 @@ predicted question:
 
 Shell command:`,
 	},
+}
+
+func DefaultPromptByName(name string) (Prompt, bool) {
+	for _, prompt := range DefaultPrompts {
+		if prompt.Name == name {
+			return prompt, true
+		}
+	}
+	return Prompt{}, false
 }

@@ -1,4 +1,4 @@
-Output gif/goal.gif
+Output gif/agent.gif
 
 Set CursorBlink false
 Require butterfish
@@ -28,4 +28,3 @@ Type "!!Show the largest files in this dir, recursively, not directories themsel
 Sleep 1s
 Enter
 Sleep 45s
-

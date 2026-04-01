@@ -49,34 +49,38 @@ const PROMPT_SUFFIX = "\033R"
 const PROMPT_PREFIX_ESCAPED = "\\033Q"
 const PROMPT_SUFFIX_ESCAPED = "\\033R"
 const EMOJI_DEFAULT = "🐠"
-const EMOJI_GOAL = "🐡"
-const EMOJI_GOAL_UNSAFE = "🦈"
+const EMOJI_AGENT = "🐡"
+const EMOJI_AGENT_UNSAFE = "🦈"
 
 var ps1Regex = regexp.MustCompile(" ([0-9]+)" + PROMPT_SUFFIX)
 var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFIX)
 
 var DarkShellColorScheme = &ShellColorScheme{
-	Prompt:           "\x1b[38;5;154m",
-	PromptGoal:       "\x1b[38;5;200m",
-	PromptGoalUnsafe: "\x1b[38;5;9m",
-	Command:          "\x1b[0m",
-	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;221m", // yellow
-	AnswerHighlight:  "\x1b[38;5;204m", // orange
-	GoalMode:         "\x1b[38;5;51m",
-	Error:            "\x1b[38;5;196m",
+	Prompt:            "\x1b[38;5;154m",
+	PromptAction:      "\x1b[38;5;81m",
+	PromptAgent:       "\x1b[38;5;200m",
+	PromptAgentUnsafe: "\x1b[38;5;9m",
+	Command:           "\x1b[0m",
+	Autosuggest:       "\x1b[38;5;241m",
+	Answer:            "\x1b[38;5;221m", // yellow
+	AnswerHighlight:   "\x1b[38;5;204m", // orange
+	ActionMode:        "\x1b[38;5;81m",
+	AgentMode:         "\x1b[38;5;51m",
+	Error:             "\x1b[38;5;196m",
 }
 
 var LightShellColorScheme = &ShellColorScheme{
-	Prompt:           "\x1b[38;5;28m",
-	PromptGoal:       "\x1b[38;5;200m",
-	PromptGoalUnsafe: "\x1b[38;5;9m",
-	Command:          "\x1b[0m",
-	Autosuggest:      "\x1b[38;5;241m",
-	Answer:           "\x1b[38;5;18m", // Dark blue
-	AnswerHighlight:  "\x1b[38;5;6m",
-	GoalMode:         "\x1b[38;5;18m",
-	Error:            "\x1b[38;5;196m",
+	Prompt:            "\x1b[38;5;28m",
+	PromptAction:      "\x1b[38;5;25m",
+	PromptAgent:       "\x1b[38;5;200m",
+	PromptAgentUnsafe: "\x1b[38;5;9m",
+	Command:           "\x1b[0m",
+	Autosuggest:       "\x1b[38;5;241m",
+	Answer:            "\x1b[38;5;18m", // Dark blue
+	AnswerHighlight:   "\x1b[38;5;6m",
+	ActionMode:        "\x1b[38;5;25m",
+	AgentMode:         "\x1b[38;5;18m",
+	Error:             "\x1b[38;5;196m",
 }
 
 func RunShell(ctx context.Context, config *ButterfishConfig) error {
@@ -440,16 +444,26 @@ type AutosuggestResult struct {
 	Suggestion string
 }
 
+type specialModeType int
+
+const (
+	specialModeNone specialModeType = iota
+	specialModeAgent
+	specialModeAction
+)
+
 type ShellColorScheme struct {
-	Prompt           string
-	PromptGoal       string
-	PromptGoalUnsafe string
-	Error            string
-	Command          string
-	Autosuggest      string
-	Answer           string
-	AnswerHighlight  string
-	GoalMode         string
+	Prompt            string
+	PromptAction      string
+	PromptAgent       string
+	PromptAgentUnsafe string
+	Error             string
+	Command           string
+	Autosuggest       string
+	Answer            string
+	AnswerHighlight   string
+	ActionMode        string
+	AgentMode         string
 }
 
 type ShellState struct {
@@ -464,10 +478,11 @@ type ShellState struct {
 
 	// The current state of the shell
 	State                      int
-	GoalMode                   bool
-	GoalModeBuffer             string
-	GoalModeGoal               string
-	GoalModeUnsafe             bool
+	SpecialMode                bool
+	SpecialModeType            specialModeType
+	SpecialModeBuffer          string
+	SpecialModeGoal            string
+	SpecialModeUnsafe          bool
 	ActiveFunction             string
 	ActiveFunctionCallID       string
 	ActiveShellMaxOutputLength int64
@@ -480,7 +495,8 @@ type ShellState struct {
 	AutosuggestChan            chan *AutosuggestResult
 	History                    *ShellHistory
 	PromptAnswerWriter         io.Writer
-	PromptGoalAnswerWriter     io.Writer
+	PromptActionAnswerWriter   io.Writer
+	PromptAgentAnswerWriter    io.Writer
 	StyleWriter                *util.StyleCodeblocksWriter
 	Prompt                     *ShellBuffer
 	PromptResponseCancel       context.CancelFunc
@@ -520,6 +536,80 @@ func (this *ShellState) setState(state int) {
 	}
 
 	this.State = state
+}
+
+func (this *ShellState) isAgentMode() bool {
+	return this.SpecialMode && this.SpecialModeType == specialModeAgent
+}
+
+func (this *ShellState) isActionMode() bool {
+	return this.SpecialMode && this.SpecialModeType == specialModeAction
+}
+
+func (this *ShellState) specialModeName() string {
+	if this.isActionMode() {
+		return "Action mode"
+	}
+	return "Agent mode"
+}
+
+func (this *ShellState) specialModeNameLower() string {
+	if this.isActionMode() {
+		return "action mode"
+	}
+	return "agent mode"
+}
+
+func (this *ShellState) specialModeColor() string {
+	if this.isActionMode() {
+		return this.Color.ActionMode
+	}
+	return this.Color.AgentMode
+}
+
+func (this *ShellState) specialModeAnswerWriter() io.Writer {
+	if this.isActionMode() && this.PromptActionAnswerWriter != nil {
+		return this.PromptActionAnswerWriter
+	}
+	return this.PromptAgentAnswerWriter
+}
+
+func (this *ShellState) clearSpecialMode() {
+	this.SpecialMode = false
+	this.SpecialModeType = specialModeNone
+	this.SpecialModeUnsafe = false
+	this.SpecialModeGoal = ""
+	this.SpecialModeBuffer = ""
+	this.ActiveFunction = ""
+	this.ActiveFunctionCallID = ""
+	this.ActiveShellMaxOutputLength = 0
+	this.PromptSuffixCounter = 0
+}
+
+func (this *ShellState) shouldClearCompletedFunctionLine() bool {
+	return !(this.isActionMode() && this.ActiveFunction == "command")
+}
+
+func (this *ShellState) promptColorForString(prompt string) string {
+	switch {
+	case strings.HasPrefix(prompt, "@@"):
+		return this.Color.PromptAgentUnsafe
+	case strings.HasPrefix(prompt, "!!"):
+		return this.Color.PromptAgentUnsafe
+	case strings.HasPrefix(prompt, "!"):
+		return this.Color.PromptAgent
+	case strings.HasPrefix(prompt, "@"):
+		return this.Color.PromptAction
+	default:
+		return this.Color.Prompt
+	}
+}
+
+func (this *ShellState) currentPromptColor() string {
+	if this.Prompt == nil {
+		return this.Color.Prompt
+	}
+	return this.promptColorForString(this.Prompt.String())
 }
 
 // Cache the expensive child-process scan for a short interval so typing in
@@ -787,11 +877,13 @@ func (this *ShellState) ParsePS1(data string) (int, int, string) {
 
 	currIcon := ""
 	if !this.Butterfish.Config.ShellLeavePromptAlone {
-		if this.GoalMode {
-			if this.GoalModeUnsafe {
-				currIcon = EMOJI_GOAL_UNSAFE
+		if this.SpecialMode {
+			if this.isActionMode() {
+				currIcon = EMOJI_DEFAULT
+			} else if this.SpecialModeUnsafe {
+				currIcon = EMOJI_AGENT_UNSAFE
 			} else {
-				currIcon = EMOJI_GOAL
+				currIcon = EMOJI_AGENT
 			}
 		} else {
 			currIcon = EMOJI_DEFAULT
@@ -882,10 +974,16 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		colorScheme.Answer,
 		colorScheme.AnswerHighlight,
 		codeblocksColorScheme)
-	styleCodeblocksWriterGoal := util.NewStyleCodeblocksWriter(
+	styleCodeblocksWriterAgent := util.NewStyleCodeblocksWriter(
 		carriageReturnWriter,
 		termWidth,
-		colorScheme.GoalMode,
+		colorScheme.AgentMode,
+		colorScheme.AnswerHighlight,
+		codeblocksColorScheme)
+	styleCodeblocksWriterAction := util.NewStyleCodeblocksWriter(
+		carriageReturnWriter,
+		termWidth,
+		colorScheme.ActionMode,
 		colorScheme.AnswerHighlight,
 		codeblocksColorScheme)
 
@@ -913,7 +1011,8 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		History:                      NewShellHistory(),
 		PromptOutputChan:             make(chan *util.CompletionResponse),
 		PromptAnswerWriter:           styleCodeblocksWriter,
-		PromptGoalAnswerWriter:       styleCodeblocksWriterGoal,
+		PromptActionAnswerWriter:     styleCodeblocksWriterAction,
+		PromptAgentAnswerWriter:      styleCodeblocksWriterAgent,
 		StyleWriter:                  styleCodeblocksWriter,
 		Command:                      NewShellBuffer(),
 		Prompt:                       NewShellBuffer(),
@@ -1031,6 +1130,16 @@ func parseFinishParams(params string) (bool, error) {
 	return finishParams.Success, err
 }
 
+type DeclineParams struct {
+	Reason string `json:"reason"`
+}
+
+func parseDeclineParams(params string) (string, error) {
+	var declineParams DeclineParams
+	err := json.Unmarshal([]byte(params), &declineParams)
+	return declineParams.Reason, err
+}
+
 // TODO add a diagram of streams here
 func (this *ShellState) Mux() {
 	log.Printf("Started shell mux")
@@ -1128,7 +1237,7 @@ func (this *ShellState) Mux() {
 			// Get a new prompt
 			this.writeChild([]byte("\n"))
 
-			if this.GoalMode {
+			if this.SpecialMode {
 				this.ActiveFunction = output.FunctionName
 				if len(output.ToolCalls) > 0 {
 					this.ActiveFunctionCallID = output.ToolCalls[0].Id
@@ -1139,8 +1248,12 @@ func (this *ShellState) Mux() {
 				} else {
 					this.ActiveFunctionCallID = ""
 				}
-				this.GoalModeFunction(output)
-				if this.GoalMode {
+				if this.isActionMode() {
+					this.ActionModeFunction(output)
+				} else {
+					this.AgentModeFunction(output)
+				}
+				if this.SpecialMode {
 					continue
 				}
 			}
@@ -1162,7 +1275,7 @@ func (this *ShellState) Mux() {
 
 			// When an interactive child (e.g. neovim) is active, bypass costly prompt
 			// parsing/history updates and forward bytes directly.
-			if this.State == stateNormal && !this.GoalMode && this.ActiveFunction == "" {
+			if this.State == stateNormal && !this.SpecialMode && this.ActiveFunction == "" {
 				hasPromptMarkers := bytes.Contains(childOutMsg.Data, []byte(PROMPT_PREFIX)) ||
 					bytes.Contains(childOutMsg.Data, []byte(PROMPT_SUFFIX))
 				runningChildren := this.hasRunningChildrenCached(false)
@@ -1186,7 +1299,7 @@ func (this *ShellState) Mux() {
 			lastStatus, prompts, childOutStr := this.ParsePS1(string(childOutMsg.Data))
 			this.PromptSuffixCounter += prompts
 
-			if prompts > 0 && this.State == stateNormal && !this.GoalMode {
+			if prompts > 0 && this.State == stateNormal && !this.SpecialMode {
 				// Prompt observed means child command is done.
 				this.RunningChildren = false
 				this.RunningChildrenLastCheck = time.Now()
@@ -1202,16 +1315,16 @@ func (this *ShellState) Mux() {
 
 			// If we're actively printing a response we buffer child output
 			if this.State == statePromptResponse {
-				// In goal mode we throw it away
-				if !this.GoalMode {
+				// In a special mode we throw child output away while waiting for the model.
+				if !this.SpecialMode {
 					childOutBuffer = append(childOutBuffer, childOutStr...)
 				}
 				continue
 			}
 
 			endOfFunctionCall := false
-			if this.GoalMode {
-				this.GoalModeBuffer += childOutStr
+			if this.SpecialMode {
+				this.SpecialModeBuffer += childOutStr
 				if this.PromptSuffixCounter >= 2 {
 					// this means that since starting to collect command function call
 					// output, we've seen two prompts, which means the function call
@@ -1228,7 +1341,11 @@ func (this *ShellState) Mux() {
 			// completion, or something unknown, so we don't want to add to history.
 			if this.State != stateShell && !this.FilterChildOut(string(childOutMsg.Data)) {
 				if this.ActiveFunction != "" {
-					this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, childOutStr)
+					if this.isActionMode() && this.ActiveFunction == "command" {
+						this.History.Append(historyTypeShellOutput, childOutStr)
+					} else {
+						this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, childOutStr)
+					}
 				} else {
 					this.History.Append(historyTypeShellOutput, childOutStr)
 				}
@@ -1256,21 +1373,28 @@ func (this *ShellState) Mux() {
 			this.ParentOut.Write([]byte(childOutStr))
 
 			if endOfFunctionCall {
-				// move cursor to the beginning of the line and clear the line
-				fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
+				if this.shouldClearCompletedFunctionLine() {
+					// Move cursor to the beginning of the line and clear the line
+					// before continuing the agent loop.
+					fmt.Fprintf(this.ParentOut, "\r%s", ESC_CLEAR)
+				}
 				var status string
 				if this.ActiveFunction == "command" {
-					status = fmt.Sprintf("Exit Code: %d\n", lastStatus)
-					this.GoalModeFunctionResponse(status)
+					if this.isActionMode() {
+						this.ActionModeCommandComplete(lastStatus)
+					} else {
+						status = fmt.Sprintf("Exit Code: %d\n", lastStatus)
+						this.AgentModeFunctionResponse(status)
+					}
 				} else if this.ActiveFunction == "shell" {
-					this.GoalModeShellCallResponse(lastStatus)
+					this.AgentModeShellCallResponse(lastStatus)
 				} else {
-					this.GoalModeFunctionResponse(status)
+					this.AgentModeFunctionResponse(status)
 				}
 				this.ActiveFunction = ""
 				this.ActiveFunctionCallID = ""
 				this.ActiveShellMaxOutputLength = 0
-				this.GoalModeBuffer = ""
+				this.SpecialModeBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
 
@@ -1340,7 +1464,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			log.Printf("Canceling prompt response")
 			this.PromptResponseCancel()
 			this.PromptResponseCancel = nil
-			this.GoalMode = false
+			this.clearSpecialMode()
 			this.setState(stateNormal)
 			if data[0] == 0x03 {
 				return data[1:]
@@ -1363,10 +1487,10 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 		first := data[:1]
 
 		if data[0] == 0x03 {
-			if this.GoalMode {
-				// Ctrl-C while in goal mode
-				fmt.Fprintf(this.PromptGoalAnswerWriter, "\n%sExited goal mode.%s\n", this.Color.Answer, this.Color.Command)
-				this.GoalMode = false
+			if this.SpecialMode {
+				fmt.Fprintf(this.specialModeAnswerWriter(), "\n%sExited %s.%s\n",
+					this.Color.Answer, this.specialModeNameLower(), this.Color.Command)
+				this.clearSpecialMode()
 			}
 
 			if this.Command != nil {
@@ -1381,8 +1505,8 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			return data[1:]
 		}
 
-		// Check if the first character is uppercase or a bang
-		if unicode.IsUpper(rune(data[0])) || data[0] == '!' {
+		// Check if the first character is uppercase or a special prompt prefix.
+		if unicode.IsUpper(rune(data[0])) || data[0] == '!' || data[0] == '@' {
 			this.setState(statePrompting)
 			this.ClearAutosuggest(this.Color.Command)
 			this.Prompt.Clear()
@@ -1391,7 +1515,9 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			// Write the actual prompt start
 			color := this.Color.Prompt
 			if data[0] == '!' {
-				color = this.Color.PromptGoal
+				color = this.Color.PromptAgent
+			} else if data[0] == '@' {
+				color = this.Color.PromptAction
 			}
 			this.Prompt.SetColor(color)
 			fmt.Fprintf(this.ParentOut, "%s%s", color, first)
@@ -1466,9 +1592,11 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			}
 
 			if promptStr[0] == '!' {
-				this.GoalModeStart()
-			} else if this.GoalMode {
-				this.GoalModeChat()
+				this.AgentModeStart()
+			} else if promptStr[0] == '@' {
+				this.ActionModeStart()
+			} else if this.isAgentMode() {
+				this.AgentModeChat()
 			} else {
 				this.SendPrompt()
 			}
@@ -1476,15 +1604,22 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 
 		} else if data[0] == '!' && this.Prompt.String() == "!" {
 			// If the user is prefixing the prompt with two bangs then they may
-			// be entering unsafe goal mode, color the prompt accordingly
-			this.Prompt.SetColor(this.Color.PromptGoalUnsafe)
+			// be entering unsafe agent mode, color the prompt accordingly.
+			this.Prompt.SetColor(this.Color.PromptAgentUnsafe)
+			toPrint := this.Prompt.Write(string(data))
+			this.ParentOut.Write(toPrint)
+
+		} else if data[0] == '@' && this.Prompt.String() == "@" {
+			// If the user is prefixing the prompt with two at-signs then they may
+			// be entering auto-executing action mode, color the prompt accordingly.
+			this.Prompt.SetColor(this.Color.PromptAgentUnsafe)
 			toPrint := this.Prompt.Write(string(data))
 			this.ParentOut.Write(toPrint)
 
 		} else if data[0] == '\t' { // user is asking to fill in an autosuggest
 			// Tab was pressed, fill in lastAutosuggest
 			if this.LastAutosuggest != "" {
-				this.RealizeAutosuggest(this.Prompt, false, this.Color.Prompt)
+				this.RealizeAutosuggest(this.Prompt, false, this.currentPromptColor())
 			} else {
 				// no last autosuggest found, just forward the tab
 				this.ParentOut.Write(data)
@@ -1506,7 +1641,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 
 		} else { // otherwise user is typing a prompt
 			toPrint := this.Prompt.Write(string(data))
-			this.RefreshAutosuggest(data, this.Prompt, this.Color.Prompt)
+			this.RefreshAutosuggest(data, this.Prompt, this.currentPromptColor())
 			this.ParentOut.Write(toPrint)
 
 			if this.Prompt.Size() == 0 {
@@ -1539,6 +1674,11 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 			return data[index+1:]
 
 		} else if data[0] == 0x03 { // Ctrl-C
+			if this.SpecialMode {
+				fmt.Fprintf(this.specialModeAnswerWriter(), "\n%sExited %s.%s\n",
+					this.Color.Answer, this.specialModeNameLower(), this.Color.Command)
+				this.clearSpecialMode()
+			}
 			this.Command.Clear()
 			this.setState(stateNormal)
 			this.writeChild([]byte{data[0]})
@@ -1579,7 +1719,7 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 
 // We want to queue up the prompt response, which does the processing (except
 // for actually printing it). The processing like adding to history or
-// executing the next step in goal mode. We have to do this in a goroutine
+// executing the next step in a special mode. We have to do this in a goroutine
 // because otherwise we would block the main thread.
 func (this *ShellState) SendPromptResponse(data string) {
 	go func() {
@@ -1590,8 +1730,12 @@ func (this *ShellState) SendPromptResponse(data string) {
 func (this *ShellState) PrintStatus() {
 	text := fmt.Sprintf("You're using Butterfish Shell\n%s\n\n", this.Butterfish.Config.BuildInfo)
 
-	if this.GoalMode {
-		text += fmt.Sprintf("You're in Goal mode, the goal you've given to the agent is:\n%s\n\n", this.GoalModeGoal)
+	if this.SpecialMode {
+		if this.isActionMode() {
+			text += fmt.Sprintf("You're in Action mode, the request you've given Butterfish is:\n%s\n\n", this.SpecialModeGoal)
+		} else {
+			text += fmt.Sprintf("You're in Agent mode, the goal you've given to the agent is:\n%s\n\n", this.SpecialModeGoal)
+		}
 	}
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
@@ -1613,11 +1757,17 @@ func (this *ShellState) PrintHelp() {
 		- Start with a capital letter to ask Butterfish a question (for example: "How do I find .py files?").
 		- Press tab to accept autosuggested command completions.
 
-	Goal mode:
-		- Start goal mode with a leading bang, for example: "!clean up this repo and run tests".
-		- Use "!!" for unsafe goal mode if you want the agent to skip safety confirmations.
-		- While in goal mode, keep chatting with capitalized prompts to guide the agent.
-		- Press Ctrl-C to exit goal mode at any time.
+	Agent mode:
+		- Start agent mode with a leading bang, for example: "!clean up this repo and run tests".
+		- Use "!!" for unsafe agent mode if you want the agent to skip safety confirmations.
+		- While in agent mode, keep chatting with capitalized prompts to guide the agent.
+		- Press Ctrl-C to exit agent mode at any time.
+
+	Action mode:
+		- Start Action mode with a leading at-sign, for example: "@show the largest files here".
+		- Butterfish will attempt exactly one shell command, or decline if a single command is not a good fit.
+		- Use "@@" to execute the generated command immediately.
+		- After the command finishes, Action mode exits automatically.
 
 	Useful local commands:
 		- "Help" shows this message.
@@ -1636,7 +1786,7 @@ func (this *ShellState) PrintHistory() {
 
 	for _, block := range historyBlocks {
 		// block header
-		strBuilder.WriteString(fmt.Sprintf("%s%s\n", this.Color.GoalMode, HistoryTypeToString(block.Type)))
+		strBuilder.WriteString(fmt.Sprintf("%s%s\n", this.Color.AgentMode, HistoryTypeToString(block.Type)))
 		blockColor := this.Color.Command
 		switch block.Type {
 		case historyTypePrompt:
@@ -1644,7 +1794,7 @@ func (this *ShellState) PrintHistory() {
 		case historyTypeLLMOutput:
 			blockColor = this.Color.Answer
 		case historyTypeShellInput:
-			blockColor = this.Color.PromptGoal
+			blockColor = this.Color.PromptAgent
 		}
 
 		strBuilder.WriteString(fmt.Sprintf("%s%s\n", blockColor, block.Content))
@@ -1655,7 +1805,7 @@ func (this *ShellState) PrintHistory() {
 	this.SendPromptResponse("")
 }
 
-func (this *ShellState) GoalModeStart() {
+func (this *ShellState) AgentModeStart() {
 	// Get the prompt after the bang
 	goal := this.Prompt.String()[1:]
 	if goal == "" {
@@ -1665,43 +1815,101 @@ func (this *ShellState) GoalModeStart() {
 	// If the prompt is preceded with two bangs then go to unsafe mode
 	if goal[0] == '!' {
 		goal = goal[1:]
-		this.GoalModeUnsafe = true
+		this.SpecialModeUnsafe = true
 	} else {
-		this.GoalModeUnsafe = false
+		this.SpecialModeUnsafe = false
 	}
 
-	this.GoalMode = true
-	fmt.Fprintf(this.PromptGoalAnswerWriter, "%sGoal mode starting...%s\n", this.Color.Answer, this.Color.Command)
-	this.GoalModeGoal = goal
+	this.SpecialMode = true
+	this.SpecialModeType = specialModeAgent
+	this.SpecialModeGoal = goal
 	this.Prompt.Clear()
 
 	prompt := "Start now."
-	log.Printf("Starting goal mode: %s", this.GoalModeGoal)
-	this.goalModePrompt(prompt)
+	log.Printf("Starting agent mode: %s", this.SpecialModeGoal)
+	this.agentModePrompt(prompt)
 }
 
-func (this *ShellState) GoalModeChat() {
+func (this *ShellState) ActionModeStart() {
+	rawPrompt := this.Prompt.String()
+	request := rawPrompt[1:]
+	if request == "" {
+		return
+	}
+
+	if request[0] == '@' {
+		request = request[1:]
+		this.SpecialModeUnsafe = true
+	} else {
+		this.SpecialModeUnsafe = false
+	}
+
+	this.SpecialMode = true
+	this.SpecialModeType = specialModeAction
+	this.SpecialModeGoal = request
+	this.Prompt.Clear()
+
+	log.Printf("Starting action mode: %s", this.SpecialModeGoal)
+	this.actionModePrompt("Start now.")
+	this.History.Append(historyTypePrompt, rawPrompt)
+}
+
+func (this *ShellState) AgentModeChat() {
 	prompt := this.Prompt.String()
 	this.Prompt.Clear()
 
-	log.Printf("Goal mode chat: %s\n", prompt)
-	this.goalModePrompt(prompt)
+	log.Printf("Agent mode chat: %s\n", prompt)
+	this.agentModePrompt(prompt)
 }
 
-func (this *ShellState) GoalModeFunctionResponse(output string) {
-	log.Printf("Goal mode response: %s\n", output)
+func (this *ShellState) AgentModeFunctionResponse(output string) {
+	log.Printf("Agent mode response: %s\n", output)
 	if output != "" {
 		this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, output)
 	}
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
-	this.goalModePrompt("")
+	this.agentModePrompt("")
 }
 
-func (this *ShellState) GoalModeShellCallResponse(exitStatus int) {
-	output := strings.TrimSpace(this.GoalModeBuffer)
+func (this *ShellState) ActionModeFunctionResponse(output string) {
+	log.Printf("Action mode response: %s\n", output)
+	if output != "" {
+		this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, output)
+	}
+	this.ActiveFunction = ""
+	this.ActiveFunctionCallID = ""
+	this.actionModePrompt("")
+}
+
+func (this *ShellState) ActionModeCommandHandoff() {
+	if this.ActiveFunction != "command" {
+		return
+	}
+
+	status := "Command staged in the shell for user review. Refer to subsequent shell history for the command that actually ran and its output."
+	if this.SpecialModeUnsafe {
+		status = "Command sent to the shell for immediate execution. Refer to subsequent shell history for the command and its output."
+	}
+	this.History.AppendFunctionOutput(this.ActiveFunction, this.ActiveFunctionCallID, status)
+}
+
+func (this *ShellState) ActionModeCommandComplete(exitStatus int) {
+	status := fmt.Sprintf("Exit Code: %d\n", exitStatus)
+	this.History.Append(historyTypeShellOutput, status)
+	this.clearSpecialMode()
+	if this.Butterfish != nil && this.Butterfish.Config != nil {
+		newAutosuggestDelay := this.Butterfish.Config.ShellNewlineAutosuggestTimeout
+		if newAutosuggestDelay >= 0 {
+			this.RequestAutosuggest(newAutosuggestDelay, "")
+		}
+	}
+}
+
+func (this *ShellState) AgentModeShellCallResponse(exitStatus int) {
+	output := strings.TrimSpace(this.SpecialModeBuffer)
 	stderr := ""
-	// Goal mode captures PTY output as a single stream; if the command failed,
+	// Agent mode captures PTY output as a single stream; if the command failed,
 	// include it as stderr so the model can reason about errors.
 	if exitStatus != 0 {
 		stderr = output
@@ -1725,7 +1933,7 @@ func (this *ShellState) GoalModeShellCallResponse(exitStatus int) {
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
 	this.ActiveShellMaxOutputLength = 0
-	this.goalModePrompt("")
+	this.agentModePrompt("")
 }
 
 func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
@@ -1749,10 +1957,10 @@ func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
 	}
 }
 
-func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
+func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 	if output.Error != "" {
-		fmt.Fprintf(this.PromptGoalAnswerWriter, "%sGoal mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
-		this.GoalMode = false
+		fmt.Fprintf(this.PromptAgentAnswerWriter, "%sAgent mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		this.clearSpecialMode()
 		return
 	}
 	if len(output.ShellCalls) > 0 {
@@ -1766,18 +1974,18 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 		}
 
 		call := output.ShellCalls[0]
-		this.GoalModeBuffer = ""
+		this.SpecialModeBuffer = ""
 		this.PromptSuffixCounter = 0
 		this.setState(stateNormal)
 		if len(call.Commands) == 0 {
-			this.GoalModeShellCallResponse(0)
+			this.AgentModeShellCallResponse(0)
 			return
 		}
 
-		log.Printf("Goal mode shell_call: %v", call.Commands)
+		log.Printf("Agent mode shell_call: %v", call.Commands)
 		command := strings.Join(call.Commands, "\n")
 		fmt.Fprintf(this.ChildIn, "%s", command)
-		if this.GoalModeUnsafe {
+		if this.SpecialModeUnsafe {
 			fmt.Fprintf(this.ChildIn, "\n")
 		}
 		return
@@ -1785,8 +1993,8 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 
 	switch output.FunctionName {
 	case "command":
-		log.Printf("Goal mode command: %s", output.FunctionParameters)
-		this.GoalModeBuffer = ""
+		log.Printf("Agent mode command: %s", output.FunctionParameters)
+		this.SpecialModeBuffer = ""
 		this.PromptSuffixCounter = 0
 		this.setState(stateNormal)
 		cmd, err := parseCommandParams(output.FunctionParameters)
@@ -1794,40 +2002,40 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 			// we failed to parse the command json, send error back to model
 			log.Printf("Error parsing function arguments: %s", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-			this.GoalModeFunctionResponse(modelStr)
+			this.AgentModeFunctionResponse(modelStr)
 			return
 		}
-		log.Printf("Goal mode command: %s", cmd)
+		log.Printf("Agent mode command: %s", cmd)
 		fmt.Fprintf(this.ChildIn, "%s", cmd)
-		if this.GoalModeUnsafe {
+		if this.SpecialModeUnsafe {
 			fmt.Fprintf(this.ChildIn, "\n")
 		}
 
 	case "user_input":
-		log.Printf("Goal mode user_input: %s", output.FunctionParameters)
-		this.GoalModeBuffer = ""
+		log.Printf("Agent mode user_input: %s", output.FunctionParameters)
+		this.SpecialModeBuffer = ""
 		this.PromptSuffixCounter = -999999
 		this.setState(stateNormal)
 		question, err := parseUserInputParams(output.FunctionParameters)
 		if err != nil {
 			log.Printf("Error parsing function arguments: %s", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
-			this.GoalModeFunctionResponse(modelStr)
+			this.AgentModeFunctionResponse(modelStr)
 			return
 		}
 
 		fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s\n", this.Color.Answer, question, this.Color.Command)
 
 	case "finish":
-		log.Printf("Goal mode finishing: %s", output.FunctionParameters)
-		this.GoalModeBuffer = ""
+		log.Printf("Agent mode finishing: %s", output.FunctionParameters)
+		this.SpecialModeBuffer = ""
 		this.setState(stateNormal)
 		success, err := parseFinishParams(output.FunctionParameters)
 		if err != nil {
 			log.Printf("Error parsing function arguments: %s", err)
 			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
 			this.History.AppendFunctionOutput(output.FunctionName, this.ActiveFunctionCallID, modelStr)
-			this.GoalModeFunctionResponse(modelStr)
+			this.AgentModeFunctionResponse(modelStr)
 			return
 		}
 		this.History.AppendFunctionOutputAllowEmpty(output.FunctionName, this.ActiveFunctionCallID)
@@ -1837,24 +2045,91 @@ func (this *ShellState) GoalModeFunction(output *util.CompletionResponse) {
 			result = "FAILURE"
 		}
 
-		fmt.Fprintf(this.PromptGoalAnswerWriter, "\n%sExited goal mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
-		this.GoalMode = false
+		fmt.Fprintf(this.PromptAgentAnswerWriter, "\n%sExited agent mode with %s.%s\n", this.Color.Answer, result, this.Color.Command)
+		this.clearSpecialMode()
 
 	case "":
-		log.Printf("No function called in goal mode")
-		modelStr := fmt.Sprintf("You must call a function in goal mode responses.")
+		log.Printf("No function called in agent mode")
+		modelStr := fmt.Sprintf("You must call a function in agent mode responses.")
 		this.History.Append(historyTypePrompt, modelStr)
-		this.GoalModeFunctionResponse("")
+		this.AgentModeFunctionResponse("")
 
 	default:
-		log.Printf("Invalid function name called in goal mode: %s", output.FunctionName)
+		log.Printf("Invalid function name called in agent mode: %s", output.FunctionName)
 		modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
-		this.GoalModeFunctionResponse(modelStr)
+		this.AgentModeFunctionResponse(modelStr)
 
 	}
 }
 
-var goalModeFunctions = []util.FunctionDefinition{
+func (this *ShellState) ActionModeFunction(output *util.CompletionResponse) {
+	if output.Error != "" {
+		fmt.Fprintf(this.specialModeAnswerWriter(), "%sAction mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		this.clearSpecialMode()
+		return
+	}
+
+	switch output.FunctionName {
+	case "command":
+		log.Printf("Action mode command: %s", output.FunctionParameters)
+		this.SpecialModeBuffer = ""
+		this.PromptSuffixCounter = 0
+		cmd, err := parseCommandParams(output.FunctionParameters)
+		if err != nil {
+			log.Printf("Error parsing function arguments: %s", err)
+			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+			this.ActionModeFunctionResponse(modelStr)
+			return
+		}
+		log.Printf("Action mode command: %s", cmd)
+		this.ActionModeCommandHandoff()
+		if this.SpecialModeUnsafe {
+			this.setState(stateNormal)
+			this.History.Append(historyTypeShellInput, cmd)
+		} else {
+			this.Command = NewShellBuffer()
+			this.Command.SetTerminalWidth(this.TerminalWidth)
+			this.Command.WriteNoRender(cmd)
+			this.setState(stateShell)
+		}
+		fmt.Fprintf(this.ChildIn, "%s", cmd)
+		if this.SpecialModeUnsafe {
+			fmt.Fprintf(this.ChildIn, "\n")
+		}
+
+	case "decline":
+		log.Printf("Action mode decline: %s", output.FunctionParameters)
+		this.SpecialModeBuffer = ""
+		this.setState(stateNormal)
+		reason, err := parseDeclineParams(output.FunctionParameters)
+		if err != nil {
+			log.Printf("Error parsing function arguments: %s", err)
+			modelStr := fmt.Sprintf("Error parsing your json, try again: %s", err)
+			this.ActionModeFunctionResponse(modelStr)
+			return
+		}
+		this.History.AppendFunctionOutputAllowEmpty(output.FunctionName, this.ActiveFunctionCallID)
+		if strings.TrimSpace(reason) == "" {
+			reason = "A single shell command is not a good fit for this request."
+		}
+		fmt.Fprintf(this.specialModeAnswerWriter(), "%s%s%s\n", this.Color.Answer, reason, this.Color.Command)
+		fmt.Fprintf(this.specialModeAnswerWriter(), "%sExited action mode.%s\n", this.Color.Answer, this.Color.Command)
+		this.clearSpecialMode()
+
+	case "":
+		log.Printf("No function called in action mode")
+		modelStr := fmt.Sprintf("You must call either command or decline in action mode responses.")
+		this.History.Append(historyTypePrompt, modelStr)
+		this.ActionModeFunctionResponse("")
+
+	default:
+		log.Printf("Invalid function name called in action mode: %s", output.FunctionName)
+		modelStr := fmt.Sprintf("Invalid function name: %s", output.FunctionName)
+		this.ActionModeFunctionResponse(modelStr)
+	}
+}
+
+var agentModeFunctions = []util.FunctionDefinition{
 	{
 		Name:        "command",
 		Description: "Run a command in the shell to help achieve your goal",
@@ -1889,7 +2164,7 @@ var goalModeFunctions = []util.FunctionDefinition{
 
 	{
 		Name:        "finish",
-		Description: "Finish the goal and exit goal mode, call only if the goal is accomplished or multiple strategies have been attempted and the goal is impossible.",
+		Description: "Finish the goal and exit agent mode, call only if the goal is accomplished or multiple strategies have been attempted and the goal is impossible.",
 		Parameters: map[string]any{
 			"type":                 "object",
 			"additionalProperties": false,
@@ -1904,29 +2179,48 @@ var goalModeFunctions = []util.FunctionDefinition{
 	},
 }
 
-var goalModeFunctionsShellTool = []util.FunctionDefinition{
-	goalModeFunctions[1],
-	goalModeFunctions[2],
+var actionModeFunctions = []util.FunctionDefinition{
+	agentModeFunctions[0],
+	{
+		Name:        "decline",
+		Description: "Decline if a single shell command would not make sense for the request.",
+		Parameters: map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "Why a single shell command is not appropriate for this request",
+				},
+			},
+			"required": []string{"reason"},
+		},
+	},
 }
 
-var goalModeFunctionsStringCache = map[string]string{}
+var agentModeFunctionsShellTool = []util.FunctionDefinition{
+	agentModeFunctions[1],
+	agentModeFunctions[2],
+}
 
-// serialize goal mode functions to json and cache by name list
-func getGoalModeFunctionsString(functions []util.FunctionDefinition) string {
+var modeFunctionsStringCache = map[string]string{}
+
+// Serialize mode functions to json and cache by name list.
+func getModeFunctionsString(functions []util.FunctionDefinition) string {
 	names := make([]string, 0, len(functions))
 	for _, fn := range functions {
 		names = append(names, fn.Name)
 	}
 	key := strings.Join(names, ",")
-	if cached, ok := goalModeFunctionsStringCache[key]; ok {
+	if cached, ok := modeFunctionsStringCache[key]; ok {
 		return cached
 	}
 	bytes, err := json.Marshal(functions)
 	if err != nil {
 		log.Fatal(err)
 	}
-	goalModeFunctionsStringCache[key] = string(bytes)
-	return goalModeFunctionsStringCache[key]
+	modeFunctionsStringCache[key] = string(bytes)
+	return modeFunctionsStringCache[key]
 }
 
 func supportsShellToolModel(model string) bool {
@@ -1944,15 +2238,50 @@ func (this *ShellState) configuredReasoningEffort() string {
 	return effort
 }
 
-func (this *ShellState) goalModePrompt(lastPrompt string) {
+func (this *ShellState) getAgentModeSystemPrompt() (string, error) {
+	args := []string{
+		"goal", this.SpecialModeGoal,
+		"sysinfo", GetSystemInfo(),
+	}
+
+	getPromptText := func(name string) (string, bool) {
+		text, err := this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(name)
+		if err != nil {
+			return "", false
+		}
+		return text, true
+	}
+
+	agentPrompt, hasAgentPrompt := getPromptText(prompt.AgentModeSystemMessage)
+	legacyPrompt, hasLegacyPrompt := getPromptText(prompt.LegacyAgentModeSystemMessage)
+
+	useLegacyPrompt := false
+	if hasAgentPrompt && hasLegacyPrompt {
+		agentDefault, hasAgentDefault := prompt.DefaultPromptByName(prompt.AgentModeSystemMessage)
+		legacyDefault, hasLegacyDefault := prompt.DefaultPromptByName(prompt.LegacyAgentModeSystemMessage)
+		if hasAgentDefault && hasLegacyDefault &&
+			agentPrompt == agentDefault.Prompt &&
+			legacyPrompt != legacyDefault.Prompt {
+			useLegacyPrompt = true
+		}
+	}
+
+	switch {
+	case hasAgentPrompt && !useLegacyPrompt:
+		return this.Butterfish.PromptLibrary.InterpolatePrompt(agentPrompt, args...)
+	case hasLegacyPrompt:
+		return this.Butterfish.PromptLibrary.InterpolatePrompt(legacyPrompt, args...)
+	default:
+		return "", fmt.Errorf("prompt not found: %s", prompt.AgentModeSystemMessage)
+	}
+}
+
+func (this *ShellState) agentModePrompt(lastPrompt string) {
 	this.setState(statePromptResponse)
 	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	this.PromptResponseCancel = cancel
 
-	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(
-		prompt.GoalModeSystemMessage,
-		"goal", this.GoalModeGoal,
-		"sysinfo", GetSystemInfo())
+	sysMsg, err := this.getAgentModeSystemPrompt()
 	if err != nil {
 		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
 		log.Println(msg)
@@ -1961,16 +2290,16 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	}
 
 	useShellTool := supportsShellToolModel(this.Butterfish.Config.ShellPromptModel)
-	functions := goalModeFunctions
+	functions := agentModeFunctions
 	tools := []util.ToolDefinition{}
 	if useShellTool {
-		functions = goalModeFunctionsShellTool
+		functions = agentModeFunctionsShellTool
 		tools = append(tools, util.ToolDefinition{Type: "shell"})
 		sysMsg += "\n\nUse the shell tool to run commands. Use user_input to ask clarifying questions and finish when done."
 	}
 
 	tokensForAnswer := 1024
-	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getGoalModeFunctionsString(functions), tokensForAnswer)
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getModeFunctionsString(functions), tokensForAnswer)
 	if err != nil {
 		this.PrintError(err)
 		return
@@ -1992,8 +2321,48 @@ func (this *ShellState) goalModePrompt(lastPrompt string) {
 	// we run this in a goroutine so that we can still receive input
 	// like Ctrl-C while waiting for the response
 	go CompletionRoutine(request, this.Butterfish.LLMClient,
-		this.PromptGoalAnswerWriter, this.PromptOutputChan,
-		this.Color.GoalMode, this.Color.Error, this.StyleWriter)
+		this.PromptAgentAnswerWriter, this.PromptOutputChan,
+		this.Color.AgentMode, this.Color.Error, this.StyleWriter)
+}
+
+func (this *ShellState) actionModePrompt(lastPrompt string) {
+	this.setState(statePromptResponse)
+	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	this.PromptResponseCancel = cancel
+
+	sysMsg, err := this.Butterfish.PromptLibrary.GetPrompt(
+		prompt.ActionModeSystemMessage,
+		"goal", this.SpecialModeGoal,
+		"sysinfo", GetSystemInfo())
+	if err != nil {
+		msg := fmt.Errorf("ERROR: could not retrieve prompting system message: %s", err)
+		log.Println(msg)
+		this.PrintError(msg)
+		return
+	}
+
+	tokensForAnswer := 512
+	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getModeFunctionsString(actionModeFunctions), tokensForAnswer)
+	if err != nil {
+		this.PrintError(err)
+		return
+	}
+
+	request := &util.CompletionRequest{
+		Ctx:             requestCtx,
+		Prompt:          lastPrompt,
+		Model:           this.Butterfish.Config.ShellPromptModel,
+		MaxTokens:       tokensForAnswer,
+		ReasoningEffort: this.configuredReasoningEffort(),
+		HistoryBlocks:   historyBlocks,
+		SystemMessage:   sysMsg,
+		Functions:       actionModeFunctions,
+		Verbose:         this.Butterfish.Config.Verbose > 0,
+	}
+
+	go CompletionRoutine(request, this.Butterfish.LLMClient,
+		this.specialModeAnswerWriter(), this.PromptOutputChan,
+		this.specialModeColor(), this.Color.Error, this.StyleWriter)
 }
 
 func (this *ShellState) HandleLocalPrompt() bool {
@@ -2485,8 +2854,8 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 	if len(command) == 0 {
 		// command completion when we haven't started a command
 		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestNewCommand)
-	} else if strings.HasPrefix(trimmed, "!") || this.GoalMode {
-		// goal mode prompts should autocomplete like natural language
+	} else if strings.HasPrefix(trimmed, "!") || strings.HasPrefix(trimmed, "@") || this.SpecialMode {
+		// special command modes should autocomplete like natural language
 		suggestPrompt, err = this.Butterfish.PromptLibrary.GetUninterpolatedPrompt(prompt.ShellAutosuggestPrompt)
 	} else if !unicode.IsUpper(rune(command[0])) {
 		// command completion when we have started typing a command

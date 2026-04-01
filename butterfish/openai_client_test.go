@@ -10,6 +10,41 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 )
 
+func TestBuildInputItemsUsesFunctionNameFallbackForFunctionOutput(t *testing.T) {
+	req := &util.CompletionRequest{
+		Model: "gpt-5.4",
+		HistoryBlocks: []util.HistoryBlock{
+			{
+				Type:           historyTypeLLMOutput,
+				FunctionName:   "command",
+				FunctionParams: `{"cmd":"ls -la"}`,
+			},
+			{
+				Type:         historyTypeFunctionOutput,
+				FunctionName: "command",
+				Content:      "Command staged in the shell for user review.",
+			},
+		},
+	}
+
+	items := buildInputItems(req)
+	if len(items) != 2 {
+		t.Fatalf("expected two input items, got %d", len(items))
+	}
+	if items[0].OfFunctionCall == nil {
+		t.Fatalf("expected first item to be function call, got %#v", items[0])
+	}
+	if got := items[0].OfFunctionCall.CallID; got != "command" {
+		t.Fatalf("expected function call id fallback 'command', got %q", got)
+	}
+	if items[1].OfFunctionCallOutput == nil {
+		t.Fatalf("expected second item to be function_call_output, got %#v", items[1])
+	}
+	if got := items[1].OfFunctionCallOutput.CallID; got != "command" {
+		t.Fatalf("expected function output call id fallback 'command', got %q", got)
+	}
+}
+
 func TestRecordShellCallMergePrefersNonEmpty(t *testing.T) {
 	callMap := map[string]*util.ShellCall{}
 	order := []string{}

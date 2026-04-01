@@ -211,14 +211,18 @@ func buildInputItems(request *util.CompletionRequest) responses.ResponseInputPar
 
 	for _, block := range request.HistoryBlocks {
 		if block.Type == historyTypeFunctionOutput {
-			if block.ToolCallId == "" {
+			callID := block.ToolCallId
+			if callID == "" {
+				callID = block.FunctionName
+			}
+			if callID == "" {
 				continue
 			}
-			if !seenFunctionCalls[block.ToolCallId] {
+			if !seenFunctionCalls[callID] {
 				continue
 			}
 			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(
-				block.ToolCallId,
+				callID,
 				block.Content,
 			))
 			continue

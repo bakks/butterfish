@@ -47,8 +47,10 @@ Use:
   - Start a command with a capital letter to send it to GPT, like 'How do I recursively find local .py files?'
   - Autosuggest will print command completions, press tab to fill them in
   - GPT will be able to see your shell history, so you can ask contextual questions like 'why didnt my last command work?'
-	- Start a command with ! to enter Goal Mode, in which GPT will act as an Agent attempting to accomplish your goal by executing commands, for example '!Run make in this directory and debug any problems'.
-	- Start a command with !! to enter Unsafe Goal Mode, in which GPT will execute commands without confirmation. USE WITH CAUTION.
+	- Start a command with ! to enter Agent Mode, in which GPT will act as an agent attempting to accomplish your goal by executing commands, for example '!Run make in this directory and debug any problems'.
+	- Start a command with !! to enter Unsafe Agent Mode, in which GPT will execute commands without confirmation. USE WITH CAUTION.
+	- Start a command with @ to enter Action Mode, in which GPT will attempt exactly one shell command for your request or decline if a single command doesn't make sense.
+	- Start a command with @@ to auto-execute the Action Mode command immediately. USE WITH CAUTION.
 
 Here are special Butterfish commands:
   - Help : Give hints about usage.
@@ -82,7 +84,7 @@ type CliConfig struct {
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
 		Model                     string `short:"m" default:"gpt-5.4" help:"Model for when the user manually enters a prompt."`
-		ReasoningEffort           string `short:"r" default:"medium" help:"Reasoning effort for shell prompting and Goal Mode. Ignored for autosuggest and automatically disabled for models that don't support reasoning."`
+		ReasoningEffort           string `short:"r" default:"medium" help:"Reasoning effort for shell prompting, Agent Mode, and Action Mode. Ignored for autosuggest and automatically disabled for models that don't support reasoning."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
 		AutosuggestModel          string `short:"a" default:"gpt-5.4" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`

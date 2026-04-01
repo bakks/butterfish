@@ -72,7 +72,7 @@ type ButterfishConfig struct {
 	ShellPluginMode         bool
 	ShellBinary             string // path to the shell binary to use, e.g. /bin/zsh
 	ShellPromptModel        string // used when the user enters an explicit prompt
-	ShellReasoningEffort    string // reasoning effort for shell prompts + goal mode
+	ShellReasoningEffort    string // reasoning effort for shell prompts + agent mode
 	ShellLeavePromptAlone   bool   // don't try to edit the shell prompt
 	ShellAutosuggestEnabled bool   // whether to use autosuggest
 	ShellAutosuggestModel   string // used when we're autocompleting a command

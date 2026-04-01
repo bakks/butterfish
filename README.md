@@ -4,9 +4,7 @@ A shell with AI superpowers
 
 [![Website](https://img.shields.io/badge/website-https://butterfi.sh-blue)](https://butterfi.sh) [![GoDoc](https://godoc.org/github.com/bakks/butterfish?status.svg)](https://godoc.org/github.com/bakks/butterfish) [![Latest Version](https://img.shields.io/github/v/release/bakks/butterfish)](https://github.com/bakks/butterfish/releases) [![@pbbakkum](https://img.shields.io/badge/Updates%20at-%20%40pbbakkum-blue?style=flat&logo=twitter)](https://twitter.com/pbbakkum)
 
-#### ** New **
-
-There's now a [Butterfish Neovim plugin](https://github.com/bakks/butterfish.nvim)!
+See also: [Butterfish Neovim plugin](https://github.com/bakks/butterfish.nvim)
 
 ## What is this thing?
 
@@ -23,6 +21,7 @@ Once you run `butterfish shell` you can do the following things from the command
 -   "Give me a command to do x"
 -   "Why did that command fail?"
 -   "!Run make in this directory, debug problems" (this acts as an agent)
+-   "@Show the largest files here" (this attempts exactly one shell command)
 -   Autocomplete shell commands (if the AI 'verbally' suggested a command it will appear)
 -   "Give me a pasta recipe" (this is a ChatGPT interface so it's not just for shell stuff!)
 
@@ -110,11 +109,16 @@ Use:
   - Autosuggest will print command completions, press tab to fill them in
   - GPT will be able to see your shell history, so you can ask contextual
     questions like 'why didnt my last command work?'
-  - Start a command with ! to enter Goal Mode, in which GPT will act as an Agent
+  - Start a command with ! to enter Agent Mode, in which GPT will act as an agent
     attempting to accomplish your goal by executing commands, for example '!Run
     make in this directory and debug any problems'.
-  - Start a command with !! to enter Unsafe Goal Mode, in which GPT will execute
+  - Start a command with !! to enter Unsafe Agent Mode, in which GPT will execute
     commands without confirmation. USE WITH CAUTION.
+  - Start a command with @ to enter Action Mode, in which GPT will attempt
+    exactly one shell command for your request or decline if a single command
+    is not a good fit.
+  - Start a command with @@ to auto-execute the Action Mode command
+    immediately. USE WITH CAUTION.
 
 Here are special Butterfish commands:
   - Help : Give hints about usage.
@@ -139,8 +143,9 @@ Flags:
                                    Model for when the user manually enters a
                                    prompt.
   -r, --reasoning-effort="medium"
-                                   Reasoning effort for shell prompting and Goal
-                                   Mode. Ignored for autosuggest and
+                                   Reasoning effort for shell prompting, Agent
+                                   Mode, and Action Mode. Ignored for
+                                   autosuggest and
                                    automatically disabled for models that don't
                                    support reasoning.
   -A, --autosuggest-disabled       Disable autosuggest.
@@ -167,24 +172,24 @@ Flags:
 
 ```
 
-### Goal Mode
+### Agent Mode
 
 If you're in Shell Mode you can start an agent to accomplish a goal by
-triggering Goal Mode. Start a command with `!`, as in `!Fix that bug`. Goal
+triggering Agent Mode. Start a command with `!`, as in `!Fix that bug`. Agent
 Mode will populate a command in your shell, which you can execute with `Enter`,
 or you can edit the command, or give feedback to the agent by doing a shell
-prompt (by starting a command with a capital letter). Goal Mode will exit
+prompt (by starting a command with a capital letter). Agent Mode will exit
 if it decides the goal is met or impossible, or you can manually exit with
-`Ctrl-C`. For models that support it (for example GPT-5.1+), Goal Mode uses
+`Ctrl-C`. For models that support it (for example GPT-5.1+), Agent Mode uses
 the Responses API shell tool; older models fall back to the structured
 `command` function.
 
-You can trigger Unsafe Goal Mode by starting a command with `!!`, which will
+You can trigger Unsafe Agent Mode by starting a command with `!!`, which will
 execute commands without confirmation, and is thus potentially dangerous.
 
-<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/goal.gif" alt="Butterfish Goal Mode trying multiple strategies to accomplish a goal." width="500px" height="250px" />
+<img src="https://github.com/bakks/butterfish/raw/main/vhs/gif/agent.gif" alt="Butterfish Agent Mode trying multiple strategies to accomplish a goal." width="500px" height="250px" />
 
-#### Goal Mode Examples
+#### Agent Mode Examples
 
 How well does this work? Mileage will vary. Your success rate will be
 higher with simpler goals and more guidance about how to accomplish them.
@@ -210,6 +215,23 @@ Here are some goals that work _sometimes_:
 -   `!Run make in this dir, debug problems`
 -   `!Install python dependencies for this project`
 -   `!Create a list of the top 3 hacker news headlines, including a link. Use the pup command to parse them out of HTML`
+
+### Action Mode
+
+If you're in Shell Mode you can trigger Action Mode with `@`. Action Mode is a
+single-shot version of Agent Mode: Butterfish asks the model for exactly one
+shell command, stages that command in your shell, and exits after that command
+finishes. If a single command does not make sense for the request, the model
+can decline instead of forcing a bad command.
+
+If you use `@@`, Butterfish will execute the generated command immediately
+instead of staging it for review first.
+
+Some requests that fit Action Mode well:
+
+-   `@show the 10 largest files here`
+-   `@find all markdown files modified today`
+-   `@tail the latest app log`
 
 ## Local Models
 
@@ -369,10 +391,10 @@ Commands:
       - Autosuggest will print command completions, press tab to fill them in
       - GPT will be able to see your shell history, so you can ask contextual
         questions like 'why didnt my last command work?'
-      - Start a command with ! to enter Goal Mode, in which GPT will act as
-        an Agent attempting to accomplish your goal by executing commands,
+      - Start a command with ! to enter Agent Mode, in which GPT will act as
+        an agent attempting to accomplish your goal by executing commands,
         for example '!Run make in this directory and debug any problems'.
-      - Start a command with !! to enter Unsafe Goal Mode, in which GPT will
+      - Start a command with !! to enter Unsafe Agent Mode, in which GPT will
         execute commands without confirmation. USE WITH CAUTION.
 
     Here are special Butterfish commands:

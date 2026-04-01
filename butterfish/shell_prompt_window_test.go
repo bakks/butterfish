@@ -44,25 +44,25 @@ func TestSupportsShellToolModel(t *testing.T) {
 	}
 }
 
-func TestParsePS1UsesGoalModeIcons(t *testing.T) {
+func TestParsePS1UsesAgentModeIcons(t *testing.T) {
 	input := "before " + PROMPT_PREFIX + EMOJI_DEFAULT + " 0" + PROMPT_SUFFIX + " after"
 
 	safeState := &ShellState{
-		Butterfish: &ButterfishCtx{Config: &ButterfishConfig{}},
-		GoalMode:   true,
+		Butterfish:  &ButterfishCtx{Config: &ButterfishConfig{}},
+		SpecialMode: true,
 	}
 	_, _, safeCleaned := safeState.ParsePS1(input)
-	if !strings.Contains(safeCleaned, EMOJI_GOAL) {
-		t.Fatalf("expected safe goal icon %q in %q", EMOJI_GOAL, safeCleaned)
+	if !strings.Contains(safeCleaned, EMOJI_AGENT) {
+		t.Fatalf("expected safe agent icon %q in %q", EMOJI_AGENT, safeCleaned)
 	}
 
 	unsafeState := &ShellState{
-		Butterfish:     &ButterfishCtx{Config: &ButterfishConfig{}},
-		GoalMode:       true,
-		GoalModeUnsafe: true,
+		Butterfish:        &ButterfishCtx{Config: &ButterfishConfig{}},
+		SpecialMode:       true,
+		SpecialModeUnsafe: true,
 	}
 	_, _, unsafeCleaned := unsafeState.ParsePS1(input)
-	if !strings.Contains(unsafeCleaned, EMOJI_GOAL_UNSAFE) {
-		t.Fatalf("expected unsafe goal icon %q in %q", EMOJI_GOAL_UNSAFE, unsafeCleaned)
+	if !strings.Contains(unsafeCleaned, EMOJI_AGENT_UNSAFE) {
+		t.Fatalf("expected unsafe agent icon %q in %q", EMOJI_AGENT_UNSAFE, unsafeCleaned)
 	}
 }
