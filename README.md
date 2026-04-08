@@ -8,7 +8,7 @@ See also: [Butterfish Neovim plugin](https://github.com/bakks/butterfish.nvim)
 
 ## What is this thing?
 
-Butterfish is for people who work from the command line, it adds AI prompting to your shell (bash, zsh) with OpenAI. Think Github Copilot for shell.
+Butterfish is for people who work from the command line. It adds AI prompting to your shell (bash, zsh) with OpenAI, and it can also run a low-latency realtime voice session directly in the terminal. Think Github Copilot for shell.
 
 Here's how it works: use your shell as normal, start a command with a capital letter to prompt the AI. The AI sees the shell history, so you can ask contextual questions like "Why did that command fail?".
 
@@ -232,6 +232,32 @@ Some requests that fit Action Mode well:
 -   `@show the 10 largest files here`
 -   `@find all markdown files modified today`
 -   `@tail the latest app log`
+
+## Voice Mode
+
+Butterfish can open a realtime speech-to-speech session in the terminal:
+
+```bash
+butterfish --voice
+```
+
+The current implementation uses OpenAI's Realtime API with `gpt-realtime-1.5`,
+captures microphone audio with `ffmpeg`, and plays assistant audio with
+`ffplay`.
+
+While voice mode is running:
+
+-   Press `p` to pause or resume microphone streaming.
+-   Press `q` to quit the session.
+
+You can change the voice and hotkeys:
+
+```bash
+butterfish --voice --voice-name cedar --voice-pause-key x --voice-quit-key z
+```
+
+If `ffmpeg` needs a different microphone selector, set
+`BUTTERFISH_VOICE_INPUT`. On macOS the default is `:0`.
 
 ## Local Models
 

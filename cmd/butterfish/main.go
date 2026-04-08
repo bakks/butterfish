@@ -28,7 +28,7 @@ var ( // these are filled in at build time
 
 const description = `Do useful things with LLMs from the command line, with a bent towards software engineering.
 
-Butterfish is a command line tool for working with LLMs. It has two modes: CLI command mode, used to prompt LLMs and generate commands, and Shell mode: Wraps your local shell to provide easy prompting and autocomplete.
+Butterfish is a command line tool for working with LLMs. It supports CLI command mode for prompts and command generation, Shell mode for wrapping your local shell, and a realtime voice mode for low-latency speech in the terminal.
 
 Butterfish looks for an API key in OPENAI_API_KEY, or alternatively stores an OpenAI auth token at ~/.config/butterfish/butterfish.env.
 
@@ -74,12 +74,18 @@ func (v *VerboseFlag) BeforeResolve() error {
 // invoked, rather than when we're inside a butterfish console).
 // Kong will parse os.Args based on this struct.
 type CliConfig struct {
-	Verbose      VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
-	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
-	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
-	BaseURL      string           `short:"u" default:"https://api.openai.com/v1/responses" help:"Base URL for OpenAI-compatible API. The default points directly at the Responses endpoint."`
-	TokenTimeout int              `short:"z" default:"30000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
-	LightColor   bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+	Verbose       VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
+	Log           bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
+	Version       kong.VersionFlag `short:"V" help:"Print version information and exit."`
+	BaseURL       string           `short:"u" default:"https://api.openai.com/v1/responses" help:"Base URL for OpenAI-compatible API. The default points directly at the Responses endpoint."`
+	TokenTimeout  int              `short:"z" default:"30000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
+	LightColor    bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+	Voice         bool             `name:"voice" default:"false" help:"Start realtime voice mode in the terminal."`
+	VoiceModel    string           `name:"voice-model" default:"gpt-realtime-1.5" help:"Realtime model to use for voice mode."`
+	VoiceName     string           `name:"voice-name" default:"marin" help:"Voice preset for audio output in voice mode."`
+	VoicePrompt   string           `name:"voice-prompt" default:"You are Butterfish in a terminal voice session. Keep spoken responses concise and practical." help:"Instructions for the voice session."`
+	VoicePauseKey string           `name:"voice-pause-key" default:"p" help:"Single-key hotkey used to pause or resume microphone streaming in voice mode."`
+	VoiceQuitKey  string           `name:"voice-quit-key" default:"q" help:"Single-key hotkey used to exit voice mode."`
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
@@ -98,6 +104,21 @@ type CliConfig struct {
 	// We include the cliConsole options here so that we can parse them and hand them
 	// to the console executor, even though we're in the shell context here
 	bf.CliCommandConfig
+}
+
+type VoiceCliConfig struct {
+	Verbose       VerboseFlag      `short:"v" default:"false" help:"Verbose mode, prints full LLM prompts (sometimes to log file). Use multiple times for more verbosity, e.g. -vv."`
+	Log           bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
+	Version       kong.VersionFlag `short:"V" help:"Print version information and exit."`
+	BaseURL       string           `short:"u" default:"https://api.openai.com/v1/responses" help:"Base URL for OpenAI-compatible API. The default points directly at the Responses endpoint."`
+	TokenTimeout  int              `short:"z" default:"30000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
+	LightColor    bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
+	Voice         bool             `name:"voice" default:"false" help:"Start realtime voice mode in the terminal."`
+	VoiceModel    string           `name:"voice-model" default:"gpt-realtime-1.5" help:"Realtime model to use for voice mode."`
+	VoiceName     string           `name:"voice-name" default:"marin" help:"Voice preset for audio output in voice mode."`
+	VoicePrompt   string           `name:"voice-prompt" default:"You are Butterfish in a terminal voice session. Keep spoken responses concise and practical." help:"Instructions for the voice session."`
+	VoicePauseKey string           `name:"voice-pause-key" default:"p" help:"Single-key hotkey used to pause or resume microphone streaming in voice mode."`
+	VoiceQuitKey  string           `name:"voice-quit-key" default:"q" help:"Single-key hotkey used to exit voice mode."`
 }
 
 func getOpenAIToken() string {
@@ -172,6 +193,37 @@ func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	return config
 }
 
+func makeVoiceButterfishConfig(options *VoiceCliConfig) *bf.ButterfishConfig {
+	config := bf.MakeButterfishConfig()
+	config.OpenAIToken = getOpenAIToken()
+	config.BaseURL = options.BaseURL
+	config.PromptLibraryPath = defaultPromptPath
+	config.TokenTimeout = time.Duration(options.TokenTimeout) * time.Millisecond
+	config.ColorDark = !options.LightColor
+
+	if options.Verbose {
+		config.Verbose = verboseCount
+	}
+
+	config.VoiceMode = true
+	config.VoiceModel = options.VoiceModel
+	config.VoiceVoice = options.VoiceName
+	config.VoiceInstructions = options.VoicePrompt
+	config.VoicePauseKey = options.VoicePauseKey
+	config.VoiceQuitKey = options.VoiceQuitKey
+
+	return config
+}
+
+func wantsVoiceMode(args []string) bool {
+	for _, arg := range args {
+		if arg == "--voice" {
+			return true
+		}
+	}
+	return false
+}
+
 func getBuildInfo() string {
 	buildOs := runtime.GOOS
 	buildArch := runtime.GOARCH
@@ -185,6 +237,35 @@ func main() {
 	// }()
 
 	desc := fmt.Sprintf("%s\n%s", description, getBuildInfo())
+
+	if wantsVoiceMode(os.Args[1:]) {
+		voiceCli := &VoiceCliConfig{}
+		voiceParser, err := kong.New(voiceCli,
+			kong.Name("butterfish"),
+			kong.Description(desc),
+			kong.UsageOnError(),
+			kong.Vars{
+				"version": getBuildInfo(),
+			})
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = voiceParser.Parse(os.Args[1:])
+		voiceParser.FatalIfErrorf(err)
+
+		config := makeVoiceButterfishConfig(voiceCli)
+		config.BuildInfo = getBuildInfo()
+		ctx := context.Background()
+		errorWriter := util.NewStyledWriter(os.Stderr, config.Styles.Error)
+
+		if err := bf.RunVoice(ctx, config); err != nil {
+			fmt.Fprint(errorWriter, err.Error())
+			os.Exit(5)
+		}
+		return
+	}
+
 	cli := &CliConfig{}
 
 	cliParser, err := kong.New(cli,

@@ -95,6 +95,14 @@ type ButterfishConfig struct {
 	// Model and max tokens to use when executing the `exec` command
 	ExeccheckModel     string
 	ExeccheckMaxTokens int
+
+	// Realtime voice mode configuration
+	VoiceMode         bool
+	VoiceModel        string
+	VoiceVoice        string
+	VoiceInstructions string
+	VoicePauseKey     string
+	VoiceQuitKey      string
 }
 
 func (this *ButterfishConfig) ParseShell() string {
@@ -199,6 +207,11 @@ func MakeButterfishConfig() *ButterfishConfig {
 		GencmdMaxTokens:      512,
 		ExeccheckModel:       BestCompletionModel,
 		ExeccheckMaxTokens:   512,
+		VoiceModel:           "gpt-realtime-1.5",
+		VoiceVoice:           "marin",
+		VoicePauseKey:        "p",
+		VoiceQuitKey:         "q",
+		VoiceInstructions:    "You are Butterfish in a terminal voice session. Keep spoken responses concise and practical.",
 	}
 }
 
