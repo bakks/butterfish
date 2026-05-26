@@ -164,8 +164,39 @@ func TestBuildResponseParamsIncludesReasoningEffort(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"reasoning":{"effort":"medium"`)) {
 		t.Fatalf("expected reasoning effort in params json, got: %s", raw)
 	}
+	if !bytes.Contains(raw, []byte(`"summary":"concise"`)) {
+		t.Fatalf("expected reasoning summary in params json, got: %s", raw)
+	}
 	if bytes.Contains(raw, []byte(`"temperature"`)) {
 		t.Fatalf("did not expect temperature in params json, got: %s", raw)
+	}
+}
+
+func TestReasoningSummaryPrinterWritesOwnLine(t *testing.T) {
+	buf := &bytes.Buffer{}
+	printer := newReasoningSummaryPrinter(buf)
+
+	printer.WriteDelta("looking")
+	printer.WriteDelta(" around")
+	printer.FinishSummary()
+	printer.BeforeOutput()
+	buf.WriteString("answer")
+
+	if got, want := buf.String(), "\nReasoning: looking around\nanswer"; got != want {
+		t.Fatalf("unexpected reasoning summary output: got %q want %q", got, want)
+	}
+}
+
+func TestReasoningSummaryPrinterClosesLineBeforeOutput(t *testing.T) {
+	buf := &bytes.Buffer{}
+	printer := newReasoningSummaryPrinter(buf)
+
+	printer.WriteDelta("checking")
+	printer.BeforeOutput()
+	buf.WriteString("answer")
+
+	if got, want := buf.String(), "\nReasoning: checking\nanswer"; got != want {
+		t.Fatalf("unexpected reasoning summary output: got %q want %q", got, want)
 	}
 }
 

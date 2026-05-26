@@ -403,7 +403,8 @@ func buildResponseParams(request *util.CompletionRequest, reasoningEffort string
 	}
 	if reasoningEffort != "" {
 		params.Reasoning = shared.ReasoningParam{
-			Effort: shared.ReasoningEffort(reasoningEffort),
+			Effort:  shared.ReasoningEffort(reasoningEffort),
+			Summary: shared.ReasoningSummaryConcise,
 		}
 	}
 
@@ -763,6 +764,50 @@ type streamToolCallInfo struct {
 	Arguments strings.Builder
 }
 
+type reasoningSummaryPrinter struct {
+	writer              io.Writer
+	active              bool
+	currentEndsWithLine bool
+}
+
+func newReasoningSummaryPrinter(writer io.Writer) *reasoningSummaryPrinter {
+	return &reasoningSummaryPrinter{writer: writer}
+}
+
+func (p *reasoningSummaryPrinter) WriteDelta(delta string) {
+	if delta == "" {
+		return
+	}
+
+	if !p.active {
+		p.writeString("\nReasoning: ")
+		p.active = true
+		p.currentEndsWithLine = false
+	}
+
+	p.writeString(delta)
+	p.currentEndsWithLine = strings.HasSuffix(delta, "\n")
+}
+
+func (p *reasoningSummaryPrinter) FinishSummary() {
+	if !p.active {
+		return
+	}
+	if !p.currentEndsWithLine {
+		p.writeString("\n")
+	}
+	p.active = false
+	p.currentEndsWithLine = false
+}
+
+func (p *reasoningSummaryPrinter) BeforeOutput() {
+	p.FinishSummary()
+}
+
+func (p *reasoningSummaryPrinter) writeString(s string) {
+	_, _ = p.writer.Write([]byte(s))
+}
+
 func responseIncompleteError(response *responses.Response) error {
 	if response == nil {
 		return nil
@@ -896,6 +941,7 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	var completedResponse *responses.Response
 	shellCallMap := map[string]*util.ShellCall{}
 	shellCallOrder := []string{}
+	reasoningPrinter := newReasoningSummaryPrinter(writer)
 
 	for stream.Next() {
 		if request.TokenTimeout > 0 {
@@ -925,9 +971,15 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		case "response.output_text.delta":
 			delta := event.AsResponseOutputTextDelta()
 			if delta.Delta != "" {
+				reasoningPrinter.BeforeOutput()
 				writer.Write([]byte(delta.Delta))
 				completion.WriteString(delta.Delta)
 			}
+		case "response.reasoning_summary_text.delta":
+			delta := event.AsResponseReasoningSummaryTextDelta()
+			reasoningPrinter.WriteDelta(delta.Delta)
+		case "response.reasoning_summary_text.done":
+			reasoningPrinter.FinishSummary()
 		case "response.output_item.added":
 			added := event.AsResponseOutputItemAdded()
 			if added.Item.Type == "function_call" {
