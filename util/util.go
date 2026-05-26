@@ -34,6 +34,7 @@ type CompletionRequest struct {
 	Tools           []ToolDefinition
 	Verbose         bool
 	TokenTimeout    time.Duration
+	StreamColor     string
 }
 
 type FunctionCall struct {

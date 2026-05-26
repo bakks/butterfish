@@ -764,14 +764,24 @@ type streamToolCallInfo struct {
 	Arguments strings.Builder
 }
 
+var reasoningSummaryColors = []string{
+	"\x1b[38;5;213m",
+	"\x1b[38;5;81m",
+}
+
 type reasoningSummaryPrinter struct {
 	writer              io.Writer
+	normalColor         string
+	lineIndex           int
 	active              bool
 	currentEndsWithLine bool
 }
 
-func newReasoningSummaryPrinter(writer io.Writer) *reasoningSummaryPrinter {
-	return &reasoningSummaryPrinter{writer: writer}
+func newReasoningSummaryPrinter(writer io.Writer, normalColor string) *reasoningSummaryPrinter {
+	return &reasoningSummaryPrinter{
+		writer:      writer,
+		normalColor: normalColor,
+	}
 }
 
 func (p *reasoningSummaryPrinter) WriteDelta(delta string) {
@@ -780,21 +790,32 @@ func (p *reasoningSummaryPrinter) WriteDelta(delta string) {
 	}
 
 	if !p.active {
-		p.writeString("\nReasoning: ")
+		p.writeString("\n")
+		p.writeString(reasoningSummaryColors[p.lineIndex%len(reasoningSummaryColors)])
 		p.active = true
 		p.currentEndsWithLine = false
 	}
 
-	p.writeString(delta)
-	p.currentEndsWithLine = strings.HasSuffix(delta, "\n")
+	for _, r := range delta {
+		p.writeString(string(r))
+		if r == '\n' {
+			p.lineIndex++
+			p.writeString(reasoningSummaryColors[p.lineIndex%len(reasoningSummaryColors)])
+			p.currentEndsWithLine = true
+		} else {
+			p.currentEndsWithLine = false
+		}
+	}
 }
 
 func (p *reasoningSummaryPrinter) FinishSummary() {
 	if !p.active {
 		return
 	}
+	p.writeString(p.normalColor)
 	if !p.currentEndsWithLine {
 		p.writeString("\n")
+		p.lineIndex++
 	}
 	p.active = false
 	p.currentEndsWithLine = false
@@ -941,7 +962,7 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	var completedResponse *responses.Response
 	shellCallMap := map[string]*util.ShellCall{}
 	shellCallOrder := []string{}
-	reasoningPrinter := newReasoningSummaryPrinter(writer)
+	reasoningPrinter := newReasoningSummaryPrinter(writer, request.StreamColor)
 
 	for stream.Next() {
 		if request.TokenTimeout > 0 {

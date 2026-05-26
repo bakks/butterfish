@@ -2731,6 +2731,7 @@ func CompletionRoutine(
 	styleWriter *util.StyleCodeblocksWriter,
 ) {
 	writer.Write([]byte(normalColor))
+	request.StreamColor = normalColor
 	output, err := client.CompletionStream(request, writer)
 
 	// handle any completion errors

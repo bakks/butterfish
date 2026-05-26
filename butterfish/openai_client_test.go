@@ -174,7 +174,7 @@ func TestBuildResponseParamsIncludesReasoningEffort(t *testing.T) {
 
 func TestReasoningSummaryPrinterWritesOwnLine(t *testing.T) {
 	buf := &bytes.Buffer{}
-	printer := newReasoningSummaryPrinter(buf)
+	printer := newReasoningSummaryPrinter(buf, "NORMAL")
 
 	printer.WriteDelta("looking")
 	printer.WriteDelta(" around")
@@ -182,20 +182,34 @@ func TestReasoningSummaryPrinterWritesOwnLine(t *testing.T) {
 	printer.BeforeOutput()
 	buf.WriteString("answer")
 
-	if got, want := buf.String(), "\nReasoning: looking around\nanswer"; got != want {
+	if got, want := buf.String(), "\n"+reasoningSummaryColors[0]+"looking aroundNORMAL\nanswer"; got != want {
 		t.Fatalf("unexpected reasoning summary output: got %q want %q", got, want)
 	}
 }
 
 func TestReasoningSummaryPrinterClosesLineBeforeOutput(t *testing.T) {
 	buf := &bytes.Buffer{}
-	printer := newReasoningSummaryPrinter(buf)
+	printer := newReasoningSummaryPrinter(buf, "NORMAL")
 
 	printer.WriteDelta("checking")
 	printer.BeforeOutput()
 	buf.WriteString("answer")
 
-	if got, want := buf.String(), "\nReasoning: checking\nanswer"; got != want {
+	if got, want := buf.String(), "\n"+reasoningSummaryColors[0]+"checkingNORMAL\nanswer"; got != want {
+		t.Fatalf("unexpected reasoning summary output: got %q want %q", got, want)
+	}
+}
+
+func TestReasoningSummaryPrinterAlternatesLineColors(t *testing.T) {
+	buf := &bytes.Buffer{}
+	printer := newReasoningSummaryPrinter(buf, "NORMAL")
+
+	printer.WriteDelta("first\nsecond")
+	printer.FinishSummary()
+
+	want := "\n" + reasoningSummaryColors[0] + "first\n" +
+		reasoningSummaryColors[1] + "secondNORMAL\n"
+	if got := buf.String(); got != want {
 		t.Fatalf("unexpected reasoning summary output: got %q want %q", got, want)
 	}
 }
