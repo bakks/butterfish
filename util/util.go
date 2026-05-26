@@ -54,6 +54,7 @@ type CompletionResponse struct {
 	ToolCalls          []*ToolCall
 	ShellCalls         []*ShellCall
 	Error              string
+	ErrorDisplayed     bool
 }
 
 type FunctionDefinition struct {

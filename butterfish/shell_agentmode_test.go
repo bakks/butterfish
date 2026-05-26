@@ -3,12 +3,25 @@ package butterfish
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
 )
+
+type errorLLM struct {
+	err error
+}
+
+func (l errorLLM) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
+	return nil, l.err
+}
+
+func (l errorLLM) Completion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
+	return nil, l.err
+}
 
 type agentModePromptLibrary struct {
 	prompts map[string]string
@@ -53,6 +66,114 @@ func TestSkippedShellCallOutput(t *testing.T) {
 	}
 	if out.Output[0].Outcome.ExitCode == 0 {
 		t.Fatal("expected non-zero exit code for skipped call")
+	}
+}
+
+func TestAppendShellCallOutputStoresTruncatedOutput(t *testing.T) {
+	history := NewShellHistory()
+	history.AppendShellCallOutput(&util.ShellCallOutput{
+		CallID:          "call_1",
+		MaxOutputLength: 128,
+		Output: []util.ShellCallOutputItem{
+			{
+				Stdout: strings.Repeat("x", 512) + "tail",
+				Outcome: util.ShellCallOutcome{
+					Type:     "exit",
+					ExitCode: 0,
+				},
+			},
+		},
+	})
+
+	if len(history.Blocks) != 1 {
+		t.Fatalf("expected one history block, got %d", len(history.Blocks))
+	}
+	output := history.Blocks[0].ShellCallOutput
+	if output == nil {
+		t.Fatal("expected shell call output")
+	}
+	stdout := output.Output[0].Stdout
+	if len(stdout) > 128 {
+		t.Fatalf("expected stdout to be capped at 128 bytes, got %d", len(stdout))
+	}
+	if !strings.Contains(stdout, "butterfish truncated") {
+		t.Fatalf("expected truncation marker, got %q", stdout)
+	}
+	if !strings.HasSuffix(stdout, "tail") {
+		t.Fatalf("expected output tail to be preserved, got %q", stdout)
+	}
+}
+
+func TestCompletionRoutineMarksDisplayedErrors(t *testing.T) {
+	writer := &bytes.Buffer{}
+	outputChan := make(chan *util.CompletionResponse, 1)
+
+	CompletionRoutine(
+		&util.CompletionRequest{},
+		errorLLM{err: errors.New("boom")},
+		writer,
+		outputChan,
+		"normal:",
+		"error:",
+		nil,
+	)
+
+	output := <-outputChan
+	if output == nil {
+		t.Fatal("expected completion output")
+	}
+	if output.Error != "boom" {
+		t.Fatalf("unexpected error: %q", output.Error)
+	}
+	if !output.ErrorDisplayed {
+		t.Fatal("expected error to be marked as displayed")
+	}
+	if !strings.Contains(writer.String(), "Error prompting LLM: boom") {
+		t.Fatalf("expected LLM error to be written, got %q", writer.String())
+	}
+}
+
+func TestAgentModeFunctionSuppressesAlreadyDisplayedError(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+	}
+
+	state.AgentModeFunction(&util.CompletionResponse{Error: "boom", ErrorDisplayed: true})
+
+	if strings.Contains(promptOut.String(), "Agent mode error") {
+		t.Fatalf("did not expect duplicate agent mode error, got %q", promptOut.String())
+	}
+	if state.SpecialMode {
+		t.Fatal("expected agent mode to clear after error")
+	}
+}
+
+func TestAgentModeFunctionDisplaysModeErrors(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+	}
+
+	state.AgentModeFunction(&util.CompletionResponse{Error: "mode-specific boom"})
+
+	if !strings.Contains(promptOut.String(), "Agent mode error: mode-specific boom") {
+		t.Fatalf("expected agent mode error, got %q", promptOut.String())
+	}
+	if state.SpecialMode {
+		t.Fatal("expected agent mode to clear after error")
 	}
 }
 

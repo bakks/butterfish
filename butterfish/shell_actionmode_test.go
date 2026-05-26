@@ -59,6 +59,52 @@ func TestActionModeDefaultPromptMentionsShellHistory(t *testing.T) {
 	}
 }
 
+func TestActionModeFunctionSuppressesAlreadyDisplayedError(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:               &ButterfishCtx{Config: &ButterfishConfig{}},
+		PromptActionAnswerWriter: promptOut,
+		PromptAgentAnswerWriter:  promptOut,
+		PromptAnswerWriter:       promptOut,
+		History:                  NewShellHistory(),
+		Color:                    DarkShellColorScheme,
+		SpecialMode:              true,
+		SpecialModeType:          specialModeAction,
+	}
+
+	state.ActionModeFunction(&util.CompletionResponse{Error: "boom", ErrorDisplayed: true})
+
+	if strings.Contains(promptOut.String(), "Action mode error") {
+		t.Fatalf("did not expect duplicate action mode error, got %q", promptOut.String())
+	}
+	if state.SpecialMode {
+		t.Fatal("expected action mode to clear after error")
+	}
+}
+
+func TestActionModeFunctionDisplaysModeErrors(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:               &ButterfishCtx{Config: &ButterfishConfig{}},
+		PromptActionAnswerWriter: promptOut,
+		PromptAgentAnswerWriter:  promptOut,
+		PromptAnswerWriter:       promptOut,
+		History:                  NewShellHistory(),
+		Color:                    DarkShellColorScheme,
+		SpecialMode:              true,
+		SpecialModeType:          specialModeAction,
+	}
+
+	state.ActionModeFunction(&util.CompletionResponse{Error: "mode-specific boom"})
+
+	if !strings.Contains(promptOut.String(), "Action mode error: mode-specific boom") {
+		t.Fatalf("expected action mode error, got %q", promptOut.String())
+	}
+	if state.SpecialMode {
+		t.Fatal("expected action mode to clear after error")
+	}
+}
+
 func TestShouldClearCompletedFunctionLineKeepsActionCommandPrompt(t *testing.T) {
 	actionState := &ShellState{
 		SpecialMode:     true,

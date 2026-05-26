@@ -295,11 +295,12 @@ func buildInputItems(request *util.CompletionRequest) responses.ResponseInputPar
 			continue
 		}
 		if block.Type == historyTypeToolOutput && block.ToolType == "shell" && block.ShellCallOutput != nil {
-			if block.ShellCallOutput.CallID == "" || !seenShellCalls[block.ShellCallOutput.CallID] {
+			shellOutput := truncateShellCallOutputForResponses(block.ShellCallOutput)
+			if shellOutput.CallID == "" || !seenShellCalls[shellOutput.CallID] {
 				continue
 			}
 			var outputs []responses.ResponseFunctionShellCallOutputContentParam
-			for _, out := range block.ShellCallOutput.Output {
+			for _, out := range shellOutput.Output {
 				content := responses.ResponseFunctionShellCallOutputContentParam{
 					Stdout: out.Stdout,
 					Stderr: out.Stderr,
@@ -318,10 +319,10 @@ func buildInputItems(request *util.CompletionRequest) responses.ResponseInputPar
 			}
 
 			var shellCallOutput responses.ResponseInputItemShellCallOutputParam
-			shellCallOutput.CallID = block.ShellCallOutput.CallID
+			shellCallOutput.CallID = shellOutput.CallID
 			shellCallOutput.Output = outputs
-			if block.ShellCallOutput.MaxOutputLength > 0 {
-				shellCallOutput.MaxOutputLength = param.NewOpt(block.ShellCallOutput.MaxOutputLength)
+			if shellOutput.MaxOutputLength > 0 {
+				shellCallOutput.MaxOutputLength = param.NewOpt(shellOutput.MaxOutputLength)
 			}
 			items = append(items, responses.ResponseInputItemUnionParam{OfShellCallOutput: &shellCallOutput})
 			continue

@@ -3,6 +3,7 @@ package butterfish
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/bakks/butterfish/util"
@@ -42,6 +43,58 @@ func TestBuildInputItemsUsesFunctionNameFallbackForFunctionOutput(t *testing.T) 
 	}
 	if got := items[1].OfFunctionCallOutput.CallID; got != "command" {
 		t.Fatalf("expected function output call id fallback 'command', got %q", got)
+	}
+}
+
+func TestBuildInputItemsTruncatesShellCallOutput(t *testing.T) {
+	req := &util.CompletionRequest{
+		Model: "gpt-5.5",
+		HistoryBlocks: []util.HistoryBlock{
+			{
+				Type: historyTypeLLMOutput,
+				ShellCall: &util.ShellCall{
+					CallID:          "call_1",
+					Commands:        []string{"python noisy.py"},
+					MaxOutputLength: 256,
+				},
+			},
+			{
+				Type:     historyTypeToolOutput,
+				ToolType: "shell",
+				ShellCallOutput: &util.ShellCallOutput{
+					CallID:          "call_1",
+					MaxOutputLength: 256,
+					Output: []util.ShellCallOutputItem{
+						{
+							Stdout: strings.Repeat("a", 1024) + "important tail",
+							Outcome: util.ShellCallOutcome{
+								Type:     "exit",
+								ExitCode: 0,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	items := buildInputItems(req)
+	if len(items) != 2 {
+		t.Fatalf("expected two input items, got %d", len(items))
+	}
+	output := items[1].OfShellCallOutput
+	if output == nil {
+		t.Fatalf("expected shell_call_output, got %#v", items[1])
+	}
+	stdout := output.Output[0].Stdout
+	if len(stdout) > 256 {
+		t.Fatalf("expected stdout to be capped at 256 bytes, got %d", len(stdout))
+	}
+	if !strings.Contains(stdout, "butterfish truncated") {
+		t.Fatalf("expected truncation marker, got %q", stdout)
+	}
+	if !strings.HasSuffix(stdout, "important tail") {
+		t.Fatalf("expected output tail to be preserved, got %q", stdout)
 	}
 }
 

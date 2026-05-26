@@ -345,6 +345,7 @@ func (this *ShellHistory) AppendShellCallOutput(output *util.ShellCallOutput) {
 	if output == nil {
 		return
 	}
+	output = truncateShellCallOutputForResponses(output)
 
 	combined := strings.Builder{}
 	for _, item := range output.Output {
@@ -2052,7 +2053,9 @@ func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
 
 func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 	if output.Error != "" {
-		fmt.Fprintf(this.PromptAgentAnswerWriter, "%sAgent mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		if !output.ErrorDisplayed {
+			fmt.Fprintf(this.PromptAgentAnswerWriter, "%sAgent mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		}
 		this.clearSpecialMode()
 		return
 	}
@@ -2154,7 +2157,9 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 
 func (this *ShellState) ActionModeFunction(output *util.CompletionResponse) {
 	if output.Error != "" {
-		fmt.Fprintf(this.specialModeAnswerWriter(), "%sAction mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		if !output.ErrorDisplayed {
+			fmt.Fprintf(this.specialModeAnswerWriter(), "%sAction mode error: %s%s\n", this.Color.Error, output.Error, this.Color.Command)
+		}
 		this.clearSpecialMode()
 		return
 	}
@@ -2717,18 +2722,21 @@ func CompletionRoutine(
 	// handle any completion errors
 	if err != nil {
 		errStr := fmt.Sprintf("Error prompting LLM: %s\n", err)
+		errorDisplayed := false
 
 		log.Printf("%s", errStr)
 
 		if !strings.Contains(errStr, "context canceled") {
 			fmt.Fprintf(writer, "%s%s", errorColor, errStr)
+			errorDisplayed = true
 		}
-	}
 
-	if output == nil && err != nil {
-		output = &util.CompletionResponse{Completion: err.Error(), Error: err.Error()}
-	} else if output != nil && err != nil {
-		output.Error = err.Error()
+		if output == nil {
+			output = &util.CompletionResponse{Completion: err.Error(), Error: err.Error()}
+		} else {
+			output.Error = err.Error()
+		}
+		output.ErrorDisplayed = errorDisplayed
 	}
 
 	if styleWriter != nil {
