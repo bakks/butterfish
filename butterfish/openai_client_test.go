@@ -169,6 +169,41 @@ func TestBuildResponseParamsIncludesReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestBuildResponseParamsOmitsMaxOutputTokensWhenUnset(t *testing.T) {
+	req := &util.CompletionRequest{
+		Model:  "gpt-5.5",
+		Prompt: "hi",
+	}
+
+	params := buildResponseParams(req, "")
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	if bytes.Contains(raw, []byte(`"max_output_tokens"`)) {
+		t.Fatalf("did not expect max_output_tokens in params json, got: %s", raw)
+	}
+}
+
+func TestBuildResponseParamsIncludesMaxOutputTokensWhenSet(t *testing.T) {
+	req := &util.CompletionRequest{
+		Model:     "gpt-5.5",
+		Prompt:    "hi",
+		MaxTokens: 64,
+	}
+
+	params := buildResponseParams(req, "")
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	if !bytes.Contains(raw, []byte(`"max_output_tokens":64`)) {
+		t.Fatalf("expected max_output_tokens in params json, got: %s", raw)
+	}
+}
+
 func TestBuildResponseParamsIncludesServiceTier(t *testing.T) {
 	req := &util.CompletionRequest{
 		Model:       "gpt-5.5",
@@ -203,6 +238,37 @@ func TestBuildResponseParamsOmitsReasoningWhenUnset(t *testing.T) {
 
 	if bytes.Contains(raw, []byte(`"reasoning"`)) {
 		t.Fatalf("did not expect reasoning in params json, got: %s", raw)
+	}
+}
+
+func TestResponseIncompleteErrorForMaxOutputTokens(t *testing.T) {
+	resp := &responses.Response{
+		Status: responses.ResponseStatusIncomplete,
+		IncompleteDetails: responses.ResponseIncompleteDetails{
+			Reason: "max_output_tokens",
+		},
+		MaxOutputTokens: 64,
+	}
+
+	err := responseIncompleteError(resp)
+	if err == nil {
+		t.Fatal("expected max output token error")
+	}
+	if !strings.Contains(err.Error(), "max_output_tokens (64)") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResponseIncompleteErrorIgnoresOtherReasons(t *testing.T) {
+	resp := &responses.Response{
+		Status: responses.ResponseStatusIncomplete,
+		IncompleteDetails: responses.ResponseIncompleteDetails{
+			Reason: "content_filter",
+		},
+	}
+
+	if err := responseIncompleteError(resp); err != nil {
+		t.Fatalf("did not expect content filter to be reported as token limit: %v", err)
 	}
 }
 

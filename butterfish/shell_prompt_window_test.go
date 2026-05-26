@@ -28,6 +28,26 @@ func TestShellPromptWindowForModel(t *testing.T) {
 	})
 }
 
+func TestShellResponseTokenReserve(t *testing.T) {
+	t.Run("uses default reserve when API cap is omitted", func(t *testing.T) {
+		state := &ShellState{
+			Butterfish: &ButterfishCtx{Config: &ButterfishConfig{}},
+		}
+		if got := state.shellResponseTokenReserve(); got != defaultShellResponseTokenReserve {
+			t.Fatalf("expected default reserve %d, got %d", defaultShellResponseTokenReserve, got)
+		}
+	})
+
+	t.Run("uses explicit response cap as reserve", func(t *testing.T) {
+		state := &ShellState{
+			Butterfish: &ButterfishCtx{Config: &ButterfishConfig{ShellMaxResponseTokens: 4096}},
+		}
+		if got := state.shellResponseTokenReserve(); got != 4096 {
+			t.Fatalf("expected explicit reserve 4096, got %d", got)
+		}
+	})
+}
+
 func TestNumTokensForModelGPT55(t *testing.T) {
 	got := NumTokensForModel("gpt-5.5")
 	if got != 1050000 {

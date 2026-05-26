@@ -725,6 +725,7 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 	toolCalls := toolCallsFromOutputItems(response.Output)
 	shellCalls := shellCallsFromOutputItems(response.Output)
 	final := finalizeCompletionResponse(response.OutputText(), toolCalls, shellCalls)
+	incompleteErr := responseIncompleteError(response)
 	if request.Verbose {
 		responseText := response.OutputText()
 		if response.ID != "" {
@@ -753,13 +754,32 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 	} else if response != nil && response.ID != "" {
 		log.Printf("LLM response id: %s", response.ID)
 	}
-	return final, nil
+	return final, incompleteErr
 }
 
 type streamToolCallInfo struct {
 	CallID    string
 	Name      string
 	Arguments strings.Builder
+}
+
+func responseIncompleteError(response *responses.Response) error {
+	if response == nil {
+		return nil
+	}
+	if response.Status != responses.ResponseStatusIncomplete {
+		return nil
+	}
+
+	switch response.IncompleteDetails.Reason {
+	case "max_output_tokens":
+		if response.MaxOutputTokens > 0 {
+			return fmt.Errorf("Response hit max_output_tokens (%d). The output above may be incomplete.", response.MaxOutputTokens)
+		}
+		return fmt.Errorf("Response hit the model output token limit. The output above may be incomplete.")
+	default:
+		return nil
+	}
 }
 
 func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
@@ -896,6 +916,12 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 				responseID = completed.Response.ID
 			}
 			completedResponse = &completed.Response
+		case "response.incomplete":
+			incomplete := event.AsResponseIncomplete()
+			if responseID == "" {
+				responseID = incomplete.Response.ID
+			}
+			completedResponse = &incomplete.Response
 		case "response.output_text.delta":
 			delta := event.AsResponseOutputTextDelta()
 			if delta.Delta != "" {
@@ -1036,6 +1062,7 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	}
 
 	final := finalizeCompletionResponse(completion.String(), toolCallResults, shellCallResults)
+	incompleteErr := responseIncompleteError(completedResponse)
 	if request.Verbose {
 		responseText := completion.String()
 		if responseID != "" {
@@ -1064,5 +1091,5 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	} else if responseID != "" {
 		log.Printf("LLM response id: %s", responseID)
 	}
-	return final, nil
+	return final, incompleteErr
 }

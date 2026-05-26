@@ -183,9 +183,8 @@ Flags:
                                    history. For example, if a command has a very
                                    long output, it will be truncated to this
                                    length when sending the shell's history.
-  -R, --max-response-tokens=2048
-                                   Maximum number of tokens in a response when
-                                   prompting.
+  -R, --max-response-tokens=0      Maximum number of output tokens in a shell
+                                   response. The default 0 omits the API cap.
 
 ```
 

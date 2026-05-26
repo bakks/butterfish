@@ -111,6 +111,8 @@ const (
 	historyTypeToolOutput
 )
 
+const defaultShellResponseTokenReserve = 2048
+
 // Turn history type enum to a string
 func HistoryTypeToString(historyType int) string {
 	switch historyType {
@@ -1835,6 +1837,11 @@ func (this *ShellState) PrintStatus() {
 	text += fmt.Sprintf("Reasoning effort:      %s\n", this.configuredReasoningEffort())
 	text += fmt.Sprintf("Service tier:          %s\n", normalizeServiceTier(this.Butterfish.Config.ServiceTier))
 	text += fmt.Sprintf("Prompt history window: %d tokens\n", this.PromptMaxTokens)
+	if this.Butterfish.Config.ShellMaxResponseTokens > 0 {
+		text += fmt.Sprintf("Response output cap:   %d tokens\n", this.Butterfish.Config.ShellMaxResponseTokens)
+	} else {
+		text += "Response output cap:   none\n"
+	}
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
@@ -2394,7 +2401,7 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		sysMsg += "\n\nUse the shell tool to run commands. Use user_input to ask clarifying questions and finish when done."
 	}
 
-	tokensForAnswer := 1024
+	tokensForAnswer := this.shellResponseTokenReserve()
 	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getModeFunctionsString(functions), tokensForAnswer)
 	if err != nil {
 		this.PrintError(err)
@@ -2405,7 +2412,7 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		Ctx:             requestCtx,
 		Prompt:          lastPrompt,
 		Model:           this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:       tokensForAnswer,
+		MaxTokens:       this.Butterfish.Config.ShellMaxResponseTokens,
 		ReasoningEffort: this.configuredReasoningEffort(),
 		ServiceTier:     strings.TrimSpace(this.Butterfish.Config.ServiceTier),
 		HistoryBlocks:   historyBlocks,
@@ -2438,7 +2445,7 @@ func (this *ShellState) actionModePrompt(lastPrompt string) {
 		return
 	}
 
-	tokensForAnswer := 512
+	tokensForAnswer := this.shellResponseTokenReserve()
 	lastPrompt, historyBlocks, err := this.AssembleChat(lastPrompt, sysMsg, getModeFunctionsString(actionModeFunctions), tokensForAnswer)
 	if err != nil {
 		this.PrintError(err)
@@ -2449,7 +2456,7 @@ func (this *ShellState) actionModePrompt(lastPrompt string) {
 		Ctx:             requestCtx,
 		Prompt:          lastPrompt,
 		Model:           this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:       tokensForAnswer,
+		MaxTokens:       this.Butterfish.Config.ShellMaxResponseTokens,
 		ReasoningEffort: this.configuredReasoningEffort(),
 		ServiceTier:     strings.TrimSpace(this.Butterfish.Config.ServiceTier),
 		HistoryBlocks:   historyBlocks,
@@ -2513,6 +2520,13 @@ func (this *ShellState) AssembleChat(prompt, sysMsg, functions string, reserveFo
 	return assembleChat(prompt, sysMsg, functions, this.History,
 		this.Butterfish.Config.ShellPromptModel, this.getPromptEncoder(),
 		maxPromptTokens, maxHistoryBlockTokens, maxCombinedPromptTokens)
+}
+
+func (this *ShellState) shellResponseTokenReserve() int {
+	if this.Butterfish.Config.ShellMaxResponseTokens > 0 {
+		return this.Butterfish.Config.ShellMaxResponseTokens
+	}
+	return defaultShellResponseTokenReserve
 }
 
 // Build a list of HistoryBlocks for use in GPT chat history, and ensure the
@@ -2676,7 +2690,7 @@ func (this *ShellState) SendPrompt() {
 	}
 
 	prompt := this.Prompt.String()
-	tokensReservedForAnswer := this.Butterfish.Config.ShellMaxResponseTokens
+	tokensReservedForAnswer := this.shellResponseTokenReserve()
 	prompt, historyBlocks, err := this.AssembleChat(prompt, sysMsg, "", tokensReservedForAnswer)
 	if err != nil {
 		this.PrintError(err)
@@ -2687,7 +2701,7 @@ func (this *ShellState) SendPrompt() {
 		Ctx:             requestCtx,
 		Prompt:          prompt,
 		Model:           this.Butterfish.Config.ShellPromptModel,
-		MaxTokens:       tokensReservedForAnswer,
+		MaxTokens:       this.Butterfish.Config.ShellMaxResponseTokens,
 		ReasoningEffort: this.configuredReasoningEffort(),
 		ServiceTier:     strings.TrimSpace(this.Butterfish.Config.ServiceTier),
 		HistoryBlocks:   historyBlocks,

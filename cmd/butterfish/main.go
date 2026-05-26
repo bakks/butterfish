@@ -93,7 +93,7 @@ type CliConfig struct {
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
 		MaxPromptTokens           int    `short:"P" default:"32768" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
 		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
-		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
+		MaxResponseTokens         int    `short:"R" default:"0" help:"Maximum number of output tokens in a shell response. The default 0 omits the API cap."`
 	} `cmd:"" help:"${shell_help}"`
 
 	// We include the cliConsole options here so that we can parse them and hand them
