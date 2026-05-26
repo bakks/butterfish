@@ -1,6 +1,8 @@
 package butterfish
 
 import (
+	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +76,63 @@ func TestHasRunningChildrenCached(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("expected second check call after force, got %d", calls)
+	}
+}
+
+func TestPTYForegroundChildCheckerDetectsForegroundJob(t *testing.T) {
+	ptyFile, err := os.CreateTemp("", "butterfish-pty-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ptyFile.Close()
+	defer os.Remove(ptyFile.Name())
+
+	foregroundPGID := 100
+	checker := &ptyForegroundChildChecker{
+		PTY:      ptyFile,
+		ShellPID: 123,
+		ProcessGroup: func(pid int) (int, error) {
+			if pid != 123 {
+				t.Fatalf("unexpected pid: %d", pid)
+			}
+			return 100, nil
+		},
+		ForegroundPG: func(_ *os.File) (int, error) {
+			return foregroundPGID, nil
+		},
+	}
+
+	if checker.HasRunningChild() {
+		t.Fatal("expected no running child when shell owns foreground process group")
+	}
+
+	foregroundPGID = 200
+	if !checker.HasRunningChild() {
+		t.Fatal("expected running child when foreground process group changes")
+	}
+}
+
+func TestPTYForegroundChildCheckerHandlesLookupErrors(t *testing.T) {
+	ptyFile, err := os.CreateTemp("", "butterfish-pty-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ptyFile.Close()
+	defer os.Remove(ptyFile.Name())
+
+	checker := &ptyForegroundChildChecker{
+		PTY:      ptyFile,
+		ShellPID: 123,
+		ProcessGroup: func(_ int) (int, error) {
+			return 0, errors.New("denied")
+		},
+		ForegroundPG: func(_ *os.File) (int, error) {
+			return 200, nil
+		},
+	}
+
+	if checker.HasRunningChild() {
+		t.Fatal("expected false when process group lookup fails")
 	}
 }
 

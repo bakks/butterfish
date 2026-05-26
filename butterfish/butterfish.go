@@ -247,7 +247,7 @@ func sanitizeTTYString(data string) string {
 	return filterNonPrintable(stripANSI(data))
 }
 
-func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.File, func() error, error) {
+func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.File, int, func() error, error) {
 	// Create arbitrary command.
 	var cmd *exec.Cmd
 
@@ -265,8 +265,9 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 	// Start the command with a pty.
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
+	shellPID := cmd.Process.Pid
 
 	// Handle pty size.
 	ch := make(chan os.Signal, 1)
@@ -286,7 +287,7 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 		ptmx.Close()
 		signal.Stop(ch)
 		close(ch)
-		return nil, nil, err
+		return nil, 0, nil, err
 	}
 
 	cleanup := func() error {
@@ -301,7 +302,7 @@ func ptyCommand(ctx context.Context, envVars []string, command []string) (*os.Fi
 		return term.Restore(int(os.Stdin.Fd()), oldState)
 	}
 
-	return ptmx, cleanup, nil
+	return ptmx, shellPID, cleanup, nil
 }
 
 // A local printf that writes to the butterfishctx out using a lipgloss style

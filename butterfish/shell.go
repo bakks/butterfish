@@ -86,7 +86,7 @@ var LightShellColorScheme = &ShellColorScheme{
 func RunShell(ctx context.Context, config *ButterfishConfig) error {
 	envVars := []string{"BUTTERFISH_SHELL=1"}
 
-	ptmx, ptyCleanup, err := ptyCommand(ctx, envVars, []string{config.ShellBinary})
+	ptmx, shellPID, ptyCleanup, err := ptyCommand(ctx, envVars, []string{config.ShellBinary})
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func RunShell(ctx context.Context, config *ButterfishConfig) error {
 	}
 	//fmt.Println("Starting butterfish shell")
 
-	bf.ShellMultiplexer(ptmx, ptmx, os.Stdin, os.Stdout)
+	bf.ShellMultiplexer(ptmx, ptmx, os.Stdin, os.Stdout, shellPID)
 	return nil
 }
 
@@ -654,6 +654,76 @@ func (this *ShellState) hasRunningChildrenCached(force bool) bool {
 	return this.RunningChildren
 }
 
+type ptyForegroundChildChecker struct {
+	PTY          *os.File
+	ShellPID     int
+	ShellPGID    int
+	ShellPGIDSet bool
+	LoggedError  bool
+	ProcessGroup func(int) (int, error)
+	ForegroundPG func(*os.File) (int, error)
+	Fallback     func() bool
+}
+
+func newPTYForegroundChildChecker(ptyFile *os.File, shellPID int) *ptyForegroundChildChecker {
+	return &ptyForegroundChildChecker{
+		PTY:          ptyFile,
+		ShellPID:     shellPID,
+		ProcessGroup: processGroupID,
+		ForegroundPG: foregroundProcessGroupID,
+		Fallback:     HasRunningChildren,
+	}
+}
+
+func (this *ptyForegroundChildChecker) logErrorOnce(format string, args ...any) {
+	if this.LoggedError {
+		return
+	}
+	this.LoggedError = true
+	log.Printf(format, args...)
+}
+
+func (this *ptyForegroundChildChecker) shellProcessGroup() (int, error) {
+	if this.ShellPGIDSet {
+		return this.ShellPGID, nil
+	}
+	if this.ProcessGroup == nil {
+		return 0, fmt.Errorf("process group lookup is unavailable")
+	}
+
+	pgid, err := this.ProcessGroup(this.ShellPID)
+	if err != nil {
+		return 0, err
+	}
+
+	this.ShellPGID = pgid
+	this.ShellPGIDSet = true
+	return pgid, nil
+}
+
+func (this *ptyForegroundChildChecker) HasRunningChild() bool {
+	if this.PTY == nil || this.ShellPID <= 0 || this.ForegroundPG == nil {
+		if this.Fallback == nil {
+			return false
+		}
+		return this.Fallback()
+	}
+
+	shellPGID, err := this.shellProcessGroup()
+	if err != nil {
+		this.logErrorOnce("Error finding shell process group: %s", err)
+		return false
+	}
+
+	foregroundPGID, err := this.ForegroundPG(this.PTY)
+	if err != nil {
+		this.logErrorOnce("Error finding PTY foreground process group: %s", err)
+		return false
+	}
+
+	return foregroundPGID > 0 && foregroundPGID != shellPGID
+}
+
 // Keep only human-useful plain text from TUI output before adding to the tail.
 // We strip escape/control traffic because TUI redraw streams are mostly cursor
 // movement bytes and can dominate history size/cost.
@@ -955,7 +1025,8 @@ func min(a, b int) int {
 
 func (this *ButterfishCtx) ShellMultiplexer(
 	childIn io.Writer, childOut io.Reader,
-	parentIn io.Reader, parentOut io.Writer) {
+	parentIn io.Reader, parentOut io.Writer,
+	shellPID ...int) {
 
 	this.SetPS1(childIn)
 
@@ -1012,6 +1083,13 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		NumTokensForModel(this.Config.ShellAutosuggestModel),
 		this.Config.ShellMaxPromptTokens)
 
+	hasRunningChildrenFn := HasRunningChildren
+	if len(shellPID) > 0 && shellPID[0] > 0 {
+		if childPTY, ok := childIn.(*os.File); ok {
+			hasRunningChildrenFn = newPTYForegroundChildChecker(childPTY, shellPID[0]).HasRunningChild
+		}
+	}
+
 	shellState := &ShellState{
 		Butterfish:                   this,
 		ParentOut:                    parentOut,
@@ -1038,7 +1116,7 @@ func (this *ButterfishCtx) ShellMultiplexer(
 		PromptMaxTokens:              promptMaxTokens,
 		AutosuggestMaxTokens:         autoSuggestMaxTokens,
 		RunningChildrenCheckInterval: 250 * time.Millisecond,
-		HasRunningChildrenFn:         HasRunningChildren,
+		HasRunningChildrenFn:         hasRunningChildrenFn,
 		TUITailMaxBytes:              4096,
 	}
 
