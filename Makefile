@@ -26,6 +26,11 @@ test:
 test-local:
 	$(go_local) test ./...
 
+test-pty-e2e:
+	BUTTERFISH_ENABLE_PTY_E2E=1 $(go_local) test ./butterfish -run TestPTYShell
+
+test-full: test test-pty-e2e
+
 bench: bench-butterfish
 
 # Run all benchmarks in the butterfish package (quick local iteration).
@@ -61,4 +66,4 @@ licenses:
 	go-licenses report ./... 2>/dev/null | awk -F"," '{printf "|[%s](https://%s)|[%s](%s)|\n",$$1,$$1,$$3,$$2}'
 
 
-.PHONY: all clean watch test test-local bench bench-butterfish bench-pty bench-micro-file bench-pty-file benchstat build licenses install
+.PHONY: all clean watch test test-local test-pty-e2e test-full bench bench-butterfish bench-pty bench-micro-file bench-pty-file benchstat build licenses install

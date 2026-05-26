@@ -479,3 +479,17 @@ cd butterfish
 make
 ./bin/butterfish prompt "Is this thing working?"
 ```
+
+Default tests skip the slower PTY E2E suite:
+
+```
+make test
+```
+
+Run the PTY E2E suite explicitly when changing shell editing, wrapping, or
+pseudo-terminal behavior:
+
+```
+make test-pty-e2e
+make test-full
+```

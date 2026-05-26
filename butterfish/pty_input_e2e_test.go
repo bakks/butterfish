@@ -63,6 +63,16 @@ var (
 	e2eBuildErr  error
 )
 
+const ptyE2EEnableEnv = "BUTTERFISH_ENABLE_PTY_E2E"
+
+func requirePTYE2E(t *testing.T) {
+	t.Helper()
+
+	if os.Getenv(ptyE2EEnableEnv) != "1" {
+		t.Skipf("set %s=1 to enable PTY E2E tests", ptyE2EEnableEnv)
+	}
+}
+
 func repoRootForTests(t *testing.T) string {
 	t.Helper()
 
@@ -122,6 +132,7 @@ const (
 )
 
 func startShellE2E(t *testing.T) *shellE2EHarness {
+	requirePTYE2E(t)
 	return startShellE2EWithConfig(t, 40, 160, 1, 1)
 }
 
@@ -136,6 +147,7 @@ func startShellE2EWithConfig(
 	cursorCol int,
 ) *shellE2EHarness {
 	t.Helper()
+	requirePTYE2E(t)
 
 	bin := ensureE2EBinary(t)
 	zdotdir, mkErr := os.MkdirTemp("", "butterfish-e2e-zdot-*")
