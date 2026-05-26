@@ -52,23 +52,23 @@ type CliCommandConfig struct {
 	Prompt struct {
 		Prompt          []string `arg:"" help:"LLM model prompt, e.g. 'what is the unix shell?'" optional:""`
 		SystemMessage   string   `short:"s" default:"" help:"System message to send to model as instructions, e.g. 'respond succinctly'."`
-		Model           string   `short:"m" default:"gpt-5.4" help:"LLM to use for the prompt."`
-		ReasoningEffort string   `short:"r" default:"medium" help:"Reasoning effort for the prompt request. Automatically disabled for models that don't support reasoning."`
+		Model           string   `short:"m" default:"gpt-5.5" help:"LLM to use for the prompt."`
+		ReasoningEffort string   `short:"r" default:"high" help:"Reasoning effort for the prompt request. Automatically disabled for models that don't support reasoning."`
 		NumTokens       int      `short:"n" default:"1024" help:"Maximum number of tokens to generate."`
 		Functions       string   `short:"f" default:"" help:"Path to json file with functions to use for prompt."`
 		NoColor         bool     `default:"false" help:"Disable color output."`
 		NoBackticks     bool     `default:"false" help:"Strip out backticks around codeblocks."`
-	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-5.4."`
+	} `cmd:"" help:"Run an LLM prompt without wrapping, stream results back. This is a straight-through call to the LLM from the command line with a given prompt. This accepts piped input, if there is both piped input and a prompt then they will be concatenated together (prompt first). It is recommended that you wrap the prompt with quotes. The default GPT model is gpt-5.5."`
 
 	Gencmd struct {
 		Prompt          []string `arg:"" help:"Prompt describing the desired shell command."`
-		ReasoningEffort string   `short:"r" default:"medium" help:"Reasoning effort for command generation. Automatically disabled for models that don't support reasoning."`
+		ReasoningEffort string   `short:"r" default:"high" help:"Reasoning effort for command generation. Automatically disabled for models that don't support reasoning."`
 		Force           bool     `short:"f" default:"false" help:"Execute the command without prompting."`
 	} `cmd:"" help:"Generate a shell command from a prompt, i.e. pass in what you want, a shell command will be generated. Accepts piped input. You can use the -f command to execute it sight-unseen."`
 
 	Exec struct {
 		Command         []string `arg:"" help:"Command to execute." optional:""`
-		ReasoningEffort string   `short:"r" default:"medium" help:"Reasoning effort for command debugging/fix suggestions. Automatically disabled for models that don't support reasoning."`
+		ReasoningEffort string   `short:"r" default:"high" help:"Reasoning effort for command debugging/fix suggestions. Automatically disabled for models that don't support reasoning."`
 	} `cmd:"" help:"Execute a command and try to debug problems. The command can either passed in or in the command register (if you have run gencmd in Console Mode)."`
 }
 
@@ -288,6 +288,7 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 		Model:           cmd.Model,
 		MaxTokens:       cmd.NumTokens,
 		ReasoningEffort: strings.TrimSpace(cmd.ReasoningEffort),
+		ServiceTier:     strings.TrimSpace(this.Config.ServiceTier),
 		SystemMessage:   sysMsg,
 		Verbose:         cmd.Verbose > 0,
 		Functions:       functions,
@@ -317,6 +318,7 @@ func (this *ButterfishCtx) gencmdCommand(description string, reasoningEffort str
 		Model:           this.Config.GencmdModel,
 		MaxTokens:       this.Config.GencmdMaxTokens,
 		ReasoningEffort: strings.TrimSpace(reasoningEffort),
+		ServiceTier:     strings.TrimSpace(this.Config.ServiceTier),
 		SystemMessage:   sysMsg,
 		TokenTimeout:    this.Config.TokenTimeout,
 	}
@@ -388,6 +390,7 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string, reasoni
 			Model:           this.Config.ExeccheckModel,
 			MaxTokens:       this.Config.ExeccheckMaxTokens,
 			ReasoningEffort: strings.TrimSpace(reasoningEffort),
+			ServiceTier:     strings.TrimSpace(this.Config.ServiceTier),
 			SystemMessage:   "N/A",
 			TokenTimeout:    this.Config.TokenTimeout,
 		}

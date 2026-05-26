@@ -27,6 +27,7 @@ type CompletionRequest struct {
 	Model           string
 	MaxTokens       int
 	ReasoningEffort string
+	ServiceTier     string
 	HistoryBlocks   []HistoryBlock
 	SystemMessage   string
 	Functions       []FunctionDefinition

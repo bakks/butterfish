@@ -12,7 +12,7 @@ import (
 
 func TestBuildInputItemsUsesFunctionNameFallbackForFunctionOutput(t *testing.T) {
 	req := &util.CompletionRequest{
-		Model: "gpt-5.4",
+		Model: "gpt-5.5",
 		HistoryBlocks: []util.HistoryBlock{
 			{
 				Type:           historyTypeLLMOutput,
@@ -96,7 +96,7 @@ func TestMergeShellCallsFromOutput(t *testing.T) {
 
 func TestBuildResponseParamsIncludesReasoningEffort(t *testing.T) {
 	req := &util.CompletionRequest{
-		Model:           "gpt-5.4",
+		Model:           "gpt-5.5",
 		Prompt:          "hi",
 		MaxTokens:       64,
 		ReasoningEffort: "medium",
@@ -113,6 +113,25 @@ func TestBuildResponseParamsIncludesReasoningEffort(t *testing.T) {
 	}
 	if bytes.Contains(raw, []byte(`"temperature"`)) {
 		t.Fatalf("did not expect temperature in params json, got: %s", raw)
+	}
+}
+
+func TestBuildResponseParamsIncludesServiceTier(t *testing.T) {
+	req := &util.CompletionRequest{
+		Model:       "gpt-5.5",
+		Prompt:      "hi",
+		MaxTokens:   64,
+		ServiceTier: "fast",
+	}
+
+	params := buildResponseParams(req, "")
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	if !bytes.Contains(raw, []byte(`"service_tier":"priority"`)) {
+		t.Fatalf("expected fast service tier to map to priority, got: %s", raw)
 	}
 }
 
@@ -153,5 +172,16 @@ func TestIsReasoningUnsupportedErrorFalseForUnrelatedErrors(t *testing.T) {
 	}
 	if isReasoningUnsupportedError(apiErr) {
 		t.Fatalf("did not expect unrelated error to be detected as reasoning unsupported")
+	}
+}
+
+func TestIsServiceTierUnsupportedError(t *testing.T) {
+	apiErr := &openai.Error{
+		StatusCode: 400,
+		Param:      "service_tier",
+		Message:    "service_tier is not supported",
+	}
+	if !isServiceTierUnsupportedError(apiErr) {
+		t.Fatalf("expected service_tier unsupported error to be detected")
 	}
 }

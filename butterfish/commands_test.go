@@ -76,8 +76,8 @@ func TestParseCommandReasoningEffortDefaults(t *testing.T) {
 	if promptParsed.Command() != "prompt <prompt>" {
 		t.Fatalf("unexpected prompt command: %s", promptParsed.Command())
 	}
-	if promptOptions.Prompt.ReasoningEffort != "medium" {
-		t.Fatalf("expected prompt reasoning effort to default to medium, got %q", promptOptions.Prompt.ReasoningEffort)
+	if promptOptions.Prompt.ReasoningEffort != "high" {
+		t.Fatalf("expected prompt reasoning effort to default to high, got %q", promptOptions.Prompt.ReasoningEffort)
 	}
 
 	gencmdParsed, gencmdOptions, err := ctx.ParseCommand("gencmd list files")
@@ -87,8 +87,8 @@ func TestParseCommandReasoningEffortDefaults(t *testing.T) {
 	if gencmdParsed.Command() != "gencmd <prompt>" {
 		t.Fatalf("unexpected gencmd command: %s", gencmdParsed.Command())
 	}
-	if gencmdOptions.Gencmd.ReasoningEffort != "medium" {
-		t.Fatalf("expected gencmd reasoning effort to default to medium, got %q", gencmdOptions.Gencmd.ReasoningEffort)
+	if gencmdOptions.Gencmd.ReasoningEffort != "high" {
+		t.Fatalf("expected gencmd reasoning effort to default to high, got %q", gencmdOptions.Gencmd.ReasoningEffort)
 	}
 
 	execParsed, execOptions, err := ctx.ParseCommand("exec ls")
@@ -98,8 +98,8 @@ func TestParseCommandReasoningEffortDefaults(t *testing.T) {
 	if execParsed.Command() != "exec <command>" {
 		t.Fatalf("unexpected exec command: %s", execParsed.Command())
 	}
-	if execOptions.Exec.ReasoningEffort != "medium" {
-		t.Fatalf("expected exec reasoning effort to default to medium, got %q", execOptions.Exec.ReasoningEffort)
+	if execOptions.Exec.ReasoningEffort != "high" {
+		t.Fatalf("expected exec reasoning effort to default to high, got %q", execOptions.Exec.ReasoningEffort)
 	}
 }
 
@@ -138,7 +138,7 @@ func TestPromptIncludesReasoningEffort(t *testing.T) {
 	_, err := ctx.Prompt(&promptCommand{
 		Prompt:          "hello",
 		SysMsg:          "system prompt",
-		Model:           "gpt-5.4",
+		Model:           "gpt-5.5",
 		ReasoningEffort: "low",
 		NumTokens:       64,
 		NoColor:         true,
@@ -152,6 +152,9 @@ func TestPromptIncludesReasoningEffort(t *testing.T) {
 	}
 	if llm.streamRequests[0].ReasoningEffort != "low" {
 		t.Fatalf("expected prompt reasoning effort low, got %q", llm.streamRequests[0].ReasoningEffort)
+	}
+	if llm.streamRequests[0].ServiceTier != DefaultServiceTier {
+		t.Fatalf("expected prompt service tier %q, got %q", DefaultServiceTier, llm.streamRequests[0].ServiceTier)
 	}
 }
 
@@ -171,6 +174,9 @@ func TestGencmdIncludesReasoningEffort(t *testing.T) {
 	}
 	if llm.completionRequests[0].ReasoningEffort != "high" {
 		t.Fatalf("expected gencmd reasoning effort high, got %q", llm.completionRequests[0].ReasoningEffort)
+	}
+	if llm.completionRequests[0].ServiceTier != DefaultServiceTier {
+		t.Fatalf("expected gencmd service tier %q, got %q", DefaultServiceTier, llm.completionRequests[0].ServiceTier)
 	}
 }
 
@@ -193,5 +199,8 @@ func TestExecIncludesReasoningEffort(t *testing.T) {
 	}
 	if llm.streamRequests[0].ReasoningEffort != "low" {
 		t.Fatalf("expected exec reasoning effort low, got %q", llm.streamRequests[0].ReasoningEffort)
+	}
+	if llm.streamRequests[0].ServiceTier != DefaultServiceTier {
+		t.Fatalf("expected exec service tier %q, got %q", DefaultServiceTier, llm.streamRequests[0].ServiceTier)
 	}
 }

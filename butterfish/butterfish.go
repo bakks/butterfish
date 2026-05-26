@@ -46,6 +46,7 @@ type ButterfishConfig struct {
 	// Found at https://platform.openai.com/account/api-keys
 	OpenAIToken  string
 	BaseURL      string
+	ServiceTier  string        // Responses API service tier, e.g. priority for fast mode
 	TokenTimeout time.Duration // how long to wait for a token before timing out
 
 	// LLM API communication client that implements the LLM interface
@@ -185,7 +186,9 @@ var GruvboxLight = ColorScheme{
 	Grey:       "#928374",
 }
 
-const BestCompletionModel = "gpt-5.4"
+const BestCompletionModel = "gpt-5.5"
+const DefaultReasoningEffort = "high"
+const DefaultServiceTier = "priority"
 
 func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
@@ -194,7 +197,8 @@ func MakeButterfishConfig() *ButterfishConfig {
 		Verbose:              0,
 		ColorScheme:          colorScheme,
 		Styles:               ColorSchemeToStyles(colorScheme),
-		ShellReasoningEffort: "medium",
+		ServiceTier:          DefaultServiceTier,
+		ShellReasoningEffort: DefaultReasoningEffort,
 		GencmdModel:          BestCompletionModel,
 		GencmdMaxTokens:      512,
 		ExeccheckModel:       BestCompletionModel,

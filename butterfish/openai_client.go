@@ -29,6 +29,9 @@ type OpenAIClient struct {
 
 	reasoningMutex       sync.RWMutex
 	reasoningUnsupported map[string]bool
+
+	serviceTierMutex       sync.RWMutex
+	serviceTierUnsupported map[string]bool
 }
 
 func NewOpenAIClient(token, baseURL string) *OpenAIClient {
@@ -43,8 +46,9 @@ func NewOpenAIClient(token, baseURL string) *OpenAIClient {
 
 	client := openai.NewClient(opts...)
 	return &OpenAIClient{
-		client:               client,
-		reasoningUnsupported: make(map[string]bool),
+		client:                 client,
+		reasoningUnsupported:   make(map[string]bool),
+		serviceTierUnsupported: make(map[string]bool),
 	}
 }
 
@@ -63,6 +67,14 @@ func normalizeBaseURL(baseURL string) string {
 
 func normalizeModelKey(model string) string {
 	return strings.ToLower(strings.TrimSpace(model))
+}
+
+func normalizeServiceTier(tier string) string {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier == "fast" {
+		return "priority"
+	}
+	return tier
 }
 
 func (this *OpenAIClient) isReasoningUnsupportedForModel(model string) bool {
@@ -115,6 +127,61 @@ func isReasoningUnsupportedError(err error) bool {
 	return strings.Contains(errLower, "reasoning") &&
 		(strings.Contains(errLower, "not supported") ||
 			strings.Contains(errLower, "unsupported") ||
+			strings.Contains(errLower, "unknown parameter"))
+}
+
+func (this *OpenAIClient) isServiceTierUnsupported(tier string) bool {
+	tier = normalizeServiceTier(tier)
+	if tier == "" {
+		return false
+	}
+
+	this.serviceTierMutex.RLock()
+	unsupported := this.serviceTierUnsupported[tier]
+	this.serviceTierMutex.RUnlock()
+	return unsupported
+}
+
+func (this *OpenAIClient) markServiceTierUnsupported(tier string) {
+	tier = normalizeServiceTier(tier)
+	if tier == "" {
+		return
+	}
+
+	this.serviceTierMutex.Lock()
+	this.serviceTierUnsupported[tier] = true
+	this.serviceTierMutex.Unlock()
+}
+
+func isServiceTierUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) {
+		if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+			paramLower := strings.ToLower(apiErr.Param)
+			if strings.Contains(paramLower, "service_tier") {
+				return true
+			}
+			msgLower := strings.ToLower(apiErr.Message)
+			if strings.Contains(msgLower, "service_tier") &&
+				(strings.Contains(msgLower, "not supported") ||
+					strings.Contains(msgLower, "unsupported") ||
+					strings.Contains(msgLower, "invalid") ||
+					strings.Contains(msgLower, "unknown parameter")) {
+				return true
+			}
+		}
+		return false
+	}
+
+	errLower := strings.ToLower(err.Error())
+	return strings.Contains(errLower, "service_tier") &&
+		(strings.Contains(errLower, "not supported") ||
+			strings.Contains(errLower, "unsupported") ||
+			strings.Contains(errLower, "invalid") ||
 			strings.Contains(errLower, "unknown parameter"))
 }
 
@@ -322,12 +389,16 @@ func buildResponseParams(request *util.CompletionRequest, reasoningEffort string
 	params := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(request.Model),
 	}
+	serviceTier := normalizeServiceTier(request.ServiceTier)
 
 	if request.SystemMessage != "" {
 		params.Instructions = param.NewOpt(request.SystemMessage)
 	}
 	if request.MaxTokens > 0 {
 		params.MaxOutputTokens = param.NewOpt(int64(request.MaxTokens))
+	}
+	if serviceTier != "" {
+		params.ServiceTier = responses.ResponseNewParamsServiceTier(serviceTier)
 	}
 	if reasoningEffort != "" {
 		params.Reasoning = shared.ReasoningParam{
@@ -452,13 +523,18 @@ func logCompletionRequest(request *util.CompletionRequest, inputItems responses.
 	if reasoningEffort != "" {
 		reasoning = reasoningEffort
 	}
+	serviceTier := "(default)"
+	if normalized := normalizeServiceTier(request.ServiceTier); normalized != "" {
+		serviceTier = normalized
+	}
 
 	box := LoggingBox{
 		Title: "LLM Request",
-		Content: fmt.Sprintf("model: %s\nmax_tokens: %d\nreasoning_effort: %s",
+		Content: fmt.Sprintf("model: %s\nmax_tokens: %d\nreasoning_effort: %s\nservice_tier: %s",
 			request.Model,
 			request.MaxTokens,
 			reasoning,
+			serviceTier,
 		),
 		Color: 0,
 	}
@@ -583,12 +659,21 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 		}
 		reasoningEffort = ""
 	}
+	serviceTier := normalizeServiceTier(request.ServiceTier)
+	if serviceTier != "" && this.isServiceTierUnsupported(serviceTier) {
+		if request.Verbose {
+			log.Printf("Service tier disabled (requested tier=%q): tier is cached as unsupported.", serviceTier)
+		}
+		serviceTier = ""
+	}
 
-	params := buildResponseParams(request, reasoningEffort)
+	effectiveRequest := *request
+	effectiveRequest.ServiceTier = serviceTier
+	params := buildResponseParams(&effectiveRequest, reasoningEffort)
 	if request.Verbose {
 		inputItems := buildInputItems(request)
 		tools := buildTools(request.Functions, request.Tools)
-		logCompletionRequest(request, inputItems, tools, reasoningEffort)
+		logCompletionRequest(&effectiveRequest, inputItems, tools, reasoningEffort)
 	}
 	var response *responses.Response
 
@@ -597,12 +682,29 @@ func (this *OpenAIClient) Completion(request *util.CompletionRequest) (*util.Com
 		response, innerErr = this.client.Responses.New(request.Ctx, params)
 		return innerErr
 	})
+	if err != nil && serviceTier != "" && isServiceTierUnsupportedError(err) {
+		log.Printf("Responses API rejected service_tier=%q: %v", serviceTier, err)
+		this.markServiceTierUnsupported(serviceTier)
+		log.Printf("Retrying without service_tier.")
+
+		serviceTier = ""
+		effectiveRequest.ServiceTier = ""
+		params = buildResponseParams(&effectiveRequest, reasoningEffort)
+		err = withExponentialBackoff(func() error {
+			var innerErr error
+			response, innerErr = this.client.Responses.New(request.Ctx, params)
+			return innerErr
+		})
+		if err == nil {
+			log.Printf("Retry without service_tier succeeded.")
+		}
+	}
 	if err != nil && reasoningEffort != "" && isReasoningUnsupportedError(err) {
 		log.Printf("Model %s rejected reasoning parameter (effort=%q): %v", request.Model, reasoningEffort, err)
 		this.markReasoningUnsupportedForModel(request.Model)
 		log.Printf("Retrying model %s without reasoning parameter.", request.Model)
 
-		params = buildResponseParams(request, "")
+		params = buildResponseParams(&effectiveRequest, "")
 		err = withExponentialBackoff(func() error {
 			var innerErr error
 			response, innerErr = this.client.Responses.New(request.Ctx, params)
@@ -667,12 +769,21 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		}
 		reasoningEffort = ""
 	}
+	serviceTier := normalizeServiceTier(request.ServiceTier)
+	if serviceTier != "" && this.isServiceTierUnsupported(serviceTier) {
+		if request.Verbose {
+			log.Printf("Service tier disabled (requested tier=%q): tier is cached as unsupported.", serviceTier)
+		}
+		serviceTier = ""
+	}
 
-	params := buildResponseParams(request, reasoningEffort)
+	effectiveRequest := *request
+	effectiveRequest.ServiceTier = serviceTier
+	params := buildResponseParams(&effectiveRequest, reasoningEffort)
 	if request.Verbose {
 		inputItems := buildInputItems(request)
 		tools := buildTools(request.Functions, request.Tools)
-		logCompletionRequest(request, inputItems, tools, reasoningEffort)
+		logCompletionRequest(&effectiveRequest, inputItems, tools, reasoningEffort)
 	}
 
 	var stream *ssestream.Stream[responses.ResponseStreamEventUnion]
@@ -708,6 +819,26 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		innerErr = stream.Err()
 		return innerErr
 	})
+	if err != nil && serviceTier != "" && isServiceTierUnsupportedError(err) {
+		log.Printf("Responses API rejected service_tier=%q for streaming request: %v", serviceTier, err)
+		this.markServiceTierUnsupported(serviceTier)
+		log.Printf("Retrying streaming request without service_tier.")
+		if stream != nil {
+			stream.Close()
+		}
+
+		serviceTier = ""
+		effectiveRequest.ServiceTier = ""
+		params = buildResponseParams(&effectiveRequest, reasoningEffort)
+		err = withExponentialBackoff(func() error {
+			stream = this.client.Responses.NewStreaming(innerCtx, params)
+			innerErr = stream.Err()
+			return innerErr
+		})
+		if err == nil {
+			log.Printf("Streaming retry without service_tier succeeded.")
+		}
+	}
 	if err != nil && reasoningEffort != "" && isReasoningUnsupportedError(err) {
 		log.Printf("Model %s rejected reasoning parameter for streaming request (effort=%q): %v", request.Model, reasoningEffort, err)
 		this.markReasoningUnsupportedForModel(request.Model)
@@ -716,7 +847,7 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 			stream.Close()
 		}
 
-		params = buildResponseParams(request, "")
+		params = buildResponseParams(&effectiveRequest, "")
 		err = withExponentialBackoff(func() error {
 			stream = this.client.Responses.NewStreaming(innerCtx, params)
 			innerErr = stream.Err()

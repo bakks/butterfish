@@ -78,19 +78,20 @@ type CliConfig struct {
 	Log          bool             `short:"L" default:"false" help:"Write verbose content to a log file rather than stdout, usually /var/tmp/butterfish.log"`
 	Version      kong.VersionFlag `short:"V" help:"Print version information and exit."`
 	BaseURL      string           `short:"u" default:"https://api.openai.com/v1/responses" help:"Base URL for OpenAI-compatible API. The default points directly at the Responses endpoint."`
+	ServiceTier  string           `default:"priority" help:"Responses API service tier for model requests. Use priority for fast mode; set empty to omit."`
 	TokenTimeout int              `short:"z" default:"30000" help:"Timeout before first prompt token is received and between individual tokens. In milliseconds."`
 	LightColor   bool             `short:"l" default:"false" help:"Light color mode, appropriate for a terminal with a white(ish) background"`
 
 	Shell struct {
 		Bin                       string `short:"b" help:"Shell to use (e.g. /bin/zsh), defaults to $SHELL."`
-		Model                     string `short:"m" default:"gpt-5.4" help:"Model for when the user manually enters a prompt."`
-		ReasoningEffort           string `short:"r" default:"medium" help:"Reasoning effort for shell prompting, Agent Mode, and Action Mode. Ignored for autosuggest and automatically disabled for models that don't support reasoning."`
+		Model                     string `short:"m" default:"gpt-5.5" help:"Model for when the user manually enters a prompt."`
+		ReasoningEffort           string `short:"r" default:"high" help:"Reasoning effort for shell prompting, Agent Mode, and Action Mode. Ignored for autosuggest and automatically disabled for models that don't support reasoning."`
 		AutosuggestDisabled       bool   `short:"A" default:"false" help:"Disable autosuggest."`
-		AutosuggestModel          string `short:"a" default:"gpt-5.4" help:"Model for autosuggest"`
+		AutosuggestModel          string `short:"a" default:"gpt-5.5" help:"Model for autosuggest"`
 		AutosuggestTimeout        int    `short:"t" default:"500" help:"Delay after typing before autosuggest (lower values trigger more calls and are more expensive). In milliseconds."`
 		NewlineAutosuggestTimeout int    `short:"T" default:"3500" help:"Timeout for autosuggest on a fresh line, i.e. before a command has started. Negative values disable. In milliseconds."`
 		NoCommandPrompt           bool   `short:"p" default:"false" help:"Don't change command prompt (shell PS1 variable). If not set, an emoji will be added to the prompt as a reminder you're in Shell Mode."`
-		MaxPromptTokens           int    `short:"P" default:"16384" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
+		MaxPromptTokens           int    `short:"P" default:"32768" help:"Maximum number of tokens, we restrict calls to this size regardless of model capabilities."`
 		MaxHistoryBlockTokens     int    `short:"H" default:"1024" help:"Maximum number of tokens of each block of history. For example, if a command has a very long output, it will be truncated to this length when sending the shell's history."`
 		MaxResponseTokens         int    `short:"R" default:"2048" help:"Maximum number of tokens in a response when prompting."`
 	} `cmd:"" help:"${shell_help}"`
@@ -162,6 +163,7 @@ func makeButterfishConfig(options *CliConfig) *bf.ButterfishConfig {
 	config := bf.MakeButterfishConfig()
 	config.OpenAIToken = getOpenAIToken()
 	config.BaseURL = options.BaseURL
+	config.ServiceTier = options.ServiceTier
 	config.PromptLibraryPath = defaultPromptPath
 	config.TokenTimeout = time.Duration(options.TokenTimeout) * time.Millisecond
 

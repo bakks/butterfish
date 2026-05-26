@@ -32,7 +32,7 @@ import (
 // the prompt context
 const DEFAULT_AUTOSUGGEST_ENCODER = tiktoken.MODEL_CL100K_BASE
 const DEFAULT_PROMPT_ENCODER = tiktoken.MODEL_CL100K_BASE
-const defaultShellMaxPromptTokens = 16384
+const defaultShellMaxPromptTokens = 32768
 const gpt5ShellMaxPromptTokens = 65536
 
 const ESC_CUP = "\x1b[6n" // Request the cursor position
@@ -146,6 +146,20 @@ func shellPromptWindowForModel(model string, configuredMax int) int {
 	}
 
 	return min(NumTokensForModel(model), effectiveMax)
+}
+
+func usesDefaultEncoderForModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gpt-5") ||
+		strings.HasPrefix(model, "gpt-4.1") ||
+		strings.HasPrefix(model, "gpt-4o")
+}
+
+func encodingForModelOrDefault(model string, defaultEncoding string) (*tiktoken.Tiktoken, error) {
+	if usesDefaultEncoderForModel(model) {
+		return tiktoken.GetEncoding(defaultEncoding)
+	}
+	return tiktoken.EncodingForModel(model)
 }
 
 type Tokenization struct {
@@ -1740,6 +1754,7 @@ func (this *ShellState) PrintStatus() {
 
 	text += fmt.Sprintf("Prompting model:       %s\n", this.Butterfish.Config.ShellPromptModel)
 	text += fmt.Sprintf("Reasoning effort:      %s\n", this.configuredReasoningEffort())
+	text += fmt.Sprintf("Service tier:          %s\n", normalizeServiceTier(this.Butterfish.Config.ServiceTier))
 	text += fmt.Sprintf("Prompt history window: %d tokens\n", this.PromptMaxTokens)
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
@@ -2224,13 +2239,14 @@ func supportsShellToolModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(model, "gpt-5.1") ||
 		strings.HasPrefix(model, "gpt-5.2") ||
-		strings.HasPrefix(model, "gpt-5.4")
+		strings.HasPrefix(model, "gpt-5.4") ||
+		strings.HasPrefix(model, "gpt-5.5")
 }
 
 func (this *ShellState) configuredReasoningEffort() string {
 	effort := strings.ToLower(strings.TrimSpace(this.Butterfish.Config.ShellReasoningEffort))
 	if effort == "" {
-		return "medium"
+		return DefaultReasoningEffort
 	}
 	return effort
 }
@@ -2308,6 +2324,7 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		Model:           this.Butterfish.Config.ShellPromptModel,
 		MaxTokens:       tokensForAnswer,
 		ReasoningEffort: this.configuredReasoningEffort(),
+		ServiceTier:     strings.TrimSpace(this.Butterfish.Config.ServiceTier),
 		HistoryBlocks:   historyBlocks,
 		SystemMessage:   sysMsg,
 		Functions:       functions,
@@ -2351,6 +2368,7 @@ func (this *ShellState) actionModePrompt(lastPrompt string) {
 		Model:           this.Butterfish.Config.ShellPromptModel,
 		MaxTokens:       tokensForAnswer,
 		ReasoningEffort: this.configuredReasoningEffort(),
+		ServiceTier:     strings.TrimSpace(this.Butterfish.Config.ServiceTier),
 		HistoryBlocks:   historyBlocks,
 		SystemMessage:   sysMsg,
 		Functions:       actionModeFunctions,
@@ -2588,6 +2606,7 @@ func (this *ShellState) SendPrompt() {
 		Model:           this.Butterfish.Config.ShellPromptModel,
 		MaxTokens:       tokensReservedForAnswer,
 		ReasoningEffort: this.configuredReasoningEffort(),
+		ServiceTier:     strings.TrimSpace(this.Butterfish.Config.ServiceTier),
 		HistoryBlocks:   historyBlocks,
 		SystemMessage:   sysMsg,
 		Verbose:         this.Butterfish.Config.Verbose > 0,
@@ -2793,7 +2812,7 @@ func (this *ShellState) ClearAutosuggest(colorStr string) {
 func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
 	if this.AutosuggestEncoder == nil {
 		modelName := this.Butterfish.Config.ShellAutosuggestModel
-		encoder, err := tiktoken.EncodingForModel(modelName)
+		encoder, err := encodingForModelOrDefault(modelName, DEFAULT_AUTOSUGGEST_ENCODER)
 		if err != nil {
 			log.Printf("Warning: Error getting encoder for autosuggest model %s: %s", modelName, err)
 			encoder, err = tiktoken.GetEncoding(DEFAULT_AUTOSUGGEST_ENCODER)
@@ -2811,7 +2830,7 @@ func (this *ShellState) getAutosuggestEncoder() *tiktoken.Tiktoken {
 func (this *ShellState) getPromptEncoder() *tiktoken.Tiktoken {
 	if this.PromptEncoder == nil {
 		modelName := this.Butterfish.Config.ShellPromptModel
-		encoder, err := tiktoken.EncodingForModel(modelName)
+		encoder, err := encodingForModelOrDefault(modelName, DEFAULT_PROMPT_ENCODER)
 		if err != nil {
 			log.Printf("Warning: Error getting encoder for prompt model %s: %s", modelName, err)
 			encoder, err = tiktoken.GetEncoding(DEFAULT_PROMPT_ENCODER)
@@ -2874,6 +2893,7 @@ func (this *ShellState) RequestAutosuggest(delay time.Duration, command string) 
 		suggestPrompt,
 		this.Butterfish.LLMClient,
 		this.Butterfish.Config.ShellAutosuggestModel,
+		this.Butterfish.Config.ServiceTier,
 		this.Butterfish.Config.Verbose > 1,
 		this.History,
 		this.Butterfish.Config.ShellMaxHistoryBlockTokens,
@@ -2891,6 +2911,7 @@ func RequestCancelableAutosuggest(
 	rawPrompt string,
 	llmClient LLM,
 	model string,
+	serviceTier string,
 	verbose bool,
 	history *ShellHistory,
 	maxHistoryBlockTokens int,
@@ -2930,11 +2951,12 @@ func RequestCancelableAutosuggest(
 	}
 
 	request := &util.CompletionRequest{
-		Ctx:       ctx,
-		Prompt:    prmpt,
-		Model:     model,
-		MaxTokens: reserveForAnswer,
-		Verbose:   verbose,
+		Ctx:         ctx,
+		Prompt:      prmpt,
+		Model:       model,
+		MaxTokens:   reserveForAnswer,
+		ServiceTier: strings.TrimSpace(serviceTier),
+		Verbose:     verbose,
 	}
 
 	response, err := llmClient.Completion(request)

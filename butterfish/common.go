@@ -15,6 +15,7 @@ import (
 
 // See https://platform.openai.com/docs/models/overview
 var MODEL_TO_NUM_TOKENS = map[string]int{
+	"gpt-5.5":                     1050000,
 	"gpt-5.4":                     1050000,
 	"gpt-5.2":                     400000,
 	"gpt-5.2-chat-latest":         128000,
@@ -59,6 +60,7 @@ var MODEL_TO_NUM_TOKENS = map[string]int{
 // these token numbers come from
 // https://github.com/pkoukk/tiktoken-go#counting-tokens-for-chat-api-calls
 var MODEL_TO_TOKENS_PER_MESSAGE = map[string]int{
+	"gpt-5.5":                3,
 	"gpt-5.4":                3,
 	"gpt-5.2":                3,
 	"gpt-5.2-chat-latest":    3,

@@ -234,7 +234,7 @@ func TestActionModeFunctionDeclineExitsMode(t *testing.T) {
 func TestActionModePromptUsesCustomPromptAndDeclineFunction(t *testing.T) {
 	llm := &recordingLLM{streamResponse: &util.CompletionResponse{}}
 	config := MakeButterfishConfig()
-	config.ShellPromptModel = "gpt-5.4"
+	config.ShellPromptModel = "gpt-5.5"
 	config.ShellReasoningEffort = "medium"
 	config.ShellMaxHistoryBlockTokens = 1024
 
@@ -285,7 +285,7 @@ func TestActionModePromptUsesCustomPromptAndDeclineFunction(t *testing.T) {
 func TestActionModePromptIncludesRecentHistory(t *testing.T) {
 	llm := &recordingLLM{streamResponse: &util.CompletionResponse{}}
 	config := MakeButterfishConfig()
-	config.ShellPromptModel = "gpt-5.4"
+	config.ShellPromptModel = "gpt-5.5"
 	config.ShellReasoningEffort = "medium"
 	config.ShellMaxHistoryBlockTokens = 1024
 
@@ -339,7 +339,7 @@ func TestActionModePromptIncludesRecentHistory(t *testing.T) {
 func TestActionModeStartDoubleAtEnablesImmediateExecute(t *testing.T) {
 	llm := &recordingLLM{streamResponse: &util.CompletionResponse{}}
 	config := MakeButterfishConfig()
-	config.ShellPromptModel = "gpt-5.4"
+	config.ShellPromptModel = "gpt-5.5"
 	config.ShellReasoningEffort = "medium"
 	config.ShellMaxHistoryBlockTokens = 1024
 

@@ -84,10 +84,11 @@ How does this work? Shell mode _wraps_ your shell rather than replacing it.
 
 This pattern is shockingly effective because your shell history becomes the AI chat context. For example, if you `cat` a file to print it out then the AI will see it. If you tried a command that failed, the AI can see the command and the error.
 
-Shell mode defaults to using `gpt-5.4` for prompting, you can override it with:
+Shell mode defaults to using `gpt-5.5` with high reasoning effort and the
+Responses API priority service tier for fast mode. You can override the model with:
 
 ```bash
-butterfish shell -m gpt-5.4
+butterfish shell -m gpt-5.5
 ```
 
 ### Shell Mode Command Reference
@@ -135,26 +136,38 @@ Flags:
   -v, --verbose                    Verbose mode, prints full LLM prompts
                                    (sometimes to log file). Use multiple times
                                    for more verbosity, e.g. -vv.
+  -L, --log                        Write verbose content to a log file rather
+                                   than stdout, usually /var/tmp/butterfish.log
   -V, --version                    Print version information and exit.
+  -u, --base-url="https://api.openai.com/v1/responses"
+                                   Base URL for OpenAI-compatible API.
+                                   The default points directly at the Responses
+                                   endpoint.
+      --service-tier="priority"    Responses API service tier for model
+                                   requests. Use priority for fast mode;
+                                   set empty to omit.
+  -z, --token-timeout=30000        Timeout before first prompt token is
+                                   received and between individual tokens.
+                                   In milliseconds.
+  -l, --light-color                Light color mode, appropriate for a terminal
+                                   with a white(ish) background
 
   -b, --bin=STRING                 Shell to use (e.g. /bin/zsh), defaults to
                                    $SHELL.
-  -m, --prompt-model="gpt-5.4"
-                                   Model for when the user manually enters a
+  -m, --model="gpt-5.5"            Model for when the user manually enters a
                                    prompt.
-  -r, --reasoning-effort="medium"
+  -r, --reasoning-effort="high"
                                    Reasoning effort for shell prompting, Agent
                                    Mode, and Action Mode. Ignored for
-                                   autosuggest and
-                                   automatically disabled for models that don't
-                                   support reasoning.
+                                   autosuggest and automatically disabled for
+                                   models that don't support reasoning.
   -A, --autosuggest-disabled       Disable autosuggest.
-  -a, --autosuggest-model="gpt-5.4"
+  -a, --autosuggest-model="gpt-5.5"
                                    Model for autosuggest
-  -t, --autosuggest-timeout=400    Delay after typing before autosuggest (lower
+  -t, --autosuggest-timeout=500    Delay after typing before autosuggest (lower
                                    values trigger more calls and are more
                                    expensive). In milliseconds.
-  -T, --newline-autosuggest-timeout=2500
+  -T, --newline-autosuggest-timeout=3500
                                    Timeout for autosuggest on a fresh line, i.e.
                                    before a command has started. Negative values
                                    disable. In milliseconds.
@@ -162,13 +175,17 @@ Flags:
                                    variable). If not set, an emoji will be added
                                    to the prompt as a reminder you're in Shell
                                    Mode.
-  -l, --light-color                Light color mode, appropriate for a terminal
-                                   with a white(ish) background
-  -H, --max-history-block-tokens=512
+  -P, --max-prompt-tokens=32768    Maximum number of tokens, we restrict
+                                   calls to this size regardless of model
+                                   capabilities.
+  -H, --max-history-block-tokens=1024
                                    Maximum number of tokens of each block of
                                    history. For example, if a command has a very
                                    long output, it will be truncated to this
                                    length when sending the shell's history.
+  -R, --max-response-tokens=2048
+                                   Maximum number of tokens in a response when
+                                   prompting.
 
 ```
 
@@ -271,7 +288,7 @@ Run an LLM prompt without wrapping, stream results back. This is a
 straight-through call to the LLM from the command line with a given prompt.
 This accepts piped input, if there is both piped input and a prompt then they
 will be concatenated together (prompt first). It is recommended that you wrap
-the prompt with quotes. The default GPT model is gpt-5.4.
+the prompt with quotes. The default GPT model is gpt-5.5.
 
 Arguments:
   [<prompt> ...]    Prompt to use.
@@ -283,8 +300,8 @@ Flags:
                                  more verbosity, e.g. -vv.
   -V, --version                  Print version information and exit.
 
-  -m, --model="gpt-5.4"    GPT model to use for the prompt.
-  -r, --reasoning-effort="medium"
+  -m, --model="gpt-5.5"            LLM to use for the prompt.
+  -r, --reasoning-effort="high"
                                  Reasoning effort for the prompt request.
                                  Automatically disabled for models that don't
                                  support reasoning.
@@ -319,7 +336,7 @@ Flags:
                    file). Use multiple times for more verbosity, e.g. -vv.
   -V, --version    Print version information and exit.
 
-  -r, --reasoning-effort="medium"
+  -r, --reasoning-effort="high"
                    Reasoning effort for command generation. Automatically
                    disabled for models that don't support reasoning.
   -f, --force      Execute the command without prompting.
@@ -331,7 +348,7 @@ Flags:
 ### `exec` - Run a command and suggest a fix if it fails
 
 Use `-r` to control the reasoning effort for the fix-suggestion request. It
-defaults to `medium`.
+defaults to `high`.
 
 ```
 butterfish exec 'find -nam foobar'
@@ -412,7 +429,7 @@ Commands:
     straight-through call to the LLM from the command line with a given prompt.
     This accepts piped input, if there is both piped input and a prompt then
     they will be concatenated together (prompt first). It is recommended that
-    you wrap the prompt with quotes. The default GPT model is gpt-5.4.
+    you wrap the prompt with quotes. The default GPT model is gpt-5.5.
 
   gencmd <prompt> ...
     Generate a shell command from a prompt, i.e. pass in what you want, a shell

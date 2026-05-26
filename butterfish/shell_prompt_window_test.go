@@ -7,7 +7,7 @@ import (
 
 func TestShellPromptWindowForModel(t *testing.T) {
 	t.Run("gpt-5 default bumps to 64k", func(t *testing.T) {
-		got := shellPromptWindowForModel("gpt-5.4", defaultShellMaxPromptTokens)
+		got := shellPromptWindowForModel("gpt-5.5", defaultShellMaxPromptTokens)
 		if got != gpt5ShellMaxPromptTokens {
 			t.Fatalf("expected %d, got %d", gpt5ShellMaxPromptTokens, got)
 		}
@@ -21,23 +21,33 @@ func TestShellPromptWindowForModel(t *testing.T) {
 	})
 
 	t.Run("explicit lower max is respected", func(t *testing.T) {
-		got := shellPromptWindowForModel("gpt-5.4", 8000)
+		got := shellPromptWindowForModel("gpt-5.5", 8000)
 		if got != 8000 {
 			t.Fatalf("expected 8000, got %d", got)
 		}
 	})
 }
 
-func TestNumTokensForModelGPT54(t *testing.T) {
-	got := NumTokensForModel("gpt-5.4")
+func TestNumTokensForModelGPT55(t *testing.T) {
+	got := NumTokensForModel("gpt-5.5")
 	if got != 1050000 {
 		t.Fatalf("expected 1050000, got %d", got)
 	}
 }
 
+func TestEncodingForModelOrDefaultGPT55(t *testing.T) {
+	encoder, err := encodingForModelOrDefault("gpt-5.5", DEFAULT_PROMPT_ENCODER)
+	if err != nil {
+		t.Fatalf("expected fallback encoder for gpt-5.5, got error: %v", err)
+	}
+	if encoder == nil {
+		t.Fatal("expected fallback encoder for gpt-5.5")
+	}
+}
+
 func TestSupportsShellToolModel(t *testing.T) {
-	if !supportsShellToolModel("gpt-5.4") {
-		t.Fatal("expected gpt-5.4 to support shell tool")
+	if !supportsShellToolModel("gpt-5.5") {
+		t.Fatal("expected gpt-5.5 to support shell tool")
 	}
 	if supportsShellToolModel("gpt-5") {
 		t.Fatal("did not expect gpt-5 to support shell tool")
