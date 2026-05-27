@@ -848,6 +848,14 @@ func responseIncompleteError(response *responses.Response) error {
 	}
 }
 
+func streamingTimeoutError(timeout time.Duration, responseID string) error {
+	msg := fmt.Sprintf("Timed out waiting for streaming response, this call set a timeout of %v between streaming token responses, set by the --token-timeout (-z) parameter.", timeout)
+	if responseID != "" {
+		msg = fmt.Sprintf("%s response_id: %s", msg, responseID)
+	}
+	return errors.New(msg)
+}
+
 func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
 	reasoningEffort := strings.TrimSpace(request.ReasoningEffort)
 	if reasoningEffort != "" && this.isReasoningUnsupportedForModel(request.Model) {
@@ -881,7 +889,38 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	innerCtx, cancel := context.WithCancel(request.Ctx)
 	gotChunk := make(chan bool)
 	defer close(gotChunk)
+	var streamStateMu sync.Mutex
 	var chunkTimeoutErr error
+	responseID := ""
+
+	setResponseID := func(id string) {
+		if id == "" {
+			return
+		}
+		streamStateMu.Lock()
+		if responseID == "" {
+			responseID = id
+		}
+		streamStateMu.Unlock()
+	}
+
+	getResponseID := func() string {
+		streamStateMu.Lock()
+		defer streamStateMu.Unlock()
+		return responseID
+	}
+
+	setChunkTimeoutErr := func(err error) {
+		streamStateMu.Lock()
+		chunkTimeoutErr = err
+		streamStateMu.Unlock()
+	}
+
+	getChunkTimeoutErr := func() error {
+		streamStateMu.Lock()
+		defer streamStateMu.Unlock()
+		return chunkTimeoutErr
+	}
 
 	timeoutRoutine := func() {
 		if request.TokenTimeout == 0 {
@@ -890,7 +929,7 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 
 		select {
 		case <-time.After(request.TokenTimeout):
-			chunkTimeoutErr = fmt.Errorf("Timed out waiting for streaming response, this call set a timeout of %v between streaming token responses, set by the --token-timeout (-z) parameter.", request.TokenTimeout)
+			setChunkTimeoutErr(streamingTimeoutError(request.TokenTimeout, getResponseID()))
 			cancel()
 		case <-innerCtx.Done():
 		case <-gotChunk:
@@ -945,8 +984,8 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		}
 	}
 	if err != nil {
-		if chunkTimeoutErr != nil {
-			return nil, chunkTimeoutErr
+		if timeoutErr := getChunkTimeoutErr(); timeoutErr != nil {
+			return nil, timeoutErr
 		}
 		if strings.Contains(err.Error(), ERR_429) {
 			return nil, errors.New(ERR_429_HELP)
@@ -958,7 +997,6 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	var completion strings.Builder
 	toolCalls := map[string]*streamToolCallInfo{}
 	toolCallOrder := []string{}
-	responseID := ""
 	var completedResponse *responses.Response
 	shellCallMap := map[string]*util.ShellCall{}
 	shellCallOrder := []string{}
@@ -974,20 +1012,14 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		switch event.Type {
 		case "response.created":
 			created := event.AsResponseCreated()
-			if responseID == "" {
-				responseID = created.Response.ID
-			}
+			setResponseID(created.Response.ID)
 		case "response.completed":
 			completed := event.AsResponseCompleted()
-			if responseID == "" {
-				responseID = completed.Response.ID
-			}
+			setResponseID(completed.Response.ID)
 			completedResponse = &completed.Response
 		case "response.incomplete":
 			incomplete := event.AsResponseIncomplete()
-			if responseID == "" {
-				responseID = incomplete.Response.ID
-			}
+			setResponseID(incomplete.Response.ID)
 			completedResponse = &incomplete.Response
 		case "response.output_text.delta":
 			delta := event.AsResponseOutputTextDelta()
@@ -1087,8 +1119,8 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	}
 
 	if stream.Err() != nil {
-		if chunkTimeoutErr != nil {
-			return nil, chunkTimeoutErr
+		if timeoutErr := getChunkTimeoutErr(); timeoutErr != nil {
+			return nil, timeoutErr
 		}
 		if strings.Contains(stream.Err().Error(), ERR_429) {
 			return nil, errors.New(ERR_429_HELP)
@@ -1096,8 +1128,8 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		return nil, stream.Err()
 	}
 
-	if chunkTimeoutErr != nil {
-		return nil, chunkTimeoutErr
+	if timeoutErr := getChunkTimeoutErr(); timeoutErr != nil {
+		return nil, timeoutErr
 	}
 
 	toolCallResults := make([]*util.ToolCall, 0, len(toolCallOrder))
@@ -1138,8 +1170,8 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	incompleteErr := responseIncompleteError(completedResponse)
 	if request.Verbose {
 		responseText := completion.String()
-		if responseID != "" {
-			responseText = fmt.Sprintf("response_id: %s\n\n%s", responseID, responseText)
+		if id := getResponseID(); id != "" {
+			responseText = fmt.Sprintf("response_id: %s\n\n%s", id, responseText)
 		}
 		box := LoggingBox{
 			Title:   "LLM Response",
@@ -1161,8 +1193,8 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 			})
 		}
 		PrintLoggingBox(box)
-	} else if responseID != "" {
-		log.Printf("LLM response id: %s", responseID)
+	} else if id := getResponseID(); id != "" {
+		log.Printf("LLM response id: %s", id)
 	}
 	return final, incompleteErr
 }

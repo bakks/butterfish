@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bakks/butterfish/util"
 	openai "github.com/openai/openai-go/v3"
@@ -314,6 +315,29 @@ func TestResponseIncompleteErrorIgnoresOtherReasons(t *testing.T) {
 
 	if err := responseIncompleteError(resp); err != nil {
 		t.Fatalf("did not expect content filter to be reported as token limit: %v", err)
+	}
+}
+
+func TestStreamingTimeoutErrorIncludesResponseID(t *testing.T) {
+	err := streamingTimeoutError(30*time.Second, "resp_123")
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "30s") {
+		t.Fatalf("expected timeout duration in error, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "response_id: resp_123") {
+		t.Fatalf("expected response id in error, got %q", err.Error())
+	}
+}
+
+func TestStreamingTimeoutErrorOmitsEmptyResponseID(t *testing.T) {
+	err := streamingTimeoutError(30*time.Second, "")
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if strings.Contains(err.Error(), "response_id:") {
+		t.Fatalf("did not expect empty response id in error, got %q", err.Error())
 	}
 }
 
