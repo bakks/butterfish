@@ -777,11 +777,25 @@ type reasoningSummaryPrinter struct {
 	currentEndsWithLine bool
 }
 
+type normalColorSetter interface {
+	SetNormalColor(string)
+}
+
 func newReasoningSummaryPrinter(writer io.Writer, normalColor string) *reasoningSummaryPrinter {
 	return &reasoningSummaryPrinter{
 		writer:      writer,
 		normalColor: normalColor,
 	}
+}
+
+func (p *reasoningSummaryPrinter) setNormalColor(color string) {
+	if setter, ok := p.writer.(normalColorSetter); ok {
+		setter.SetNormalColor(color)
+	}
+}
+
+func (p *reasoningSummaryPrinter) reasoningColor() string {
+	return reasoningSummaryColors[p.lineIndex%len(reasoningSummaryColors)]
 }
 
 func (p *reasoningSummaryPrinter) WriteDelta(delta string) {
@@ -791,7 +805,8 @@ func (p *reasoningSummaryPrinter) WriteDelta(delta string) {
 
 	if !p.active {
 		p.writeString("\n")
-		p.writeString(reasoningSummaryColors[p.lineIndex%len(reasoningSummaryColors)])
+		p.setNormalColor(p.reasoningColor())
+		p.writeString(p.reasoningColor())
 		p.active = true
 		p.currentEndsWithLine = false
 	}
@@ -800,7 +815,8 @@ func (p *reasoningSummaryPrinter) WriteDelta(delta string) {
 		p.writeString(string(r))
 		if r == '\n' {
 			p.lineIndex++
-			p.writeString(reasoningSummaryColors[p.lineIndex%len(reasoningSummaryColors)])
+			p.setNormalColor(p.reasoningColor())
+			p.writeString(p.reasoningColor())
 			p.currentEndsWithLine = true
 		} else {
 			p.currentEndsWithLine = false
@@ -812,6 +828,7 @@ func (p *reasoningSummaryPrinter) FinishSummary() {
 	if !p.active {
 		return
 	}
+	p.setNormalColor(p.normalColor)
 	p.writeString(p.normalColor)
 	if !p.currentEndsWithLine {
 		p.writeString("\n")
@@ -849,11 +866,35 @@ func responseIncompleteError(response *responses.Response) error {
 }
 
 func streamingTimeoutError(timeout time.Duration, responseID string) error {
-	msg := fmt.Sprintf("Timed out waiting for streaming response, this call set a timeout of %v between streaming token responses, set by the --token-timeout (-z) parameter.", timeout)
+	msg := fmt.Sprintf("Timed out waiting for streaming response, this call set a timeout of %v between streaming events, set by the --token-timeout (-z) parameter.", timeout)
 	if responseID != "" {
 		msg = fmt.Sprintf("%s response_id: %s", msg, responseID)
 	}
 	return errors.New(msg)
+}
+
+func responseIDFromStreamEvent(event responses.ResponseStreamEventUnion) string {
+	switch event.Type {
+	case "response.created":
+		return event.AsResponseCreated().Response.ID
+	case "response.in_progress":
+		return event.AsResponseInProgress().Response.ID
+	case "response.completed":
+		return event.AsResponseCompleted().Response.ID
+	case "response.failed":
+		return event.AsResponseFailed().Response.ID
+	case "response.incomplete":
+		return event.AsResponseIncomplete().Response.ID
+	default:
+		return ""
+	}
+}
+
+func logResponseStreamEvent(event responses.ResponseStreamEventUnion, responseID string) {
+	if responseID == "" {
+		responseID = "(unknown)"
+	}
+	log.Printf("Responses stream event: type=%s response_id=%s sequence_number=%d", event.Type, responseID, event.SequenceNumber)
 }
 
 func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
@@ -883,15 +924,37 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 
 	var stream *ssestream.Stream[responses.ResponseStreamEventUnion]
 	var innerErr error
+	var streamMu sync.Mutex
 
 	// We already have a context that sets an overall timeout, but we also want to
 	// timeout if we don't get a chunk back for a while.
 	innerCtx, cancel := context.WithCancel(request.Ctx)
-	gotChunk := make(chan bool)
-	defer close(gotChunk)
+	defer cancel()
+	streamActivity := make(chan struct{}, 1)
 	var streamStateMu sync.Mutex
 	var chunkTimeoutErr error
 	responseID := ""
+
+	setStream := func(s *ssestream.Stream[responses.ResponseStreamEventUnion]) {
+		streamMu.Lock()
+		stream = s
+		streamMu.Unlock()
+	}
+
+	getStream := func() *ssestream.Stream[responses.ResponseStreamEventUnion] {
+		streamMu.Lock()
+		defer streamMu.Unlock()
+		return stream
+	}
+
+	closeStream := func() {
+		streamMu.Lock()
+		s := stream
+		streamMu.Unlock()
+		if s != nil {
+			s.Close()
+		}
+	}
 
 	setResponseID := func(id string) {
 		if id == "" {
@@ -922,43 +985,58 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		return chunkTimeoutErr
 	}
 
-	timeoutRoutine := func() {
-		if request.TokenTimeout == 0 {
-			panic("should not be called")
-		}
-
-		select {
-		case <-time.After(request.TokenTimeout):
-			setChunkTimeoutErr(streamingTimeoutError(request.TokenTimeout, getResponseID()))
-			cancel()
-		case <-innerCtx.Done():
-		case <-gotChunk:
-		}
-	}
+	go func() {
+		<-innerCtx.Done()
+		closeStream()
+	}()
 
 	if request.TokenTimeout > 0 {
-		go timeoutRoutine()
+		go func() {
+			timer := time.NewTimer(request.TokenTimeout)
+			defer timer.Stop()
+
+			for {
+				select {
+				case <-timer.C:
+					log.Printf("Responses stream timeout: response_id=%s timeout=%v", getResponseID(), request.TokenTimeout)
+					setChunkTimeoutErr(streamingTimeoutError(request.TokenTimeout, getResponseID()))
+					cancel()
+					closeStream()
+					return
+				case <-innerCtx.Done():
+					return
+				case <-streamActivity:
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(request.TokenTimeout)
+				}
+			}
+		}()
 	}
 
 	err := withExponentialBackoff(func() error {
-		stream = this.client.Responses.NewStreaming(innerCtx, params)
-		innerErr = stream.Err()
+		nextStream := this.client.Responses.NewStreaming(innerCtx, params)
+		setStream(nextStream)
+		innerErr = nextStream.Err()
 		return innerErr
 	})
 	if err != nil && serviceTier != "" && isServiceTierUnsupportedError(err) {
 		log.Printf("Responses API rejected service_tier=%q for streaming request: %v", serviceTier, err)
 		this.markServiceTierUnsupported(serviceTier)
 		log.Printf("Retrying streaming request without service_tier.")
-		if stream != nil {
-			stream.Close()
-		}
+		closeStream()
 
 		serviceTier = ""
 		effectiveRequest.ServiceTier = ""
 		params = buildResponseParams(&effectiveRequest, reasoningEffort)
 		err = withExponentialBackoff(func() error {
-			stream = this.client.Responses.NewStreaming(innerCtx, params)
-			innerErr = stream.Err()
+			nextStream := this.client.Responses.NewStreaming(innerCtx, params)
+			setStream(nextStream)
+			innerErr = nextStream.Err()
 			return innerErr
 		})
 		if err == nil {
@@ -969,14 +1047,13 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		log.Printf("Model %s rejected reasoning parameter for streaming request (effort=%q): %v", request.Model, reasoningEffort, err)
 		this.markReasoningUnsupportedForModel(request.Model)
 		log.Printf("Retrying streaming request for model %s without reasoning parameter.", request.Model)
-		if stream != nil {
-			stream.Close()
-		}
+		closeStream()
 
 		params = buildResponseParams(&effectiveRequest, "")
 		err = withExponentialBackoff(func() error {
-			stream = this.client.Responses.NewStreaming(innerCtx, params)
-			innerErr = stream.Err()
+			nextStream := this.client.Responses.NewStreaming(innerCtx, params)
+			setStream(nextStream)
+			innerErr = nextStream.Err()
 			return innerErr
 		})
 		if err == nil {
@@ -992,7 +1069,11 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		}
 		return nil, err
 	}
-	defer stream.Close()
+	activeStream := getStream()
+	if activeStream == nil {
+		return nil, errors.New("Responses streaming request did not return a stream")
+	}
+	defer activeStream.Close()
 
 	var completion strings.Builder
 	toolCalls := map[string]*streamToolCallInfo{}
@@ -1002,13 +1083,21 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 	shellCallOrder := []string{}
 	reasoningPrinter := newReasoningSummaryPrinter(writer, request.StreamColor)
 
-	for stream.Next() {
+	for activeStream.Next() {
 		if request.TokenTimeout > 0 {
-			gotChunk <- true
-			go timeoutRoutine()
+			select {
+			case streamActivity <- struct{}{}:
+			default:
+			}
 		}
 
-		event := stream.Current()
+		event := activeStream.Current()
+		if eventResponseID := responseIDFromStreamEvent(event); eventResponseID != "" {
+			setResponseID(eventResponseID)
+		}
+		if request.VerboseLevel > 1 {
+			logResponseStreamEvent(event, getResponseID())
+		}
 		switch event.Type {
 		case "response.created":
 			created := event.AsResponseCreated()
@@ -1118,14 +1207,14 @@ func (this *OpenAIClient) CompletionStream(request *util.CompletionRequest, writ
 		}
 	}
 
-	if stream.Err() != nil {
+	if activeStream.Err() != nil {
 		if timeoutErr := getChunkTimeoutErr(); timeoutErr != nil {
 			return nil, timeoutErr
 		}
-		if strings.Contains(stream.Err().Error(), ERR_429) {
+		if strings.Contains(activeStream.Err().Error(), ERR_429) {
 			return nil, errors.New(ERR_429_HELP)
 		}
-		return nil, stream.Err()
+		return nil, activeStream.Err()
 	}
 
 	if timeoutErr := getChunkTimeoutErr(); timeoutErr != nil {

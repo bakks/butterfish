@@ -33,6 +33,7 @@ type CompletionRequest struct {
 	Functions       []FunctionDefinition
 	Tools           []ToolDefinition
 	Verbose         bool
+	VerboseLevel    int
 	TokenTimeout    time.Duration
 	StreamColor     string
 }
@@ -327,6 +328,13 @@ func (this *StyleCodeblocksWriter) SetTerminalWidth(width int) {
 	defer this.lock.Unlock()
 
 	this.terminalWidth = width
+}
+
+func (this *StyleCodeblocksWriter) SetNormalColor(color string) {
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
+	this.normalColor = color
 }
 
 func (this *StyleCodeblocksWriter) Reset() {

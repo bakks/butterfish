@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bakks/butterfish/prompt"
 	"github.com/bakks/butterfish/util"
@@ -21,6 +22,19 @@ func (l errorLLM) CompletionStream(request *util.CompletionRequest, writer io.Wr
 
 func (l errorLLM) Completion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
 	return nil, l.err
+}
+
+type agentRetryLLM struct {
+	requests chan *util.CompletionRequest
+}
+
+func (l agentRetryLLM) CompletionStream(request *util.CompletionRequest, writer io.Writer) (*util.CompletionResponse, error) {
+	l.requests <- request
+	return &util.CompletionResponse{}, nil
+}
+
+func (l agentRetryLLM) Completion(request *util.CompletionRequest) (*util.CompletionResponse, error) {
+	return &util.CompletionResponse{}, nil
 }
 
 type agentModePromptLibrary struct {
@@ -177,6 +191,59 @@ func TestAgentModeFunctionDisplaysModeErrors(t *testing.T) {
 	}
 }
 
+func TestAgentModePromptErrorRetriesWithoutClearingMode(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	requests := make(chan *util.CompletionRequest, 1)
+	config := MakeButterfishConfig()
+	config.ShellPromptModel = BestCompletionModel
+	state := &ShellState{
+		Butterfish: &ButterfishCtx{
+			Config:    config,
+			LLMClient: agentRetryLLM{requests: requests},
+			PromptLibrary: agentModePromptLibrary{
+				prompts: map[string]string{
+					prompt.AgentModeSystemMessage: "agent prompt for {goal} on {sysinfo}",
+				},
+			},
+		},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		PromptOutputChan:        make(chan *util.CompletionResponse, 1),
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		SpecialModeGoal:         "fix the repo",
+		PromptMaxTokens:         gpt5ShellMaxPromptTokens,
+	}
+
+	retried := state.retryAgentModePromptError(&util.CompletionResponse{Error: "http2: response body closed"})
+	if !retried {
+		t.Fatal("expected agent mode error to be retried")
+	}
+	if !state.SpecialMode || !state.isAgentMode() {
+		t.Fatal("expected agent mode to remain active")
+	}
+	if state.AgentModePromptErrorTries != 1 {
+		t.Fatalf("expected one retry, got %d", state.AgentModePromptErrorTries)
+	}
+	if len(state.History.Blocks) != 0 {
+		t.Fatalf("expected retry not to append error history, got %d blocks", len(state.History.Blocks))
+	}
+	if !strings.Contains(promptOut.String(), "Retrying agent mode request after LLM error (1/2).") {
+		t.Fatalf("expected retry notice, got %q", promptOut.String())
+	}
+
+	select {
+	case req := <-requests:
+		if req.Prompt != "" {
+			t.Fatalf("expected retry prompt to be empty continuation, got %q", req.Prompt)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected retry prompt request")
+	}
+}
+
 func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
@@ -197,7 +264,7 @@ func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.
 
 	state.AgentModeFunction(resp)
 
-	if got := childIn.String(); got != "echo one\necho two" {
+	if got := childIn.String(); got != "echo one\necho two\n" {
 		t.Fatalf("unexpected command write: %q", got)
 	}
 

@@ -484,6 +484,8 @@ type ShellColorScheme struct {
 	AgentMode         string
 }
 
+const maxAgentModePromptErrorRetries = 2
+
 type ShellState struct {
 	Butterfish *ButterfishCtx
 	ParentOut  io.Writer
@@ -501,6 +503,7 @@ type ShellState struct {
 	SpecialModeBuffer          string
 	SpecialModeGoal            string
 	SpecialModeUnsafe          bool
+	AgentModePromptErrorTries  int
 	ActiveFunction             string
 	ActiveFunctionCallID       string
 	ActiveShellMaxOutputLength int64
@@ -598,6 +601,7 @@ func (this *ShellState) clearSpecialMode() {
 	this.SpecialModeUnsafe = false
 	this.SpecialModeGoal = ""
 	this.SpecialModeBuffer = ""
+	this.AgentModePromptErrorTries = 0
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
 	this.ActiveShellMaxOutputLength = 0
@@ -1306,6 +1310,10 @@ func (this *ShellState) Mux() {
 		// We got an LLM prompt response, handle the response by adding to history,
 		// calling functions returned, etc.
 		case output := <-this.PromptOutputChan:
+			if this.retryAgentModePromptError(output) {
+				continue
+			}
+
 			historyData := output.Completion
 			if historyData != "" {
 				this.History.Append(historyTypeLLMOutput, historyData)
@@ -1925,6 +1933,7 @@ func (this *ShellState) AgentModeStart() {
 	this.SpecialMode = true
 	this.SpecialModeType = specialModeAgent
 	this.SpecialModeGoal = goal
+	this.AgentModePromptErrorTries = 0
 	this.Prompt.Clear()
 
 	prompt := "Start now."
@@ -2059,6 +2068,23 @@ func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
 	}
 }
 
+func (this *ShellState) retryAgentModePromptError(output *util.CompletionResponse) bool {
+	if output == nil || output.Error == "" || !this.SpecialMode || !this.isAgentMode() {
+		return false
+	}
+	if this.AgentModePromptErrorTries >= maxAgentModePromptErrorRetries {
+		return false
+	}
+
+	this.AgentModePromptErrorTries++
+	log.Printf("Agent mode LLM error, retrying prompt (%d/%d): %s",
+		this.AgentModePromptErrorTries, maxAgentModePromptErrorRetries, output.Error)
+	fmt.Fprintf(this.PromptAgentAnswerWriter, "%sRetrying agent mode request after LLM error (%d/%d).%s\n",
+		this.Color.AgentMode, this.AgentModePromptErrorTries, maxAgentModePromptErrorRetries, this.Color.Command)
+	this.agentModePrompt("")
+	return true
+}
+
 func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 	if output.Error != "" {
 		if !output.ErrorDisplayed {
@@ -2067,6 +2093,7 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 		this.clearSpecialMode()
 		return
 	}
+	this.AgentModePromptErrorTries = 0
 	if len(output.ShellCalls) > 0 {
 		// The Responses API can return multiple shell_call items. We execute the
 		// first one and acknowledge the rest so follow-up requests don't fail due
@@ -2088,10 +2115,7 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 
 		log.Printf("Agent mode shell_call: %v", call.Commands)
 		command := strings.Join(call.Commands, "\n")
-		fmt.Fprintf(this.ChildIn, "%s", command)
-		if this.SpecialModeUnsafe {
-			fmt.Fprintf(this.ChildIn, "\n")
-		}
+		this.writeChild([]byte(command + "\n"))
 		return
 	}
 
@@ -2421,6 +2445,7 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		Functions:       functions,
 		Tools:           tools,
 		Verbose:         this.Butterfish.Config.Verbose > 0,
+		VerboseLevel:    this.Butterfish.Config.Verbose,
 	}
 
 	// we run this in a goroutine so that we can still receive input
@@ -2464,6 +2489,7 @@ func (this *ShellState) actionModePrompt(lastPrompt string) {
 		SystemMessage:   sysMsg,
 		Functions:       actionModeFunctions,
 		Verbose:         this.Butterfish.Config.Verbose > 0,
+		VerboseLevel:    this.Butterfish.Config.Verbose,
 	}
 
 	go CompletionRoutine(request, this.Butterfish.LLMClient,
@@ -2708,6 +2734,7 @@ func (this *ShellState) SendPrompt() {
 		HistoryBlocks:   historyBlocks,
 		SystemMessage:   sysMsg,
 		Verbose:         this.Butterfish.Config.Verbose > 0,
+		VerboseLevel:    this.Butterfish.Config.Verbose,
 		TokenTimeout:    this.Butterfish.Config.TokenTimeout,
 	}
 

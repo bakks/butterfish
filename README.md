@@ -146,9 +146,9 @@ Flags:
       --service-tier="priority"    Responses API service tier for model
                                    requests. Use priority for fast mode;
                                    set empty to omit.
-  -z, --token-timeout=30000        Timeout before first prompt token is
-                                   received and between individual tokens.
-                                   In milliseconds.
+  -z, --token-timeout=300000       Timeout before the first streaming event is
+                                   received and between streaming events. In
+                                   milliseconds.
   -l, --light-color                Light color mode, appropriate for a terminal
                                    with a white(ish) background
 

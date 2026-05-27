@@ -295,6 +295,7 @@ func (this *ButterfishCtx) Prompt(cmd *promptCommand) (*util.CompletionResponse,
 		Tools:           cmd.Tools,
 		HistoryBlocks:   cmd.History,
 		TokenTimeout:    this.Config.TokenTimeout,
+		VerboseLevel:    cmd.Verbose,
 	}
 
 	return this.LLMClient.CompletionStream(req, writer)
@@ -393,6 +394,7 @@ func (this *ButterfishCtx) execAndCheck(ctx context.Context, cmd string, reasoni
 			ServiceTier:     strings.TrimSpace(this.Config.ServiceTier),
 			SystemMessage:   "N/A",
 			TokenTimeout:    this.Config.TokenTimeout,
+			VerboseLevel:    this.Config.Verbose,
 		}
 
 		response, err := this.LLMClient.CompletionStream(req, styleWriter)

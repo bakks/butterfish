@@ -215,6 +215,22 @@ func TestReasoningSummaryPrinterAlternatesLineColors(t *testing.T) {
 	}
 }
 
+func TestReasoningSummaryPrinterRestoresReasoningColorAfterInlineCode(t *testing.T) {
+	buf := &bytes.Buffer{}
+	writer := util.NewStyleCodeblocksWriter(buf, 80, "NORMAL", "HIGHLIGHT", "")
+	printer := newReasoningSummaryPrinter(writer, "NORMAL")
+
+	printer.WriteDelta("using `build_script_env` next")
+	printer.FinishSummary()
+
+	want := "\n" + reasoningSummaryColors[0] +
+		"using HIGHLIGHTbuild_script_env" + reasoningSummaryColors[0] +
+		" nextNORMAL\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("unexpected reasoning summary output: got %q want %q", got, want)
+	}
+}
+
 func TestBuildResponseParamsOmitsMaxOutputTokensWhenUnset(t *testing.T) {
 	req := &util.CompletionRequest{
 		Model:  "gpt-5.5",
