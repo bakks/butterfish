@@ -1,9 +1,23 @@
 package butterfish
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/bakks/butterfish/util"
+	"github.com/bakks/tiktoken-go"
 )
+
+func mustTestEncoder(t *testing.T) *tiktoken.Tiktoken {
+	t.Helper()
+
+	encoder, err := encodingForModelOrDefault("gpt-5.5", DEFAULT_PROMPT_ENCODER)
+	if err != nil {
+		t.Fatalf("get test encoder: %v", err)
+	}
+	return encoder
+}
 
 func TestShellPromptWindowForModel(t *testing.T) {
 	t.Run("gpt-5 default bumps to 64k", func(t *testing.T) {
@@ -46,6 +60,35 @@ func TestShellResponseTokenReserve(t *testing.T) {
 			t.Fatalf("expected explicit reserve 4096, got %d", got)
 		}
 	})
+}
+
+func TestRequestCancelableAutosuggestUsesResponseTokenReserve(t *testing.T) {
+	llm := &recordingLLM{
+		completionResponse: &util.CompletionResponse{Completion: " suggestion"},
+	}
+	ch := make(chan *AutosuggestResult, 1)
+
+	RequestCancelableAutosuggest(
+		context.Background(),
+		0,
+		"git",
+		"complete {command} using {history}",
+		llm,
+		"gpt-5.5",
+		"",
+		false,
+		NewShellHistory(),
+		1024,
+		ch,
+		mustTestEncoder(t),
+	)
+
+	if len(llm.completionRequests) != 1 {
+		t.Fatalf("expected one completion request, got %d", len(llm.completionRequests))
+	}
+	if got := llm.completionRequests[0].MaxTokens; got != autosuggestResponseTokenReserve {
+		t.Fatalf("expected autosuggest max tokens %d, got %d", autosuggestResponseTokenReserve, got)
+	}
 }
 
 func TestNumTokensForModelGPT55(t *testing.T) {

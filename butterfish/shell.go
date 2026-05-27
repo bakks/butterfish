@@ -112,6 +112,7 @@ const (
 )
 
 const defaultShellResponseTokenReserve = 2048
+const autosuggestResponseTokenReserve = 256
 
 // Turn history type enum to a string
 func HistoryTypeToString(historyType int) string {
@@ -3028,7 +3029,7 @@ func RequestCancelableAutosuggest(
 	}
 
 	totalTokens := 1600 // limit autosuggest to 1600 tokens for cost reasons
-	reserveForAnswer := 64
+	reserveForAnswer := autosuggestResponseTokenReserve
 	var err error
 
 	historyBlocks, _ := getHistoryBlocksByTokens(history, encoder,
