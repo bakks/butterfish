@@ -244,6 +244,74 @@ func TestAgentModePromptErrorRetriesWithoutClearingMode(t *testing.T) {
 	}
 }
 
+func TestAgentModePromptUsesShellToolOnlyInUnsafeMode(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	config := MakeButterfishConfig()
+	config.ShellPromptModel = BestCompletionModel
+	promptLibrary := agentModePromptLibrary{
+		prompts: map[string]string{
+			prompt.AgentModeSystemMessage: "agent prompt for {goal} on {sysinfo}",
+		},
+	}
+
+	safeRequests := make(chan *util.CompletionRequest, 1)
+	safeState := &ShellState{
+		Butterfish: &ButterfishCtx{
+			Config:        config,
+			LLMClient:     agentRetryLLM{requests: safeRequests},
+			PromptLibrary: promptLibrary,
+		},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		PromptOutputChan:        make(chan *util.CompletionResponse, 1),
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		SpecialModeGoal:         "fix the repo",
+		PromptMaxTokens:         gpt5ShellMaxPromptTokens,
+	}
+	safeState.agentModePrompt("Start now.")
+
+	select {
+	case req := <-safeRequests:
+		if len(req.Tools) != 0 {
+			t.Fatalf("expected safe agent mode not to use shell tool, got %#v", req.Tools)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected safe agent prompt request")
+	}
+
+	unsafeRequests := make(chan *util.CompletionRequest, 1)
+	unsafeState := &ShellState{
+		Butterfish: &ButterfishCtx{
+			Config:        config,
+			LLMClient:     agentRetryLLM{requests: unsafeRequests},
+			PromptLibrary: promptLibrary,
+		},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		PromptOutputChan:        make(chan *util.CompletionResponse, 1),
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		SpecialModeUnsafe:       true,
+		SpecialModeGoal:         "fix the repo",
+		PromptMaxTokens:         gpt5ShellMaxPromptTokens,
+	}
+	unsafeState.agentModePrompt("Start now.")
+
+	select {
+	case req := <-unsafeRequests:
+		if len(req.Tools) != 1 || req.Tools[0].Type != "shell" {
+			t.Fatalf("expected unsafe agent mode to use shell tool, got %#v", req.Tools)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected unsafe agent prompt request")
+	}
+}
+
 func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}

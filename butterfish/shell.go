@@ -58,8 +58,8 @@ var ps1FullRegex = regexp.MustCompile(EMOJI_DEFAULT + " ([0-9]+)" + PROMPT_SUFFI
 var DarkShellColorScheme = &ShellColorScheme{
 	Prompt:            "\x1b[38;5;154m",
 	PromptAction:      "\x1b[38;5;81m",
-	PromptAgent:       "\x1b[38;5;200m",
-	PromptAgentUnsafe: "\x1b[38;5;9m",
+	PromptAgent:       "\x1b[38;5;178m",
+	PromptAgentUnsafe: "\x1b[38;5;200m",
 	Command:           "\x1b[0m",
 	Autosuggest:       "\x1b[38;5;241m",
 	Answer:            "\x1b[38;5;221m", // yellow
@@ -72,8 +72,8 @@ var DarkShellColorScheme = &ShellColorScheme{
 var LightShellColorScheme = &ShellColorScheme{
 	Prompt:            "\x1b[38;5;28m",
 	PromptAction:      "\x1b[38;5;25m",
-	PromptAgent:       "\x1b[38;5;200m",
-	PromptAgentUnsafe: "\x1b[38;5;9m",
+	PromptAgent:       "\x1b[38;5;178m",
+	PromptAgentUnsafe: "\x1b[38;5;200m",
 	Command:           "\x1b[0m",
 	Autosuggest:       "\x1b[38;5;241m",
 	Answer:            "\x1b[38;5;18m", // Dark blue
@@ -2417,7 +2417,7 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		return
 	}
 
-	useShellTool := supportsShellToolModel(this.Butterfish.Config.ShellPromptModel)
+	useShellTool := this.SpecialModeUnsafe && supportsShellToolModel(this.Butterfish.Config.ShellPromptModel)
 	functions := agentModeFunctions
 	tools := []util.ToolDefinition{}
 	if useShellTool {
