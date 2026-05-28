@@ -2,6 +2,7 @@ package butterfish
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -351,6 +352,112 @@ func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.
 	}
 	if block.ShellCallOutput.Output[0].Outcome.ExitCode == 0 {
 		t.Fatal("expected skipped call to be non-successful")
+	}
+}
+
+func TestAgentModeNativeShellCallSkipsPrePromptAndCompletesAfterOnePrompt(t *testing.T) {
+	state := &ShellState{
+		SpecialMode:     true,
+		SpecialModeType: specialModeAgent,
+		ActiveFunction:  "shell",
+	}
+
+	resp := &util.CompletionResponse{
+		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"pwd"}}},
+	}
+
+	if state.shouldRequestPromptBeforeFunction(resp) {
+		t.Fatal("expected native shell_call to skip the pre-function prompt")
+	}
+	if got := state.activeFunctionPromptThreshold(); got != 1 {
+		t.Fatalf("expected native shell_call to complete after one prompt, got %d", got)
+	}
+}
+
+func TestAgentModeLegacyCommandKeepsPrePromptAndTwoPromptCompletion(t *testing.T) {
+	state := &ShellState{
+		SpecialMode:     true,
+		SpecialModeType: specialModeAgent,
+		ActiveFunction:  "command",
+	}
+
+	resp := &util.CompletionResponse{
+		FunctionName:       "command",
+		FunctionParameters: `{"cmd":"pwd"}`,
+	}
+
+	if !state.shouldRequestPromptBeforeFunction(resp) {
+		t.Fatal("expected legacy command function to request a pre-function prompt")
+	}
+	if got := state.activeFunctionPromptThreshold(); got != 2 {
+		t.Fatalf("expected legacy command to keep two-prompt completion, got %d", got)
+	}
+}
+
+func TestAgentModeActiveShellPassesParentInputThrough(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:         &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:            childIn,
+		ParentOut:          &bytes.Buffer{},
+		PromptAnswerWriter: &bytes.Buffer{},
+		Color:              DarkShellColorScheme,
+		SpecialMode:        true,
+		SpecialModeType:    specialModeAgent,
+		ActiveFunction:     "shell",
+	}
+
+	leftover := state.ParentInput(context.Background(), []byte("Help"))
+
+	if len(leftover) != 0 {
+		t.Fatalf("expected input to be consumed, got %q", leftover)
+	}
+	if got := childIn.String(); got != "Help" {
+		t.Fatalf("expected parent input to pass through to child, got %q", got)
+	}
+	if state.State != stateNormal {
+		t.Fatalf("expected stateNormal, got %d", state.State)
+	}
+	if !state.SpecialMode || state.ActiveFunction != "shell" {
+		t.Fatalf("expected active shell call to remain active, got special=%v active=%q", state.SpecialMode, state.ActiveFunction)
+	}
+}
+
+func TestAgentModeActiveShellCtrlCClearsModeBeforeRunningChildCheck(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:                 childIn,
+		ParentOut:               &bytes.Buffer{},
+		PromptAnswerWriter:      promptOut,
+		PromptAgentAnswerWriter: promptOut,
+		Prompt:                  NewShellBuffer(),
+		Command:                 NewShellBuffer(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		ActiveFunction:          "shell",
+		ActiveFunctionCallID:    "call_1",
+		HasRunningChildrenFn: func() bool {
+			t.Fatal("active function Ctrl-C should not consult running child state")
+			return true
+		},
+	}
+
+	leftover := state.ParentInput(context.Background(), []byte{0x03})
+
+	if len(leftover) != 0 {
+		t.Fatalf("expected Ctrl-C to be consumed, got %q", leftover)
+	}
+	if got := childIn.String(); got != string([]byte{0x03}) {
+		t.Fatalf("expected Ctrl-C to be forwarded to child, got %q", got)
+	}
+	if state.SpecialMode || state.ActiveFunction != "" || state.ActiveFunctionCallID != "" {
+		t.Fatalf("expected agent mode to clear, got special=%v active=%q call=%q", state.SpecialMode, state.ActiveFunction, state.ActiveFunctionCallID)
+	}
+	if !strings.Contains(promptOut.String(), "Exited agent mode.") {
+		t.Fatalf("expected exit message, got %q", promptOut.String())
 	}
 }
 

@@ -612,6 +612,17 @@ func (this *ShellState) shouldClearCompletedFunctionLine() bool {
 	return !(this.isActionMode() && this.ActiveFunction == "command")
 }
 
+func (this *ShellState) shouldRequestPromptBeforeFunction(output *util.CompletionResponse) bool {
+	return !(this.SpecialMode && this.isAgentMode() && len(output.ShellCalls) > 0)
+}
+
+func (this *ShellState) activeFunctionPromptThreshold() int {
+	if this.ActiveFunction == "shell" {
+		return 1
+	}
+	return 2
+}
+
 func (this *ShellState) promptColorForString(prompt string) string {
 	switch {
 	case strings.HasPrefix(prompt, "@@"):
@@ -1338,8 +1349,12 @@ func (this *ShellState) Mux() {
 				childOutBuffer = []byte{}
 			}
 
-			// Get a new prompt
-			this.writeChild([]byte("\n"))
+			if this.shouldRequestPromptBeforeFunction(output) {
+				// Get a new prompt before staging legacy function commands into the
+				// shell. Native shell_call commands are submitted directly, so an
+				// extra prompt here can race with command-completion detection.
+				this.writeChild([]byte("\n"))
+			}
 
 			if this.SpecialMode {
 				this.ActiveFunction = output.FunctionName
@@ -1429,10 +1444,10 @@ func (this *ShellState) Mux() {
 			endOfFunctionCall := false
 			if this.SpecialMode {
 				this.SpecialModeBuffer += childOutStr
-				if this.PromptSuffixCounter >= 2 {
-					// this means that since starting to collect command function call
-					// output, we've seen two prompts, which means the function call
-					// is done and we can send the response back to the model
+				if this.PromptSuffixCounter >= this.activeFunctionPromptThreshold() {
+					// This means that since starting to collect function call output,
+					// we've seen enough prompts to know the function call is done and
+					// we can send the response back to the model.
 					endOfFunctionCall = true
 				}
 			} else if this.ActiveFunction != "" {
@@ -1581,6 +1596,25 @@ func (this *ShellState) ParentInput(ctx context.Context, data []byte) []byte {
 		return data
 
 	case stateNormal:
+		if this.SpecialMode && this.ActiveFunction != "" {
+			if data[0] == 0x03 {
+				fmt.Fprintf(this.specialModeAnswerWriter(), "\n%sExited %s.%s\n",
+					this.Color.Answer, this.specialModeNameLower(), this.Color.Command)
+				this.clearSpecialMode()
+				if this.Command != nil {
+					this.Command.Clear()
+				}
+				if this.Prompt != nil {
+					this.Prompt.Clear()
+				}
+				this.setState(stateNormal)
+				this.writeChild([]byte{data[0]})
+				return data[1:]
+			}
+			this.writeChild(data)
+			return nil
+		}
+
 		if this.hasRunningChildrenCached(false) {
 			// If we have running children then the shell is running something,
 			// so just forward the input.
