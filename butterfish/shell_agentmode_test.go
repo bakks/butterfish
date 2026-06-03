@@ -215,6 +215,7 @@ func TestAgentModePromptErrorRetriesWithoutClearingMode(t *testing.T) {
 		SpecialMode:             true,
 		SpecialModeType:         specialModeAgent,
 		SpecialModeGoal:         "fix the repo",
+		LastAgentModePrompt:     "Start now.",
 		PromptMaxTokens:         gpt5ShellMaxPromptTokens,
 	}
 
@@ -237,11 +238,54 @@ func TestAgentModePromptErrorRetriesWithoutClearingMode(t *testing.T) {
 
 	select {
 	case req := <-requests:
-		if req.Prompt != "" {
-			t.Fatalf("expected retry prompt to be empty continuation, got %q", req.Prompt)
+		if req.Prompt != "Start now." {
+			t.Fatalf("expected retry prompt to preserve failed prompt, got %q", req.Prompt)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected retry prompt request")
+	}
+}
+
+func TestAgentModePromptErrorDoesNotRetryBadRequest(t *testing.T) {
+	promptOut := &bytes.Buffer{}
+	requests := make(chan *util.CompletionRequest, 1)
+	config := MakeButterfishConfig()
+	config.ShellPromptModel = BestCompletionModel
+	state := &ShellState{
+		Butterfish: &ButterfishCtx{
+			Config:    config,
+			LLMClient: agentRetryLLM{requests: requests},
+			PromptLibrary: agentModePromptLibrary{
+				prompts: map[string]string{
+					prompt.AgentModeSystemMessage: "agent prompt for {goal} on {sysinfo}",
+				},
+			},
+		},
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		PromptOutputChan:        make(chan *util.CompletionResponse, 1),
+		History:                 NewShellHistory(),
+		Color:                   DarkShellColorScheme,
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		SpecialModeGoal:         "fix the repo",
+		LastAgentModePrompt:     "Start now.",
+		PromptMaxTokens:         gpt5ShellMaxPromptTokens,
+	}
+
+	retried := state.retryAgentModePromptError(&util.CompletionResponse{
+		Error: `POST "https://api.openai.com/v1/responses": 400 Bad Request {"type":"invalid_request_error","code":"missing_required_parameter"}`,
+	})
+	if retried {
+		t.Fatal("did not expect invalid request errors to be retried")
+	}
+	if state.AgentModePromptErrorTries != 0 {
+		t.Fatalf("expected retry counter to remain zero, got %d", state.AgentModePromptErrorTries)
+	}
+	select {
+	case req := <-requests:
+		t.Fatalf("did not expect retry request, got %#v", req)
+	default:
 	}
 }
 
@@ -279,6 +323,9 @@ func TestAgentModePromptUsesShellToolOnlyInUnsafeMode(t *testing.T) {
 		if len(req.Tools) != 0 {
 			t.Fatalf("expected safe agent mode not to use shell tool, got %#v", req.Tools)
 		}
+		if !hasFunctionNamed(req.Functions, "command") {
+			t.Fatalf("expected safe agent mode to use legacy command function, got %#v", req.Functions)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("expected safe agent prompt request")
 	}
@@ -308,21 +355,42 @@ func TestAgentModePromptUsesShellToolOnlyInUnsafeMode(t *testing.T) {
 		if len(req.Tools) != 1 || req.Tools[0].Type != "shell" {
 			t.Fatalf("expected unsafe agent mode to use shell tool, got %#v", req.Tools)
 		}
+		if hasFunctionNamed(req.Functions, "command") {
+			t.Fatalf("did not expect unsafe shell-tool agent mode to expose legacy command function, got %#v", req.Functions)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("expected unsafe agent prompt request")
+	}
+}
+
+func hasFunctionNamed(functions []util.FunctionDefinition, name string) bool {
+	for _, fn := range functions {
+		if fn.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func shellToolAgentState(childIn, promptOut io.Writer) *ShellState {
+	return &ShellState{
+		Butterfish: &ButterfishCtx{Config: &ButterfishConfig{
+			ShellPromptModel: BestCompletionModel,
+		}},
+		ChildIn:                 childIn,
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		SpecialModeUnsafe:       true,
 	}
 }
 
 func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
-	state := &ShellState{
-		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
-		ChildIn:                 childIn,
-		PromptAgentAnswerWriter: promptOut,
-		PromptAnswerWriter:      promptOut,
-		History:                 NewShellHistory(),
-	}
+	state := shellToolAgentState(childIn, promptOut)
 
 	resp := &util.CompletionResponse{
 		ShellCalls: []*util.ShellCall{
@@ -333,7 +401,7 @@ func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.
 
 	state.AgentModeFunction(resp)
 
-	if got := childIn.String(); got != "echo one\necho two\n" {
+	if got := childIn.String(); got != "\necho one\necho two\n" {
 		t.Fatalf("unexpected command write: %q", got)
 	}
 
@@ -355,7 +423,7 @@ func TestAgentModeFunctionShellCalls_AcksExtraAndUsesNewlineCommands(t *testing.
 	}
 }
 
-func TestAgentModeNativeShellCallSkipsPrePromptAndCompletesAfterOnePrompt(t *testing.T) {
+func TestAgentModeNativeShellCallUsesSharedPrePromptAndTwoPromptCompletion(t *testing.T) {
 	state := &ShellState{
 		SpecialMode:     true,
 		SpecialModeType: specialModeAgent,
@@ -367,23 +435,17 @@ func TestAgentModeNativeShellCallSkipsPrePromptAndCompletesAfterOnePrompt(t *tes
 	}
 
 	if state.shouldRequestPromptBeforeFunction(resp) {
-		t.Fatal("expected native shell_call to skip the pre-function prompt")
+		t.Fatal("expected native shell_call prompt setup to be handled by shared agent shell command helper")
 	}
-	if got := state.activeFunctionPromptThreshold(); got != 1 {
-		t.Fatalf("expected native shell_call to complete after one prompt, got %d", got)
+	if got := state.activeFunctionPromptThreshold(); got != 2 {
+		t.Fatalf("expected native shell_call to use shared two-prompt completion, got %d", got)
 	}
 }
 
 func TestAgentModeNativeShellCallBreaksParentLineAfterAssistantText(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
-	state := &ShellState{
-		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
-		ChildIn:                 childIn,
-		PromptAgentAnswerWriter: promptOut,
-		PromptAnswerWriter:      promptOut,
-		History:                 NewShellHistory(),
-	}
+	state := shellToolAgentState(childIn, promptOut)
 
 	resp := &util.CompletionResponse{
 		Completion: "checking artifact",
@@ -395,7 +457,7 @@ func TestAgentModeNativeShellCallBreaksParentLineAfterAssistantText(t *testing.T
 	if got := promptOut.String(); got != "\n" {
 		t.Fatalf("expected parent line break before shell echo, got %q", got)
 	}
-	if got := childIn.String(); got != "pwd\n" {
+	if got := childIn.String(); got != "\npwd\n" {
 		t.Fatalf("unexpected command write: %q", got)
 	}
 }
@@ -403,13 +465,7 @@ func TestAgentModeNativeShellCallBreaksParentLineAfterAssistantText(t *testing.T
 func TestAgentModeNativeShellCallDoesNotAddParentLineAfterNewlineText(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
-	state := &ShellState{
-		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
-		ChildIn:                 childIn,
-		PromptAgentAnswerWriter: promptOut,
-		PromptAnswerWriter:      promptOut,
-		History:                 NewShellHistory(),
-	}
+	state := shellToolAgentState(childIn, promptOut)
 
 	resp := &util.CompletionResponse{
 		Completion: "checking artifact\n",
@@ -421,7 +477,7 @@ func TestAgentModeNativeShellCallDoesNotAddParentLineAfterNewlineText(t *testing
 	if got := promptOut.String(); got != "" {
 		t.Fatalf("did not expect parent line break, got %q", got)
 	}
-	if got := childIn.String(); got != "pwd\n" {
+	if got := childIn.String(); got != "\npwd\n" {
 		t.Fatalf("unexpected command write: %q", got)
 	}
 }
@@ -429,13 +485,7 @@ func TestAgentModeNativeShellCallDoesNotAddParentLineAfterNewlineText(t *testing
 func TestAgentModeNativeShellCallDoesNotAddParentLineWithoutAssistantText(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
-	state := &ShellState{
-		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
-		ChildIn:                 childIn,
-		PromptAgentAnswerWriter: promptOut,
-		PromptAnswerWriter:      promptOut,
-		History:                 NewShellHistory(),
-	}
+	state := shellToolAgentState(childIn, promptOut)
 
 	resp := &util.CompletionResponse{
 		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"pwd"}}},
@@ -446,7 +496,7 @@ func TestAgentModeNativeShellCallDoesNotAddParentLineWithoutAssistantText(t *tes
 	if got := promptOut.String(); got != "" {
 		t.Fatalf("did not expect parent line break without assistant text, got %q", got)
 	}
-	if got := childIn.String(); got != "pwd\n" {
+	if got := childIn.String(); got != "\npwd\n" {
 		t.Fatalf("unexpected command write: %q", got)
 	}
 }
@@ -454,13 +504,7 @@ func TestAgentModeNativeShellCallDoesNotAddParentLineWithoutAssistantText(t *tes
 func TestAgentModeNativeShellCallBreaksParentLineWithoutChangingChildInput(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
-	state := &ShellState{
-		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
-		ChildIn:                 childIn,
-		PromptAgentAnswerWriter: promptOut,
-		PromptAnswerWriter:      promptOut,
-		History:                 NewShellHistory(),
-	}
+	state := shellToolAgentState(childIn, promptOut)
 
 	resp := &util.CompletionResponse{
 		Completion: "checking artifact",
@@ -472,7 +516,7 @@ func TestAgentModeNativeShellCallBreaksParentLineWithoutChangingChildInput(t *te
 	if got := promptOut.String(); got != "\n" {
 		t.Fatalf("expected parent line break before shell echo, got %q", got)
 	}
-	if got := childIn.String(); got != "echo one\necho two\n" {
+	if got := childIn.String(); got != "\necho one\necho two\n" {
 		t.Fatalf("expected no extra child pre-prompt newline, got %q", got)
 	}
 }
@@ -480,12 +524,8 @@ func TestAgentModeNativeShellCallBreaksParentLineWithoutChangingChildInput(t *te
 func TestAgentModeNativeShellCallBreakUsesParentOutFallback(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	parentOut := &bytes.Buffer{}
-	state := &ShellState{
-		Butterfish: &ButterfishCtx{Config: &ButterfishConfig{}},
-		ChildIn:    childIn,
-		ParentOut:  parentOut,
-		History:    NewShellHistory(),
-	}
+	state := shellToolAgentState(childIn, nil)
+	state.ParentOut = parentOut
 
 	resp := &util.CompletionResponse{
 		Completion: "checking artifact",
@@ -497,12 +537,12 @@ func TestAgentModeNativeShellCallBreakUsesParentOutFallback(t *testing.T) {
 	if got := parentOut.String(); got != "\n" {
 		t.Fatalf("expected parent fallback line break, got %q", got)
 	}
-	if got := childIn.String(); got != "pwd\n" {
+	if got := childIn.String(); got != "\npwd\n" {
 		t.Fatalf("unexpected command write: %q", got)
 	}
 }
 
-func TestAgentModeLegacyCommandDoesNotUseShellCallLineBreak(t *testing.T) {
+func TestAgentModeLegacyCommandUsesSharedShellPromptPath(t *testing.T) {
 	childIn := &bytes.Buffer{}
 	promptOut := &bytes.Buffer{}
 	state := &ShellState{
@@ -511,6 +551,9 @@ func TestAgentModeLegacyCommandDoesNotUseShellCallLineBreak(t *testing.T) {
 		PromptAgentAnswerWriter: promptOut,
 		PromptAnswerWriter:      promptOut,
 		History:                 NewShellHistory(),
+		SpecialMode:             true,
+		SpecialModeType:         specialModeAgent,
+		ActiveFunctionCallID:    "call_1",
 	}
 
 	resp := &util.CompletionResponse{
@@ -522,11 +565,11 @@ func TestAgentModeLegacyCommandDoesNotUseShellCallLineBreak(t *testing.T) {
 
 	state.AgentModeFunction(resp)
 
-	if got := promptOut.String(); got != "" {
-		t.Fatalf("did not expect shell_call parent line break for legacy command, got %q", got)
+	if got := promptOut.String(); got != "\n" {
+		t.Fatalf("expected shared parent line break for legacy command, got %q", got)
 	}
-	if got := childIn.String(); got != "pwd" {
-		t.Fatalf("expected safe legacy command to be staged without newline, got %q", got)
+	if got := childIn.String(); got != "\npwd" {
+		t.Fatalf("expected safe legacy command to request prompt then stage without newline, got %q", got)
 	}
 }
 
@@ -542,8 +585,8 @@ func TestAgentModeLegacyCommandKeepsPrePromptAndTwoPromptCompletion(t *testing.T
 		FunctionParameters: `{"cmd":"pwd"}`,
 	}
 
-	if !state.shouldRequestPromptBeforeFunction(resp) {
-		t.Fatal("expected legacy command function to request a pre-function prompt")
+	if state.shouldRequestPromptBeforeFunction(resp) {
+		t.Fatal("expected legacy command prompt setup to be handled by shared agent shell command helper")
 	}
 	if got := state.activeFunctionPromptThreshold(); got != 2 {
 		t.Fatalf("expected legacy command to keep two-prompt completion, got %d", got)

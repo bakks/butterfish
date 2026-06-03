@@ -497,35 +497,37 @@ type ShellState struct {
 	AutosuggestMaxTokens int
 
 	// The current state of the shell
-	State                      int
-	SpecialMode                bool
-	SpecialModeType            specialModeType
-	SpecialModeBuffer          string
-	SpecialModeGoal            string
-	SpecialModeUnsafe          bool
-	AgentModePromptErrorTries  int
-	ActiveFunction             string
-	ActiveFunctionCallID       string
-	ActiveShellMaxOutputLength int64
-	PromptSuffixCounter        int
-	ChildOutReader             chan *byteMsg
-	ParentInReader             chan *byteMsg
-	CursorPosChan              chan *cursorPosition
-	PromptOutputChan           chan *util.CompletionResponse
-	PrintErrorChan             chan error
-	AutosuggestChan            chan *AutosuggestResult
-	History                    *ShellHistory
-	PromptAnswerWriter         io.Writer
-	PromptActionAnswerWriter   io.Writer
-	PromptAgentAnswerWriter    io.Writer
-	StyleWriter                *util.StyleCodeblocksWriter
-	Prompt                     *ShellBuffer
-	PromptResponseCancel       context.CancelFunc
-	Command                    *ShellBuffer
-	TerminalWidth              int
-	Color                      *ShellColorScheme
-	LastTabPassthrough         time.Time
-	parentInBuffer             []byte
+	State                         int
+	SpecialMode                   bool
+	SpecialModeType               specialModeType
+	SpecialModeBuffer             string
+	SpecialModeGoal               string
+	LastAgentModePrompt           string
+	SpecialModeUnsafe             bool
+	AgentModePromptErrorTries     int
+	ActiveFunction                string
+	ActiveFunctionCallID          string
+	ActiveShellMaxOutputLength    int64
+	ActiveFunctionPromptThreshold int
+	PromptSuffixCounter           int
+	ChildOutReader                chan *byteMsg
+	ParentInReader                chan *byteMsg
+	CursorPosChan                 chan *cursorPosition
+	PromptOutputChan              chan *util.CompletionResponse
+	PrintErrorChan                chan error
+	AutosuggestChan               chan *AutosuggestResult
+	History                       *ShellHistory
+	PromptAnswerWriter            io.Writer
+	PromptActionAnswerWriter      io.Writer
+	PromptAgentAnswerWriter       io.Writer
+	StyleWriter                   *util.StyleCodeblocksWriter
+	Prompt                        *ShellBuffer
+	PromptResponseCancel          context.CancelFunc
+	Command                       *ShellBuffer
+	TerminalWidth                 int
+	Color                         *ShellColorScheme
+	LastTabPassthrough            time.Time
+	parentInBuffer                []byte
 	// these are used to estimate number of tokens
 	AutosuggestEncoder *tiktoken.Tiktoken
 	PromptEncoder      *tiktoken.Tiktoken
@@ -600,11 +602,13 @@ func (this *ShellState) clearSpecialMode() {
 	this.SpecialModeType = specialModeNone
 	this.SpecialModeUnsafe = false
 	this.SpecialModeGoal = ""
+	this.LastAgentModePrompt = ""
 	this.SpecialModeBuffer = ""
 	this.AgentModePromptErrorTries = 0
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
 	this.ActiveShellMaxOutputLength = 0
+	this.ActiveFunctionPromptThreshold = 0
 	this.PromptSuffixCounter = 0
 }
 
@@ -613,18 +617,18 @@ func (this *ShellState) shouldClearCompletedFunctionLine() bool {
 }
 
 func (this *ShellState) shouldRequestPromptBeforeFunction(output *util.CompletionResponse) bool {
-	return !(this.SpecialMode && this.isAgentMode() && len(output.ShellCalls) > 0)
+	return !(this.SpecialMode && this.isAgentMode() && (len(output.ShellCalls) > 0 || output.FunctionName == "command"))
 }
 
 func (this *ShellState) activeFunctionPromptThreshold() int {
-	if this.ActiveFunction == "shell" {
-		return 1
+	if this.ActiveFunctionPromptThreshold > 0 {
+		return this.ActiveFunctionPromptThreshold
 	}
 	return 2
 }
 
-func (this *ShellState) breakParentLineBeforeShellCall(output *util.CompletionResponse) {
-	if output == nil || len(output.ShellCalls) == 0 || output.Completion == "" || strings.HasSuffix(output.Completion, "\n") {
+func (this *ShellState) breakParentLineBeforeAgentShellCommand(output *util.CompletionResponse) {
+	if output == nil || output.Completion == "" || strings.HasSuffix(output.Completion, "\n") {
 		return
 	}
 
@@ -634,6 +638,30 @@ func (this *ShellState) breakParentLineBeforeShellCall(output *util.CompletionRe
 	}
 	if writer != nil {
 		fmt.Fprint(writer, "\n")
+	}
+}
+
+func (this *ShellState) startAgentShellCommand(
+	output *util.CompletionResponse,
+	activeFunction string,
+	callID string,
+	maxOutputLength int64,
+	command string,
+	submit bool,
+) {
+	this.SpecialModeBuffer = ""
+	this.PromptSuffixCounter = 0
+	this.ActiveFunction = activeFunction
+	this.ActiveFunctionCallID = callID
+	this.ActiveShellMaxOutputLength = maxOutputLength
+	this.ActiveFunctionPromptThreshold = 2
+	this.setState(stateNormal)
+
+	this.breakParentLineBeforeAgentShellCommand(output)
+	this.writeChild([]byte("\n"))
+	this.writeChild([]byte(command))
+	if submit {
+		this.writeChild([]byte("\n"))
 	}
 }
 
@@ -1395,6 +1423,7 @@ func (this *ShellState) Mux() {
 			}
 
 			if this.SpecialMode {
+				this.ActiveFunctionPromptThreshold = 0
 				this.ActiveFunction = output.FunctionName
 				if len(output.ToolCalls) > 0 {
 					this.ActiveFunctionCallID = output.ToolCalls[0].Id
@@ -1551,6 +1580,7 @@ func (this *ShellState) Mux() {
 				this.ActiveFunction = ""
 				this.ActiveFunctionCallID = ""
 				this.ActiveShellMaxOutputLength = 0
+				this.ActiveFunctionPromptThreshold = 0
 				this.SpecialModeBuffer = ""
 				this.PromptSuffixCounter = 0
 			}
@@ -2052,6 +2082,8 @@ func (this *ShellState) AgentModeFunctionResponse(output string) {
 	}
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
+	this.ActiveShellMaxOutputLength = 0
+	this.ActiveFunctionPromptThreshold = 0
 	this.agentModePrompt("")
 }
 
@@ -2062,6 +2094,8 @@ func (this *ShellState) ActionModeFunctionResponse(output string) {
 	}
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
+	this.ActiveShellMaxOutputLength = 0
+	this.ActiveFunctionPromptThreshold = 0
 	this.actionModePrompt("")
 }
 
@@ -2116,6 +2150,7 @@ func (this *ShellState) AgentModeShellCallResponse(exitStatus int) {
 	this.ActiveFunction = ""
 	this.ActiveFunctionCallID = ""
 	this.ActiveShellMaxOutputLength = 0
+	this.ActiveFunctionPromptThreshold = 0
 	this.agentModePrompt("")
 }
 
@@ -2140,8 +2175,18 @@ func skippedShellCallOutput(call *util.ShellCall) *util.ShellCallOutput {
 	}
 }
 
+func isNonRetryablePromptError(err string) bool {
+	err = strings.ToLower(err)
+	return strings.Contains(err, "400 bad request") ||
+		strings.Contains(err, "invalid_request_error") ||
+		strings.Contains(err, "missing required parameter")
+}
+
 func (this *ShellState) retryAgentModePromptError(output *util.CompletionResponse) bool {
 	if output == nil || output.Error == "" || !this.SpecialMode || !this.isAgentMode() {
+		return false
+	}
+	if isNonRetryablePromptError(output.Error) {
 		return false
 	}
 	if this.AgentModePromptErrorTries >= maxAgentModePromptErrorRetries {
@@ -2153,7 +2198,7 @@ func (this *ShellState) retryAgentModePromptError(output *util.CompletionRespons
 		this.AgentModePromptErrorTries, maxAgentModePromptErrorRetries, output.Error)
 	fmt.Fprintf(this.PromptAgentAnswerWriter, "%sRetrying agent mode request after LLM error (%d/%d).%s\n",
 		this.Color.AgentMode, this.AgentModePromptErrorTries, maxAgentModePromptErrorRetries, this.Color.Command)
-	this.agentModePrompt("")
+	this.agentModePrompt(this.LastAgentModePrompt)
 	return true
 }
 
@@ -2167,6 +2212,11 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 	}
 	this.AgentModePromptErrorTries = 0
 	if len(output.ShellCalls) > 0 {
+		if !this.agentModeUsesShellTool() {
+			modelStr := "The shell tool is not active for this agent mode request; use the command function instead."
+			this.AgentModeFunctionResponse(modelStr)
+			return
+		}
 		// The Responses API can return multiple shell_call items. We execute the
 		// first one and acknowledge the rest so follow-up requests don't fail due
 		// to missing tool outputs.
@@ -2177,27 +2227,25 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 		}
 
 		call := output.ShellCalls[0]
-		this.SpecialModeBuffer = ""
-		this.PromptSuffixCounter = 0
-		this.setState(stateNormal)
 		if len(call.Commands) == 0 {
 			this.AgentModeShellCallResponse(0)
 			return
 		}
 
-		this.breakParentLineBeforeShellCall(output)
 		log.Printf("Agent mode shell_call: %v", call.Commands)
 		command := strings.Join(call.Commands, "\n")
-		this.writeChild([]byte(command + "\n"))
+		this.startAgentShellCommand(output, "shell", call.CallID, call.MaxOutputLength, command, true)
 		return
 	}
 
 	switch output.FunctionName {
 	case "command":
+		if this.agentModeUsesShellTool() {
+			modelStr := "The command function is not active for this agent mode request; use the shell tool instead."
+			this.AgentModeFunctionResponse(modelStr)
+			return
+		}
 		log.Printf("Agent mode command: %s", output.FunctionParameters)
-		this.SpecialModeBuffer = ""
-		this.PromptSuffixCounter = 0
-		this.setState(stateNormal)
 		cmd, err := parseCommandParams(output.FunctionParameters)
 		if err != nil {
 			// we failed to parse the command json, send error back to model
@@ -2207,10 +2255,7 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 			return
 		}
 		log.Printf("Agent mode command: %s", cmd)
-		fmt.Fprintf(this.ChildIn, "%s", cmd)
-		if this.SpecialModeUnsafe {
-			fmt.Fprintf(this.ChildIn, "\n")
-		}
+		this.startAgentShellCommand(output, "command", this.ActiveFunctionCallID, 0, cmd, this.SpecialModeUnsafe)
 
 	case "user_input":
 		log.Printf("Agent mode user_input: %s", output.FunctionParameters)
@@ -2431,6 +2476,20 @@ func supportsShellToolModel(model string) bool {
 		strings.HasPrefix(model, "gpt-5.5")
 }
 
+func (this *ShellState) agentModeUsesShellTool() bool {
+	if this == nil || this.Butterfish == nil || this.Butterfish.Config == nil {
+		return false
+	}
+	return this.SpecialModeUnsafe && supportsShellToolModel(this.Butterfish.Config.ShellPromptModel)
+}
+
+func agentModeToolConfig(useShellTool bool) ([]util.FunctionDefinition, []util.ToolDefinition) {
+	if useShellTool {
+		return agentModeFunctionsShellTool, []util.ToolDefinition{{Type: "shell"}}
+	}
+	return agentModeFunctions, nil
+}
+
 func (this *ShellState) configuredReasoningEffort() string {
 	effort := strings.ToLower(strings.TrimSpace(this.Butterfish.Config.ShellReasoningEffort))
 	if effort == "" {
@@ -2490,12 +2549,9 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		return
 	}
 
-	useShellTool := this.SpecialModeUnsafe && supportsShellToolModel(this.Butterfish.Config.ShellPromptModel)
-	functions := agentModeFunctions
-	tools := []util.ToolDefinition{}
+	useShellTool := this.agentModeUsesShellTool()
+	functions, tools := agentModeToolConfig(useShellTool)
 	if useShellTool {
-		functions = agentModeFunctionsShellTool
-		tools = append(tools, util.ToolDefinition{Type: "shell"})
 		sysMsg += "\n\nUse the shell tool to run commands. Use user_input to ask clarifying questions and finish when done."
 	}
 
@@ -2505,6 +2561,7 @@ func (this *ShellState) agentModePrompt(lastPrompt string) {
 		this.PrintError(err)
 		return
 	}
+	this.LastAgentModePrompt = lastPrompt
 
 	request := &util.CompletionRequest{
 		Ctx:             requestCtx,
