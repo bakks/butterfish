@@ -117,13 +117,15 @@ func ensureE2EBinary(t *testing.T) string {
 }
 
 type shellE2EHarness struct {
-	t        *testing.T
-	cmd      *exec.Cmd
-	ptmx     *os.File
-	rawState *term.State
-	zdot     string
-	chunks   chan []byte
-	errs     chan error
+	t             *testing.T
+	cmd           *exec.Cmd
+	ptmx          *os.File
+	rawState      *term.State
+	zdot          string
+	startupOutput string
+	initialOutput string
+	chunks        chan []byte
+	errs          chan error
 }
 
 const (
@@ -228,8 +230,14 @@ func startShellE2EWithConfig(
 		}
 	}()
 
+	initialOutput, _ := waitForSubstringAndIdleCapture(h.chunks, h.errs, EMOJI_DEFAULT, 2*time.Second, 100*time.Millisecond)
+	h.initialOutput = initialOutput
+	h.startupOutput = initialOutput
+
 	readyMarker := "__BF_E2E_READY__"
-	if _, err = h.writeStepsWithIdle(bytesToKeySteps("echo "+readyMarker), 2*time.Second, 40*time.Millisecond); err != nil {
+	typedOutput, err := h.writeStepsWithIdle(bytesToKeySteps("echo "+readyMarker), 2*time.Second, 40*time.Millisecond)
+	h.startupOutput += typedOutput
+	if err != nil {
 		h.close()
 		t.Fatalf("failed typing readiness marker: %v", err)
 	}
@@ -237,11 +245,12 @@ func startShellE2EWithConfig(
 		h.close()
 		t.Fatalf("failed submitting readiness marker command: %v", err)
 	}
-	_, err = waitForMarkerAndIdleCapture(h.chunks, h.errs, readyMarker, 1, 12*time.Second, caseIdleWindow)
+	startupOutput, err := waitForMarkerAndIdleCapture(h.chunks, h.errs, readyMarker, 1, 12*time.Second, caseIdleWindow)
 	if err != nil {
 		h.close()
 		t.Fatalf("failed waiting for shell readiness: %v", err)
 	}
+	h.startupOutput += startupOutput
 	_, _ = waitForIdleCapture(h.chunks, h.errs, 2*time.Second, 100*time.Millisecond)
 
 	return h
@@ -438,6 +447,68 @@ func waitForIdleCapture(
 	}
 }
 
+// waitForSubstringAndIdleCapture reads output until substring is observed, then
+// waits for a short idle period before returning accumulated output.
+func waitForSubstringAndIdleCapture(
+	chunks <-chan []byte,
+	errs <-chan error,
+	substring string,
+	timeout time.Duration,
+	idle time.Duration,
+) (string, error) {
+	var output bytes.Buffer
+	needle := []byte(substring)
+
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	var idleTimer *time.Timer
+	var idleC <-chan time.Time
+	resetIdle := func() {
+		if idleTimer == nil {
+			idleTimer = time.NewTimer(idle)
+			idleC = idleTimer.C
+			return
+		}
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idle)
+	}
+
+	seen := false
+	for {
+		select {
+		case <-timeoutTimer.C:
+			return output.String(), fmt.Errorf("timed out waiting for substring %q", substring)
+		case <-idleC:
+			return output.String(), nil
+		case err, ok := <-errs:
+			if !ok {
+				errs = nil
+				continue
+			}
+			if err != nil {
+				return output.String(), err
+			}
+		case chunk, ok := <-chunks:
+			if !ok {
+				return output.String(), io.EOF
+			}
+			output.Write(chunk)
+			if !seen && bytes.Contains(output.Bytes(), needle) {
+				seen = true
+				resetIdle()
+			} else if seen {
+				resetIdle()
+			}
+		}
+	}
+}
+
 // runCase is the simple single-payload form of runCaseSteps.
 func (h *shellE2EHarness) runCase(
 	payload []byte,
@@ -501,6 +572,23 @@ func appendStepRepeat(steps [][]byte, payload []byte, count int) [][]byte {
 // bracketedPaste wraps text in terminal bracketed-paste delimiters.
 func bracketedPaste(text string) []byte {
 	return []byte("\x1b[200~" + text + "\x1b[201~")
+}
+
+func TestPTYShellStartupSuppressesPS1SetupEcho(t *testing.T) {
+	h := startShellE2E(t)
+	defer h.close()
+
+	clean := sanitizeTTYString(h.startupOutput)
+	if strings.Contains(clean, "PS1=$") {
+		t.Fatalf("startup output leaked PS1 setup command: %.400q", clean)
+	}
+	if strings.Contains(clean, "__BF_E2E_READY__PS1=") {
+		t.Fatalf("startup output glued readiness and PS1 setup output: %.400q", clean)
+	}
+	initial := sanitizeTTYString(h.initialOutput)
+	if !strings.Contains(initial, EMOJI_DEFAULT) {
+		t.Fatalf("startup did not print an initial Butterfish prompt before input: %.400q", initial)
+	}
 }
 
 // Basic prompt-local burst path: uppercase starts prompt mode and should still

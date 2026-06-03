@@ -623,6 +623,20 @@ func (this *ShellState) activeFunctionPromptThreshold() int {
 	return 2
 }
 
+func (this *ShellState) breakParentLineBeforeShellCall(output *util.CompletionResponse) {
+	if output == nil || len(output.ShellCalls) == 0 || output.Completion == "" || strings.HasSuffix(output.Completion, "\n") {
+		return
+	}
+
+	writer := this.PromptAgentAnswerWriter
+	if writer == nil {
+		writer = this.ParentOut
+	}
+	if writer != nil {
+		fmt.Fprint(writer, "\n")
+	}
+}
+
 func (this *ShellState) promptColorForString(prompt string) string {
 	switch {
 	case strings.HasPrefix(prompt, "@@"):
@@ -847,24 +861,37 @@ func (this *ShellState) flushTUITailToHistory() {
 	this.History.Append(historyTypeShellOutput, text)
 }
 
-func clearByteChan(r <-chan *byteMsg, timeout time.Duration) {
-	// then wait for timeout
-	target := 2
-	seen := 0
+func startupPromptFromShellOutput(data []byte, regex *regexp.Regexp, currIcon string) string {
+	text := string(data)
+	suffix := strings.LastIndex(text, PROMPT_SUFFIX)
+	if suffix < 0 {
+		return ""
+	}
 
+	start := strings.LastIndexAny(text[:suffix], "\r\n")
+	if start >= 0 {
+		text = text[start+1:]
+	}
+	_, _, cleaned := ParsePS1(text, regex, currIcon)
+	return cleaned
+}
+
+func clearStartupShellOutput(r <-chan *byteMsg, timeout time.Duration, regex *regexp.Regexp, currIcon string) (string, bool) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	var output bytes.Buffer
 	for {
 		select {
-		case <-time.After(timeout):
-			return
-		case msg := <-r:
-			// if msg.Data includes \n we break
-			if bytes.Contains(msg.Data, []byte("\n")) {
-				seen++
-				if seen >= target {
-					return
-				}
+		case <-timer.C:
+			return "", false
+		case msg, ok := <-r:
+			if !ok || msg == nil {
+				return "", false
 			}
-			continue
+			output.Write(msg.Data)
+			if bytes.Contains(output.Bytes(), []byte(PROMPT_SUFFIX)) {
+				return startupPromptFromShellOutput(output.Bytes(), regex, currIcon), true
+			}
 		}
 	}
 }
@@ -1145,8 +1172,19 @@ func (this *ButterfishCtx) ShellMultiplexer(
 	go readerToChannel(childOut, childOutReader)
 	go readerToChannelWithPosition(parentIn, parentInReader, parentPositionChan)
 
-	// clear out any existing output to hide the PS1 export stuff
-	clearByteChan(childOutReader, 1000*time.Millisecond)
+	// Clear startup output through the first Butterfish prompt. Waiting for the
+	// prompt marker is more reliable than counting newlines because shells can
+	// emit initial prompts, command echoes, and rc-file output in different chunks.
+	startupRegex := ps1FullRegex
+	startupIcon := EMOJI_DEFAULT
+	if this.Config.ShellLeavePromptAlone {
+		startupRegex = ps1Regex
+		startupIcon = ""
+	}
+	startupPrompt, sawStartupPrompt := clearStartupShellOutput(childOutReader, 2*time.Second, startupRegex, startupIcon)
+	if sawStartupPrompt && startupPrompt != "" {
+		_, _ = parentOut.Write([]byte(startupPrompt))
+	}
 
 	// start
 	shellState.Mux()
@@ -2147,6 +2185,7 @@ func (this *ShellState) AgentModeFunction(output *util.CompletionResponse) {
 			return
 		}
 
+		this.breakParentLineBeforeShellCall(output)
 		log.Printf("Agent mode shell_call: %v", call.Commands)
 		command := strings.Join(call.Commands, "\n")
 		this.writeChild([]byte(command + "\n"))

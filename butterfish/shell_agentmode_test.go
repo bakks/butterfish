@@ -374,6 +374,162 @@ func TestAgentModeNativeShellCallSkipsPrePromptAndCompletesAfterOnePrompt(t *tes
 	}
 }
 
+func TestAgentModeNativeShellCallBreaksParentLineAfterAssistantText(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:                 childIn,
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+	}
+
+	resp := &util.CompletionResponse{
+		Completion: "checking artifact",
+		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"pwd"}}},
+	}
+
+	state.AgentModeFunction(resp)
+
+	if got := promptOut.String(); got != "\n" {
+		t.Fatalf("expected parent line break before shell echo, got %q", got)
+	}
+	if got := childIn.String(); got != "pwd\n" {
+		t.Fatalf("unexpected command write: %q", got)
+	}
+}
+
+func TestAgentModeNativeShellCallDoesNotAddParentLineAfterNewlineText(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:                 childIn,
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+	}
+
+	resp := &util.CompletionResponse{
+		Completion: "checking artifact\n",
+		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"pwd"}}},
+	}
+
+	state.AgentModeFunction(resp)
+
+	if got := promptOut.String(); got != "" {
+		t.Fatalf("did not expect parent line break, got %q", got)
+	}
+	if got := childIn.String(); got != "pwd\n" {
+		t.Fatalf("unexpected command write: %q", got)
+	}
+}
+
+func TestAgentModeNativeShellCallDoesNotAddParentLineWithoutAssistantText(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:                 childIn,
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+	}
+
+	resp := &util.CompletionResponse{
+		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"pwd"}}},
+	}
+
+	state.AgentModeFunction(resp)
+
+	if got := promptOut.String(); got != "" {
+		t.Fatalf("did not expect parent line break without assistant text, got %q", got)
+	}
+	if got := childIn.String(); got != "pwd\n" {
+		t.Fatalf("unexpected command write: %q", got)
+	}
+}
+
+func TestAgentModeNativeShellCallBreaksParentLineWithoutChangingChildInput(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:                 childIn,
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+	}
+
+	resp := &util.CompletionResponse{
+		Completion: "checking artifact",
+		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"echo one", "echo two"}}},
+	}
+
+	state.AgentModeFunction(resp)
+
+	if got := promptOut.String(); got != "\n" {
+		t.Fatalf("expected parent line break before shell echo, got %q", got)
+	}
+	if got := childIn.String(); got != "echo one\necho two\n" {
+		t.Fatalf("expected no extra child pre-prompt newline, got %q", got)
+	}
+}
+
+func TestAgentModeNativeShellCallBreakUsesParentOutFallback(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	parentOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish: &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:    childIn,
+		ParentOut:  parentOut,
+		History:    NewShellHistory(),
+	}
+
+	resp := &util.CompletionResponse{
+		Completion: "checking artifact",
+		ShellCalls: []*util.ShellCall{{CallID: "call_1", Commands: []string{"pwd"}}},
+	}
+
+	state.AgentModeFunction(resp)
+
+	if got := parentOut.String(); got != "\n" {
+		t.Fatalf("expected parent fallback line break, got %q", got)
+	}
+	if got := childIn.String(); got != "pwd\n" {
+		t.Fatalf("unexpected command write: %q", got)
+	}
+}
+
+func TestAgentModeLegacyCommandDoesNotUseShellCallLineBreak(t *testing.T) {
+	childIn := &bytes.Buffer{}
+	promptOut := &bytes.Buffer{}
+	state := &ShellState{
+		Butterfish:              &ButterfishCtx{Config: &ButterfishConfig{}},
+		ChildIn:                 childIn,
+		PromptAgentAnswerWriter: promptOut,
+		PromptAnswerWriter:      promptOut,
+		History:                 NewShellHistory(),
+	}
+
+	resp := &util.CompletionResponse{
+		Completion:         "checking artifact",
+		FunctionName:       "command",
+		FunctionParameters: `{"cmd":"pwd"}`,
+		ToolCalls:          []*util.ToolCall{{Id: "call_1"}},
+	}
+
+	state.AgentModeFunction(resp)
+
+	if got := promptOut.String(); got != "" {
+		t.Fatalf("did not expect shell_call parent line break for legacy command, got %q", got)
+	}
+	if got := childIn.String(); got != "pwd" {
+		t.Fatalf("expected safe legacy command to be staged without newline, got %q", got)
+	}
+}
+
 func TestAgentModeLegacyCommandKeepsPrePromptAndTwoPromptCompletion(t *testing.T) {
 	state := &ShellState{
 		SpecialMode:     true,
