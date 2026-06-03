@@ -1955,6 +1955,7 @@ func (this *ShellState) PrintStatus() {
 	}
 	text += fmt.Sprintf("Autosuggest:           %t\n", this.Butterfish.Config.ShellAutosuggestEnabled)
 	text += fmt.Sprintf("Autosuggest model:     %s\n", this.Butterfish.Config.ShellAutosuggestModel)
+	text += fmt.Sprintf("Autosuggest reasoning: %s\n", DefaultAutosuggestReasoningEffort)
 	text += fmt.Sprintf("Autosuggest timeout:   %s\n", this.Butterfish.Config.ShellAutosuggestTimeout)
 	text += fmt.Sprintf("Autosuggest history:   %d tokens\n", this.AutosuggestMaxTokens)
 	fmt.Fprintf(this.PromptAnswerWriter, "%s%s%s", this.Color.Answer, text, this.Color.Command)
@@ -3210,12 +3211,13 @@ func RequestCancelableAutosuggest(
 	}
 
 	request := &util.CompletionRequest{
-		Ctx:         ctx,
-		Prompt:      prmpt,
-		Model:       model,
-		MaxTokens:   reserveForAnswer,
-		ServiceTier: strings.TrimSpace(serviceTier),
-		Verbose:     verbose,
+		Ctx:             ctx,
+		Prompt:          prmpt,
+		Model:           model,
+		MaxTokens:       reserveForAnswer,
+		ReasoningEffort: DefaultAutosuggestReasoningEffort,
+		ServiceTier:     strings.TrimSpace(serviceTier),
+		Verbose:         verbose,
 	}
 
 	response, err := llmClient.Completion(request)

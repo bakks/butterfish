@@ -188,21 +188,24 @@ var GruvboxLight = ColorScheme{
 
 const BestCompletionModel = "gpt-5.5"
 const DefaultReasoningEffort = "high"
+const DefaultAutosuggestModel = "gpt-5.4-mini"
+const DefaultAutosuggestReasoningEffort = "none"
 const DefaultServiceTier = "priority"
 
 func MakeButterfishConfig() *ButterfishConfig {
 	colorScheme := &GruvboxDark
 
 	return &ButterfishConfig{
-		Verbose:              0,
-		ColorScheme:          colorScheme,
-		Styles:               ColorSchemeToStyles(colorScheme),
-		ServiceTier:          DefaultServiceTier,
-		ShellReasoningEffort: DefaultReasoningEffort,
-		GencmdModel:          BestCompletionModel,
-		GencmdMaxTokens:      512,
-		ExeccheckModel:       BestCompletionModel,
-		ExeccheckMaxTokens:   512,
+		Verbose:               0,
+		ColorScheme:           colorScheme,
+		Styles:                ColorSchemeToStyles(colorScheme),
+		ServiceTier:           DefaultServiceTier,
+		ShellReasoningEffort:  DefaultReasoningEffort,
+		ShellAutosuggestModel: DefaultAutosuggestModel,
+		GencmdModel:           BestCompletionModel,
+		GencmdMaxTokens:       512,
+		ExeccheckModel:        BestCompletionModel,
+		ExeccheckMaxTokens:    512,
 	}
 }
 

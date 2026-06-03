@@ -74,8 +74,8 @@ func TestRequestCancelableAutosuggestUsesResponseTokenReserve(t *testing.T) {
 		"git",
 		"complete {command} using {history}",
 		llm,
-		"gpt-5.5",
-		"",
+		DefaultAutosuggestModel,
+		DefaultServiceTier,
 		false,
 		NewShellHistory(),
 		1024,
@@ -88,6 +88,15 @@ func TestRequestCancelableAutosuggestUsesResponseTokenReserve(t *testing.T) {
 	}
 	if got := llm.completionRequests[0].MaxTokens; got != autosuggestResponseTokenReserve {
 		t.Fatalf("expected autosuggest max tokens %d, got %d", autosuggestResponseTokenReserve, got)
+	}
+	if got := llm.completionRequests[0].Model; got != DefaultAutosuggestModel {
+		t.Fatalf("expected autosuggest model %q, got %q", DefaultAutosuggestModel, got)
+	}
+	if got := llm.completionRequests[0].ReasoningEffort; got != DefaultAutosuggestReasoningEffort {
+		t.Fatalf("expected autosuggest reasoning effort %q, got %q", DefaultAutosuggestReasoningEffort, got)
+	}
+	if got := llm.completionRequests[0].ServiceTier; got != DefaultServiceTier {
+		t.Fatalf("expected autosuggest service tier %q, got %q", DefaultServiceTier, got)
 	}
 }
 
